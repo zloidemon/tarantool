@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8' />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="description" content="Tarantool/Box : a transactional NoSQL database" />
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>Tarantool/Box</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/mailru/tarantool">View on GitHub</a>
+
+          <h1 id="project_title">Tarantool/Box</h1>
+          <h2 id="project_tagline">a transactional NoSQL database</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/mailru/tarantool/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/mailru/tarantool/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <p>TARANTOOL/BOX, <a href="http://tarantool.org">http://tarantool.org</a></p>
+
+<p>Tarantool is a framework for in-memory key/value storage and
+Box is a yet another in-memory key-value database.</p>
+
+<p>Key features of the pair include:</p>
+
+<ul>
+<li>log streaming replication</li>
+<li>hot standby</li>
+<li>a simple binary protocol, as well as emulation of memcached
+protocol</li>
+<li>extensibility and speed</li>
+</ul><p>Caveats:</p>
+
+<ul>
+<li>supported platforms are Linux/x86 and FreeBSD/x86</li>
+<li>supported compilers are clang and gcc.</li>
+</ul><p>COMPILATION AND INSTALL</p>
+
+<p>Tarantool is written in C and Objective C.
+To build, you will need GCC Objective C frontend
+(gcc-objc package on most systems) or Apple CLang compiler.</p>
+
+<p>CMake is used for configuration management.
+3 standard CMake build types are supported:</p>
+
+<ul>
+<li>Debug -- used by project maintainers</li>
+<li>RelWithDebugInfo -- the most common release configuration,
+also provides debugging capabilities</li>
+<li>Release -- use only if the highest performance is required</li>
+</ul><p>The only external library dependency is readline: libreadline-dev
+is required to build the command line client.</p>
+
+<p>There are two OPTIONAL dependencies: </p>
+
+<ul>
+<li>uuid-dev. It is required for box.uuid_* functions.</li>
+<li>GNU bfd (part of GNU binutils). It's used to print 
+a stack trace after a crash.</li>
+</ul><p>Please follow these steps to compile Tarantool:</p>
+
+<p>tarantool $ cmake .
+tarantool $ make</p>
+
+<p>To use a different release type, say, RelWithDebugInfo, use:</p>
+
+<p>tarantool $ cmake . -DCMAKE_BUILD_TYPE=RelWithDebugInfo</p>
+
+<p>Additional build options can be set similarly:</p>
+
+<p>tarantool $ cmake . -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DENABLE_CLIENT=true</p>
+
+<p>-- builds the command line client.</p>
+
+<p>'make' creates tarantool_box executable in directory
+src/box and tarantool executable in client/tarantool.</p>
+
+<p>There is no 'make install' goal, but no installation
+is required either.
+Tarantool regression testing framework (test/test-run.py) is the
+simplest way to setup and start the server, but it requires a few
+additional Python modules:</p>
+
+<ul>
+<li>daemon</li>
+<li>pyyaml</li>
+<li>pexpect.</li>
+</ul><p>Once all pre-requisites are installed, try:</p>
+
+<p>tarantool $ cd test &amp;&amp; ./test-run.py --suite box --start-and-exit</p>
+
+<p>This will create a 'var' subdirectory in directory 'test',
+populate it with necessary files, and
+start the server. To connect, you could use
+a simplistic command-line client:</p>
+
+<p>tarantool $ ./test/tarantool</p>
+
+<p>Alternatively, if a customized server configuration is required,
+you could follow these steps:</p>
+
+<p>tarantool $ emacs cfg/tarantool_box_cfg.cfg # edit the configuration</p>
+
+<h1>Initialize the storage directory, path to this directory</h1>
+
+<h1>is specified in the configuration file:</h1>
+
+<p>tarantool $ src/box/tarantool_box --config cfg/tarantool_box_cfg.cfg --init-storage</p>
+
+<h1>run</h1>
+
+<p>tarantool $ src/box/tarantool_box --config cfg/tarantool_box_cfg.cfg</p>
+
+<p>Please report bugs at <a href="http://bugs.launchpad.net/tarantool">http://bugs.launchpad.net/tarantool</a>.
+We also warmly welcome your feedback in the discussion mailing
+list, <a href="mailto:tarantool-developers@lists.launchpad.net">tarantool-developers@lists.launchpad.net</a>, however, please be
+warned: Launchpad silently deletes posts from non-subscribed
+members, thus please be sure to have subscribed to the list prior
+to posting.</p>
+
+<p>Thank you for your interest in Tarantool!</p>
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">Tarantool/Box maintained by <a href="https://github.com/mailru">mailru</a></p>
+        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+              <script type="text/javascript">
+            var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+            document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+          </script>
+          <script type="text/javascript">
+            try {
+              var pageTracker = _gat._getTracker("UA-22120502-1");
+            pageTracker._trackPageview();
+            } catch(err) {}
+          </script>
+
+
+  </body>
+</html>
