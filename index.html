@@ -107,24 +107,23 @@ additional Python modules:</p>
 <p>This will create a 'var' subdirectory in directory 'test',
 populate it with necessary files, and
 start the server. To connect, you could use
-a simplistic command-line client:</p>
+a simple command-line client:</p>
 
-<p>tarantool $ ./test/tarantool</p>
+<p>'''
+tarantool $ ./test/tarantool
+'''</p>
 
 <p>Alternatively, if a customized server configuration is required,
 you could follow these steps:</p>
 
-<p>tarantool $ emacs cfg/tarantool_box_cfg.cfg # edit the configuration</p>
-
-<h1>Initialize the storage directory, path to this directory</h1>
-
-<h1>is specified in the configuration file:</h1>
-
-<p>tarantool $ src/box/tarantool_box --config cfg/tarantool_box_cfg.cfg --init-storage</p>
-
-<h1>run</h1>
-
-<p>tarantool $ src/box/tarantool_box --config cfg/tarantool_box_cfg.cfg</p>
+<pre><code>tarantool $ emacs cfg/tarantool_box_cfg.cfg # edit the configuration
+# Initialize the storage directory, path to this directory
+# is specified in the configuration file:
+tarantool $ src/box/tarantool_box --config cfg/tarantool_box_cfg.cfg --init-storage
+#
+# run
+tarantool $ src/box/tarantool_box --config cfg/tarantool_box_cfg.cfg
+</code></pre>
 
 <p>Please report bugs at <a href="http://bugs.launchpad.net/tarantool">http://bugs.launchpad.net/tarantool</a>.
 We also warmly welcome your feedback in the discussion mailing
