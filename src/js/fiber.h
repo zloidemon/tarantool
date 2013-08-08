@@ -1,5 +1,6 @@
-#ifndef TARANTOOL_H_INCLUDED
-#define TARANTOOL_H_INCLUDED
+#ifndef TARANTOOL_JS_LIB_FIBER_H_INCLUDED
+#define TARANTOOL_JS_LIB_FIBER_H_INCLUDED
+
 /*
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -28,43 +29,16 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <stdbool.h>
-#include "tarantool/util.h"
 
-#if defined(__cplusplus)
-extern "C" {
-#endif /* defined(__cplusplus) */
+#include "js.h"
 
-struct tarantool_cfg;
-struct tbuf;
+namespace js {
+namespace fiber {
 
-extern int snapshot_pid;
-extern struct tarantool_cfg cfg;
-extern const char *cfg_filename;
-extern char *cfg_filename_fullpath;
-extern bool booting;
-extern char *binary_filename;
-extern char *custom_proc_title;
-#if defined(ENABLE_JS)
-extern struct tarantool_js *tarantool_js;
-#endif /* defined(ENABLE_JS) */
-int reload_cfg(struct tbuf *out);
-void show_cfg(struct tbuf *out);
-int snapshot(void);
-const char *tarantool_version(void);
-double tarantool_uptime(void);
-void tarantool_free(void);
+v8::Handle<v8::FunctionTemplate>
+constructor();
 
-char **init_set_proc_title(int argc, char **argv);
-void free_proc_title(int argc, char **argv);
-void set_proc_title(const char *format, ...);
-void title(const char *fmt, ...);
+} /* namespace fiber */
+} /* namespace js */
 
-#define DEFAULT_CFG_FILENAME "tarantool.cfg"
-#define DEFAULT_CFG SYSCONF_DIR "/" DEFAULT_CFG_FILENAME
-
-#if defined(__cplusplus)
-} /* extern "C" */
-#endif /* defined(__cplusplus) */
-
-#endif /* TARANTOOL_H_INCLUDED */
+#endif /* TARANTOOL_JS_LIB_FIBER_H_INCLUDED */

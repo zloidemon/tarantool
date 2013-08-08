@@ -74,6 +74,13 @@ public:
 };
 #endif /* defined(__cplusplus) */
 
+#if defined(ENABLE_JS)
+enum {
+	/* Number of pthread_keys used by v8 (see v8/src/isolate.cc) */
+	V8_TLS_SIZE = 3
+};
+#endif /* defined(ENABLE_JS) */
+
 struct fiber {
 #ifdef ENABLE_BACKTRACE
 	void *last_stack_frame;
@@ -94,7 +101,12 @@ struct fiber {
 	 * generated identifier of the session.
 	 */
 	uint32_t sid;
-
+#if defined(ENABLE_JS)
+	struct tarantool_js *js;
+	void *js_locker;
+	void *js_unlocker;
+	void *js_tls[V8_TLS_SIZE];
+#endif /* defined(ENABLE_JS) */
 	struct rlist link;
 	struct rlist state;
 
@@ -116,6 +128,16 @@ typedef void(*fiber_func)(va_list);
 struct fiber *fiber_new(const char *name, fiber_func f);
 void fiber_set_name(struct fiber *fiber, const char *name);
 int wait_for_child(pid_t pid);
+
+/**
+* @brief Return the current fiber
+* @return the current fiber
+*/
+inline struct fiber *
+fiber_self(void)
+{
+	return fiber;
+}
 
 static inline const char *
 fiber_name(struct fiber *f)

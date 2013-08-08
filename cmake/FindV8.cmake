@@ -1,0 +1,17 @@
+find_path(LIBV8_INCLUDE_DIR NAMES v8.h)
+find_library(LIBV8_LIBRARIES NAMES v8)
+
+if(LIBV8_INCLUDE_DIR AND LIBV8_LIBRARIES)
+    set(LIBV8_FOUND ON)
+endif(LIBV8_INCLUDE_DIR AND LIBV8_LIBRARIES)
+
+if(LIBV8_FOUND)
+    if (NOT LIBV8_FIND_QUIETLY)
+        message(STATUS "Found libv8 includes: ${LIBV8_INCLUDE_DIR}/v8.h")
+        message(STATUS "Found libv8 library: ${LIBV8_LIBRARIES}")
+    endif (NOT LIBV8_FIND_QUIETLY)
+else(LIBV8_FOUND)
+    if (LIBV8_FIND_REQUIRED)
+        message(FATAL_ERROR "Could not find libv8 development files")
+    endif (LIBV8_FIND_REQUIRED)
+endif (LIBV8_FOUND)

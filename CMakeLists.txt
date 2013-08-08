@@ -311,6 +311,16 @@ include(BuildMisc)
 libmisc_build()
 add_dependencies(build_bundled_libs misc)
 
+#
+# LibV8
+#
+option(ENABLE_JS "Enable JavaScript support" OFF)
+
+set(LIBV8_FIND_REQUIRED ON)
+find_package(V8)
+
+include_directories(${LIBV8_INCLUDE_DIR})
+
 option(ENABLE_RPM "Enable install of a RPM specific files" OFF)
 
 # cpack config. called package.cmake to avoid
@@ -384,6 +394,7 @@ message (STATUS "ENABLE_GPROF: ${ENABLE_GPROF}")
 message (STATUS "ENABLE_TRACE: ${ENABLE_TRACE}")
 message (STATUS "ENABLE_BACKTRACE: ${ENABLE_BACKTRACE} (symbol resolve: ${HAVE_BFD})")
 message (STATUS "ENABLE_CLIENT: ${ENABLE_CLIENT}")
+message (STATUS "ENABLE_JS: ${ENABLE_JS}")
 message (STATUS "ENABLE_BUNDLED_LUAJIT: ${ENABLE_BUNDLED_LUAJIT}")
 message (STATUS "ENABLE_BUNDLED_LIBEV: ${ENABLE_BUNDLED_LIBEV}")
 message (STATUS "ENABLE_BUNDLED_LIBEIO: ${ENABLE_BUNDLED_LIBEIO}")

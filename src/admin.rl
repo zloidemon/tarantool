@@ -38,11 +38,15 @@
 #include <say.h>
 #include <stat.h>
 #include <tarantool.h>
+#if defined(ENABLE_JS)
+#include "js/init.h"
+#endif /* defined(ENABLE_JS) */
 #include "lua/init.h"
 #include <recovery.h>
 #include <tbuf.h>
 #include "tarantool/util.h"
 #include <errinj.h>
+#include <coio.h>
 #include "coio_buf.h"
 
 extern "C" {
@@ -69,6 +73,7 @@ static const char *help =
 	" - show plugins" CRLF
 	" - save coredump" CRLF
 	" - save snapshot" CRLF
+	" - js command" CRLF
 	" - lua command" CRLF
 	" - reload configuration" CRLF
 	" - show injections (debug mode only)" CRLF
@@ -238,6 +243,27 @@ admin_dispatch(struct ev_io *coio, struct iobuf *iobuf, lua_State *L)
 			end(out);
 		}
 
+		action js {
+			strstart[strend-strstart]='\0';
+			start(out);
+			try {
+#if defined(ENABLE_JS)
+				fiber_enable_js(tarantool_js);
+				tarantool_js_eval(out,
+						  strstart, strlen(strstart),
+						  fiber_name(fiber));
+#else
+				tnt_raise(ClientError, ER_UNSUPPORTED,
+					  "The build", "js");
+#endif /* defined(ENABLE_JS) */
+			} catch(const Exception& e) {
+				e.log();
+				tbuf_printf(out, "%s\n", e.errmsg());
+			}
+
+			end(out);
+		}
+
 		action lua {
 			strstart[strend-strstart]='\0';
 			start(out);
@@ -295,6 +321,7 @@ admin_dispatch(struct ev_io *coio, struct iobuf *iobuf, lua_State *L)
 		string = [^\r\n]+ >{strstart = p;}  %{strend = p;};
 		reload = "re"("l"("o"("a"("d")?)?)?)?;
 		lua = "lu"("a")?;
+		js = "j"("s")?;
 
 		set = "se"("t")?;
 		injection = "in"("j"("e"("c"("t"("i"("o"("n")?)?)?)?)?)?)?;
@@ -306,7 +333,10 @@ admin_dispatch(struct ev_io *coio, struct iobuf *iobuf, lua_State *L)
 		state = state_on | state_off;
 
 		commands = (help			%help						|
-			    exit			%{return -1;}					|
+			    exit			%{return -1;}
+|
+			    js  " "+ string		%js
+|
 			    lua  " "+ string		%lua						|
 			    show " "+ info		%{start(out); tarantool_info(out); end(out);}	|
 			    show " "+ fiber		%{start(out); fiber_info(out); end(out);}	|

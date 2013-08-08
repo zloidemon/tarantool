@@ -162,6 +162,7 @@ void symbols_load(const char *name);
 void symbols_free();
 #endif /* HAVE_BFD */
 
+#if !defined(assert)
 #ifdef NDEBUG
 #  define assert(pred) (void)(0)
 #else
@@ -169,6 +170,7 @@ void symbols_free();
 void assert_fail(const char *assertion, const char *file,
 		 unsigned int line, const char *function) __attribute__ ((noreturn));
 #endif
+#endif /* defined(assert) */
 
 #ifndef HAVE_MEMMEM
 /* Declare memmem(). */

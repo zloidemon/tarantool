@@ -89,6 +89,11 @@
 #cmakedefine HAVE_FFSLL 1
 
 /*
+ * Set if JS is enabled
+ */
+#cmakedefine ENABLE_JS 1
+
+/*
  * pthread have problems with -std=c99
  */
 #cmakedefine HAVE_NON_C99_PTHREAD_H 1

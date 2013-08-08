@@ -55,6 +55,15 @@ static __thread struct mh_i32ptr_t *fiber_registry;
 static __thread struct rlist fibers, zombie_fibers, ready_fibers;
 static __thread ev_async ready_async;
 
+#if defined(ENABLE_JS)
+void
+tarantool_js_fiber_on_stop(void);
+
+void
+tarantool_js_fiber_on_resume(void);
+
+#endif /* defined(ENABLE_JS) */
+
 static void
 update_last_stack_frame(struct fiber *fiber)
 {
@@ -65,9 +74,50 @@ update_last_stack_frame(struct fiber *fiber)
 #endif /* ENABLE_BACKTRACE */
 }
 
+static void
+fiber_on_resume(void)
+{
+#if defined(ENABLE_JS)
+	void
+	tarantool_js_fiber_on_resume(void);
+
+	if (fiber->js != NULL) {
+		tarantool_js_fiber_on_resume();
+	}
+#endif /* defined(ENABLE_JS) */
+}
+
+static void
+fiber_on_pause(void)
+{
+#if defined(ENABLE_JS)
+	void
+	tarantool_js_fiber_on_pause(void);
+
+	if (fiber->js != NULL) {
+		tarantool_js_fiber_on_pause();
+	}
+#endif /* defined(ENABLE_JS) */
+}
+
+static void
+fiber_on_stop(void)
+{
+#if defined(ENABLE_JS)
+	void
+	tarantool_js_fiber_on_stop(void);
+
+	if (fiber->js != NULL) {
+		tarantool_js_fiber_on_stop();
+	}
+#endif /* defined(ENABLE_JS) */
+}
+
 void
 fiber_call(struct fiber *callee, ...)
 {
+	fiber_on_pause();
+
 	struct fiber *caller = fiber;
 
 	assert(sp + 1 - call_stack < FIBER_CALL_STACK);
@@ -85,6 +135,8 @@ fiber_call(struct fiber *callee, ...)
 	va_start(fiber->f_data, callee);
 	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
 	va_end(fiber->f_data);
+
+	fiber_on_resume();
 }
 
 void
@@ -208,6 +260,11 @@ fiber_setcancellable(bool enable)
 void
 fiber_yield(void)
 {
+	if (fiber->fid != 0) {
+		/* Do not call the hook for zombies */
+		fiber_on_pause();
+	}
+
 	struct fiber *callee = *(--sp);
 	struct fiber *caller = fiber;
 
@@ -216,6 +273,8 @@ fiber_yield(void)
 
 	callee->csw++;
 	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
+
+	fiber_on_resume();
 }
 
 
@@ -395,6 +454,9 @@ fiber_loop(void *data __attribute__((unused)))
 				fiber_name(fiber));
 			panic("fiber `%s': exiting", fiber_name(fiber));
 		}
+		fiber_on_pause();
+		fiber_on_stop();
+
 		fiber_zombificate();
 		fiber_yield();	/* give control back to scheduler */
 	}
@@ -443,7 +505,12 @@ fiber_new(const char *name, void (*f) (va_list))
 		rlist_add_entry(&fibers, fiber, link);
 		rlist_create(&fiber->state);
 	}
-
+#if defined(ENABLE_JS)
+	memset(fiber->js_tls, 0, sizeof(fiber->js_tls));
+	fiber->js = NULL;
+	fiber->js_locker = NULL;
+	fiber->js_unlocker = NULL;
+#endif /* defined(ENABLE_JS) */
 
 	fiber->f = f;
 

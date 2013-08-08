@@ -177,6 +177,11 @@ add_subdirectory(lib)
 set(TARANTOOL_C_FLAGS ${CMAKE_C_FLAGS} PARENT_SCOPE)
 set(TARANTOOL_CXX_FLAGS ${CMAKE_CXX_FLAGS} PARENT_SCOPE)
 
+if (ENABLE_JS)
+    add_subdirectory(js)
+    list(APPEND common_libraries tarantool_js)
+endif()
+
 function(tarantool_module mod)
     set (module_sources ${ARGN})
     set(cfg_c_flags "-Wno-unused -Wno-unused-parameter")

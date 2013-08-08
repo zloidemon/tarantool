@@ -71,6 +71,10 @@ extern "C" {
 #include "box/box.h"
 #include "scoped_guard.h"
 
+#if defined(ENABLE_JS)
+#include "js/init.h"
+struct tarantool_js *tarantool_js = NULL;
+#endif /* defined(ENABLE_JS) */
 
 static pid_t master_pid;
 const char *cfg_filename = NULL;
@@ -280,6 +284,9 @@ reload_cfg(struct tbuf *out)
 	/* All OK, activate the config. */
 	swap_tarantool_cfg(&cfg, &new_cfg);
 	tarantool_lua_load_cfg(tarantool_L, &cfg);
+#if defined(ENABLE_JS)
+	tarantool_js_load_cfg(tarantool_js, &cfg);
+#endif /* defined(ENABLE_JS) */
 
 	return 0;
 }
@@ -850,10 +857,18 @@ main(int argc, char **argv)
 
 
 	try {
+#if defined(ENABLE_JS)
+		tarantool_js_init();
+		tarantool_js = tarantool_js_new();
+		atexit(tarantool_js_free);
+#endif /* defined(ENABLE_JS) */
 		tarantool_L = tarantool_lua_init();
 		box_init(false);
 		atexit(tarantool_lua_free);
 		memcached_init(cfg.bind_ipaddr, cfg.memcached_port);
+#if defined(ENABLE_JS)
+		tarantool_js_load_cfg(tarantool_js, &cfg);
+#endif /* defined(ENABLE_JS) */
 		tarantool_lua_load_cfg(tarantool_L, &cfg);
 		/*
 		 * init iproto before admin and after memcached:
@@ -875,6 +890,9 @@ main(int argc, char **argv)
 		 * is why script must run only after the server was fully
 		 * initialized.
 		 */
+#if defined(ENABLE_JS)
+		tarantool_js_init_library(tarantool_js);
+#endif /* defined(ENABLE_JS) */
 		tarantool_lua_load_init_script(tarantool_L);
 		prelease(fiber->gc_pool);
 		say_crit("log level %i", cfg.log_level);

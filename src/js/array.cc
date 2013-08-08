@@ -1,5 +1,3 @@
-#ifndef TARANTOOL_H_INCLUDED
-#define TARANTOOL_H_INCLUDED
 /*
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -28,43 +26,43 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <stdbool.h>
-#include "tarantool/util.h"
 
-#if defined(__cplusplus)
-extern "C" {
-#endif /* defined(__cplusplus) */
+#include "array.h"
 
-struct tarantool_cfg;
-struct tbuf;
+#include <string.h>
+#include <assert.h>
 
-extern int snapshot_pid;
-extern struct tarantool_cfg cfg;
-extern const char *cfg_filename;
-extern char *cfg_filename_fullpath;
-extern bool booting;
-extern char *binary_filename;
-extern char *custom_proc_title;
-#if defined(ENABLE_JS)
-extern struct tarantool_js *tarantool_js;
-#endif /* defined(ENABLE_JS) */
-int reload_cfg(struct tbuf *out);
-void show_cfg(struct tbuf *out);
-int snapshot(void);
-const char *tarantool_version(void);
-double tarantool_uptime(void);
-void tarantool_free(void);
+#define ASSERT assert
+#define V8_SHARED 1
+#pragma GCC visibility push(hidden)
+#include "third_party/js-lib/array.h"
+#include "third_party/js-lib/array.cc"
+#pragma GCC visibility pop
 
-char **init_set_proc_title(int argc, char **argv);
-void free_proc_title(int argc, char **argv);
-void set_proc_title(const char *format, ...);
-void title(const char *fmt, ...);
+namespace js {
+namespace array {
 
-#define DEFAULT_CFG_FILENAME "tarantool.cfg"
-#define DEFAULT_CFG SYSCONF_DIR "/" DEFAULT_CFG_FILENAME
+static v8::Handle<v8::Value>
+call_cb(const v8::Arguments& args)
+{
+	(void) args;
 
-#if defined(__cplusplus)
-} /* extern "C" */
-#endif /* defined(__cplusplus) */
+	return v8::Local<v8::Value>();
+}
 
-#endif /* TARANTOOL_H_INCLUDED */
+v8::Handle<v8::FunctionTemplate>
+constructor()
+{
+	/* A new handle scope (again) */
+	v8::HandleScope handle_scope;
+
+	/* A new functional template to return */
+	v8::Local<v8::FunctionTemplate> tmpl =
+			v8::FunctionTemplate::New(call_cb);
+
+	v8::Shell::InitializeTemplate(tmpl);
+	return handle_scope.Close(tmpl);
+}
+
+} /* namespace stub */
+} /* namespace js */

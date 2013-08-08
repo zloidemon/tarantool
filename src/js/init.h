@@ -1,5 +1,5 @@
-#ifndef TARANTOOL_H_INCLUDED
-#define TARANTOOL_H_INCLUDED
+#ifndef TARANTOOL_JS_INIT_H_INCLUDED
+#define TARANTOOL_JS_INIT_H_INCLUDED
 /*
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -28,8 +28,15 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <stdbool.h>
-#include "tarantool/util.h"
+
+/**
+ * @file
+ * @brief Tarantool JS bridge
+ *
+ * Please do not include this file from lib/ folder
+ */
+
+#include <stddef.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -37,34 +44,51 @@ extern "C" {
 
 struct tarantool_cfg;
 struct tbuf;
+struct fiber;
 
-extern int snapshot_pid;
-extern struct tarantool_cfg cfg;
-extern const char *cfg_filename;
-extern char *cfg_filename_fullpath;
-extern bool booting;
-extern char *binary_filename;
-extern char *custom_proc_title;
-#if defined(ENABLE_JS)
-extern struct tarantool_js *tarantool_js;
-#endif /* defined(ENABLE_JS) */
-int reload_cfg(struct tbuf *out);
-void show_cfg(struct tbuf *out);
-int snapshot(void);
-const char *tarantool_version(void);
-double tarantool_uptime(void);
-void tarantool_free(void);
+void
+tarantool_js_init();
 
-char **init_set_proc_title(int argc, char **argv);
-void free_proc_title(int argc, char **argv);
-void set_proc_title(const char *format, ...);
-void title(const char *fmt, ...);
+void
+tarantool_js_free();
 
-#define DEFAULT_CFG_FILENAME "tarantool.cfg"
-#define DEFAULT_CFG SYSCONF_DIR "/" DEFAULT_CFG_FILENAME
+/**
+ * Create an instance of JS interpreter and load it with Tarantool modules.
+ * @retval new JS instance on success
+ * @retval NULL on memory error
+ */
+struct tarantool_js *
+tarantool_js_new(void);
+
+void
+tarantool_js_delete(struct tarantool_js *js);
+
+/**
+ * @brief Performs lazy initialization of JS engine on the current running fiber
+ * @param js
+ */
+void
+fiber_enable_js(struct tarantool_js *js);
+
+/**
+ * @brief Make a new configuration available in JS
+ */
+void
+tarantool_js_load_cfg(struct tarantool_js *js,
+		      struct tarantool_cfg *cfg);
+
+/**
+ * Initialize built-in JS library and load start-up module
+ */
+void
+tarantool_js_init_library(struct tarantool_js *js);
+
+void
+tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
+		  const char *source_origin);
 
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */
 
-#endif /* TARANTOOL_H_INCLUDED */
+#endif /* TARANTOOL_JS_INIT_H_INCLUDED */

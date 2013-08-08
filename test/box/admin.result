@@ -23,6 +23,7 @@ available commands:
  - show plugins
  - save coredump
  - save snapshot
+ - js command
  - lua command
  - reload configuration
  - show injections (debug mode only)
