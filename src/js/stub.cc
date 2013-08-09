@@ -53,20 +53,19 @@ struct stub {
  * @param value v8 handle
  * @param data is your native object
  */
-static void
-stub_js_gc(v8::Persistent<v8::Value> value, void *data)
+static void stub_js_gc(v8::Isolate* isolate,
+		       v8::Persistent<v8::Object>* value, struct stub *obj)
 {
+	say_warn("stub gc: %p", obj);
+	(void) isolate;
 	/*
 	 * Check that v8 GC is not joking and handle is really going to
 	 * be destroyed. Please check just to be sure.
 	 */
-	assert(value.IsNearDeath());
+	assert(value->IsNearDeath());
 	/* Destroy v8 handle */
-	value.Dispose();
-	value.Clear();
-
-	/* Cast 'void *' to our native object */
-	struct stub *obj = static_cast<struct stub *>(data);
+	value->Dispose();
+	value->Clear();
 
 	/* Hint v8 GC that actually sizeof(*obj) of memory is freeing */
 	v8::V8::AdjustAmountOfExternalAllocatedMemory(-(intptr_t) sizeof(*obj));
@@ -79,29 +78,33 @@ stub_js_gc(v8::Persistent<v8::Value> value, void *data)
 static v8::Handle<v8::Value>
 ctor(v8::Handle<v8::Object> thiz)
 {
+	v8::Isolate *isolate = v8::Isolate::GetCurrent();
 	/* A handle scope. All v8::Local will die on the destructor call */
 	v8::HandleScope handle_scope;
-
-	/* Create a new v8 handle */
-	v8::Persistent<v8::Object> handle =
-		v8::Persistent<v8::Object>::New(thiz);
 
 	/* Create a new native object */
 	struct stub *stub = new struct stub;
 	/* Initialize the object */
 	stub->test = 0;
 
+	say_warn("new: %p", stub);
+
 	/* Set newly create userdata */
-	userdata_set(handle, stub);
+	userdata_set(thiz, stub);
 
 	/* Hint v8 GC about the fact that a litle bit more memory is used. */
-	v8::V8::AdjustAmountOfExternalAllocatedMemory(+sizeof(*stub));
+	v8::V8::AdjustAmountOfExternalAllocatedMemory(+1000* sizeof(*stub));
+
+	/* Create a new v8 handle */
+	v8::Persistent<v8::Object> handle(isolate, thiz);
 
 	/* Set v8 GC callback */
 	handle.MakeWeak(stub, stub_js_gc);
+	handle.MarkIndependent();
+
 
 	/* Return the new handle to the user */
-	return handle_scope.Close(handle);
+	return handle_scope.Close(thiz);
 }
 
 /**
@@ -111,17 +114,20 @@ ctor(v8::Handle<v8::Object> thiz)
  * @param args
  * @return
  */
-static v8::Handle<v8::Value>
-call_cb(const v8::Arguments& args)
+static void
+call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	/* If it is a contructor call then construct a new object */
 	if (args.IsConstructCall()) {
 		/* Parse arguments and call the constructor */
-		return ctor(args.This());  /* args.This() here! */
+		/* args.This() here! */
+		v8::Handle<v8::Value> ret = ctor(args.This());
+		args.GetReturnValue().Set(ret);
+		return;
 	}
 
 	/* Otherwise return something else */
-	return v8::ThrowException(v8::Exception::Error(
+	v8::ThrowException(v8::Exception::Error(
 		v8::String::New("Use the 'new', Luke!")));
 }
 
@@ -151,26 +157,29 @@ add(v8::Handle<v8::Object> thiz, v8::Handle<v8::Integer> a)
 /**
  * @brief An attached callback example.
  */
-static v8::Handle<v8::Value>
-add_cb(const v8::Arguments& args)
+static void
+add_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope;
 
 	/* Check arguments */
 	if (args.Length() != 1 || !args[0]->IsInt32()) {
-		return v8::ThrowException(v8::Exception::Error(
-				v8::String::New("Invalid arguments")));
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Invalid arguments")));
+		return;
 	}
 
 	/* An additional check needed to check if method was
 	 * attached to another object */
 	if (args.This() != args.Holder()) {
-		return v8::ThrowException(v8::Exception::Error(
-				v8::String::New("Method is deattached")));
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Method is deattached")));
+		return;
 	}
 
 	/* Convert arguments and call the actual implementation */
-	return handle_scope.Close(add(args.This(), args[0].As<v8::Integer>()));
+	v8::Handle<v8::Value> ret = add(args.This(), args[0].As<v8::Integer>());
+	args.GetReturnValue().Set(ret);
 }
 
 /**

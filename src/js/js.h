@@ -62,9 +62,10 @@ userdata_init_template(v8::Handle<v8::FunctionTemplate> tmpl)
  * @brief Set \a userdata in object \a handle
  */
 template<typename T> void
-userdata_set(v8::Handle<v8::Object> handle, T userdata)
+userdata_set(v8::Local<v8::Object> handle, T userdata)
 {
 	/* Set the native object in the handle */
+	assert(handle->InternalFieldCount() > 0);
 	handle->SetInternalField(0, v8::External::New(userdata));
 }
 
@@ -72,7 +73,7 @@ userdata_set(v8::Handle<v8::Object> handle, T userdata)
  * @brief Get from object \a handle
  */
 template<typename T> T
-userdata_get(v8::Handle<v8::Object> handle)
+userdata_get(v8::Local<v8::Object> handle)
 {
 	/* Get the native object from the handle */
 	v8::HandleScope handle_scope;

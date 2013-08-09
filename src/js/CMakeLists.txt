@@ -1,8 +1,3 @@
-add_compile_flags("C;CXX"
-    "-Wno-error=unused-parameter"
-    "-Wno-error=deprecated-declarations"
-)
-
 ##
 ## Core JS Library
 ##
@@ -44,15 +39,6 @@ set_source_files_compile_flags(${js_fiber_sources})
 add_library(js_fiber STATIC ${js_fiber_sources})
 target_link_libraries(js_fiber js)
 
-# Mod Array
-set(js_array_sources
-    array.cc
-)
-
-set_source_files_compile_flags(${js_array_sources})
-add_library(js_array STATIC ${js_array_sources})
-target_link_libraries(js_array js)
-
 # Mod Stub
 set(js_stub_sources
     stub.cc
@@ -67,7 +53,6 @@ target_link_libraries(js
     js_platform
     js_require
     js_fiber
-    js_array
 )
 
 ##

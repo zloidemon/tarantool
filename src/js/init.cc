@@ -205,10 +205,46 @@ js_tls_hack_fiber_to_pthread(void)
 
 #endif /* defined(ENABLE_V8_HACK_LINK_TIME) */
 
+class ArrayBufferAllocator: public v8::ArrayBuffer::Allocator {
+public:
+	virtual void* Allocate(size_t length)
+	{
+		return calloc(1, length);
+	}
+
+	virtual void* AllocateUninitialized(size_t length)
+	{
+		return malloc(length);
+	}
+
+	virtual void Free(void* data, size_t)
+	{
+		free(data);
+	}
+};
+
+static ArrayBufferAllocator array_buffer_allocator;
+
+static inline void
+tarantool_js_set_v8_flag(const char *flag)
+{
+	v8::V8::SetFlagsFromString(flag, strlen(flag));
+}
+
 void
 tarantool_js_init()
 {
 	js_tls_hack_init();
+
+	v8::V8::InitializeICU();
+
+	/* Enable some cool extensions */
+	tarantool_js_set_v8_flag("--harmony");
+	tarantool_js_set_v8_flag("--harmony_typeof");
+	tarantool_js_set_v8_flag("--harmony_array_buffer");
+	tarantool_js_set_v8_flag("--harmony_typed_arrays");
+
+	v8::V8::SetArrayBufferAllocator(&array_buffer_allocator);
 
 	ev_idle_init(&idle_watcher, tarantool_js_idle);
 
@@ -227,19 +263,18 @@ tarantool_js_new()
 	assert(fiber->fid == 1);
 	struct tarantool_js *js = new struct tarantool_js;
 
-#if defined(JS_CUSTOM_ISOLATE)
-	/* An experimental support of working in non-default isolate. */
 	js->isolate = v8::Isolate::New();
 	assert(js->isolate != NULL);
 
 	v8::Locker locker(js->isolate);
 	v8::Isolate::Scope isolate_scope(js->isolate);
-#endif /* defined(JS_CUSTOM_ISOLATE) */
 
-	js->context = v8::Context::New();
+	v8::HandleScope handle_scope;
+	v8::Local<v8::Context> context = v8::Context::New(js->isolate);
+	js->context.Reset(js->isolate, context);
 	assert(!js->context.IsEmpty());
 
-	v8::Context::Scope context_scope(js->context);
+	v8::Context::Scope context_scope(context);
 
 	js->isolate = v8::Isolate::GetCurrent();
 
@@ -255,10 +290,7 @@ tarantool_js_delete(struct tarantool_js *js)
 		v8::Isolate::GetCurrent()->Exit();
 	}
 
-#if defined(JS_CUSTOM_ISOLATE)
 	js->isolate->Dispose();
-	delete js->global_locker;
-#endif /* defined(JS_CUSTOM_ISOLATE) */
 
 	delete js;
 }
@@ -273,6 +305,18 @@ tarantool_js_idle(EV_P_ struct ev_idle *w, int revents)
 	if (v8::V8::IdleNotification()) {
 		ev_idle_stop(EV_A_ &idle_watcher);
 	}
+}
+
+template <class TypeName>
+inline v8::Local<TypeName> PersistentToLocal(
+    v8::Isolate* isolate,
+    const v8::Persistent<TypeName>& persistent) {
+  if (persistent.IsWeak()) {
+    return v8::Local<TypeName>::New(isolate, persistent);
+  } else {
+    return *reinterpret_cast<v8::Local<TypeName>*>(
+	const_cast<v8::Persistent<TypeName>*>(&persistent));
+  }
 }
 
 static void
@@ -290,17 +334,17 @@ tarantool_js_fiber_on_start(void)
 	fiber->js_locker = locker;
 	say_debug("js create locker");
 
-#if 0
 	js->isolate->Enter();
-#endif
 
 	v8::ResourceConstraints constraints;
 	constraints.set_stack_limit((uint32_t *) fiber->coro.stack);
 	v8::SetResourceConstraints(&constraints);
 
-	js->context->Enter();
-
 	v8::HandleScope handle_scope;
+
+	v8::Local<v8::Context> context = v8::Local<v8::Context>::New(
+				js->isolate, js->context);
+	context->Enter();
 
 	/*
 	 * Workaround for v8 issue #1180
@@ -362,10 +406,7 @@ tarantool_js_fiber_on_stop(void)
 
 	say_debug("js fiber stop hook");
 
-	js->context->Exit();
-#if defined(JS_CUSTOM_ISOLATE)
 	js->isolate->Exit();
-#endif /* defined(JS_CUSTOM_ISOLATE) */
 
 	v8::Unlocker *unlocker = static_cast<v8::Unlocker *>
 			(fiber->js_unlocker);

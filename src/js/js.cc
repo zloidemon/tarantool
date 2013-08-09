@@ -35,7 +35,6 @@
 #include "platform.h"
 #include "stub.h"
 #include "fiber.h"
-#include "array.h"
 
 namespace js {
 
@@ -53,8 +52,6 @@ init_global(v8::Handle<v8::Object> global)
 			       js::stub::constructor()->GetFunction());
 	js::require::cache_put(require, v8::String::NewSymbol("fiber"),
 			       js::fiber::constructor()->GetFunction());
-	js::require::cache_put(require, v8::String::NewSymbol("array"),
-			       js::array::constructor()->GetFunction());
 	return v8::Handle<v8::Value>();
 }
 

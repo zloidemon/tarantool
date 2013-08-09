@@ -101,15 +101,17 @@ resolve(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what)
 }
 
 
-static v8::Handle<v8::Value>
-resolve_cb(const v8::Arguments& args)
+static void
+resolve_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	if (args.Length() != 1 || !args[0]->IsString()) {
-		return v8::ThrowException(v8::Exception::Error(
-					v8::String::New("Invalid arguments")));
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Invalid arguments")));
+		return;
 	}
 
-	return resolve(args.This(), args[0].As<v8::String>());
+	args.GetReturnValue().Set(
+		resolve(args.This(), args[0].As<v8::String>()));
 }
 
 v8::Handle<v8::Object>
@@ -195,21 +197,23 @@ call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
 	return handle_scope.Close(ret);
 }
 
-static v8::Handle<v8::Value>
-call_cb(const v8::Arguments& args)
+static void
+call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	if (args.IsConstructCall()) {
-		return v8::ThrowException(v8::Exception::Error(
-					v8::String::New("Constructor call")));
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Constructor call")));
+		return;
 	}
 
 	if (args.Length() != 1 || !args[0]->IsString()) {
-		return v8::ThrowException(v8::Exception::Error(
-					v8::String::New("Invalid arguments")));
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Invalid arguments")));
+		return;
 	}
 
-	/* User Holder here unstead of This */
-	return call(args.Callee(), args[0].As<v8::String>(), true);
+	args.GetReturnValue().Set(
+		call(args.Callee(), args[0].As<v8::String>(), true));
 }
 
 v8::Handle<v8::FunctionTemplate>

@@ -36,8 +36,8 @@
 namespace js {
 namespace platform {
 
-static v8::Handle<v8::Value>
-say_cb(const v8::Arguments& args)
+static void
+say_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope;
 
@@ -47,8 +47,9 @@ say_cb(const v8::Arguments& args)
 	}
 
 	if (level < S_FATAL || level > S_DEBUG) {
-		return v8::ThrowException(v8::Exception::RangeError(
+		v8::ThrowException(v8::Exception::RangeError(
 			v8::String::New("Invalid log level")));
+		return;
 	}
 
 	v8::String::Utf8Value str(args[1]);
@@ -57,7 +58,7 @@ say_cb(const v8::Arguments& args)
 		panic("js say(PANIC) was called");
 	}
 
-	return v8::Handle<v8::Value>();
+	return;
 }
 
 v8::Handle<v8::Value>
@@ -70,11 +71,10 @@ gc(void)
 	return v8::Handle<v8::Value>();
 }
 
-static v8::Handle<v8::Value>
-gc_cb(const v8::Arguments& args)
+static void
+gc_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
-	(void) args;
-	return gc();
+	args.GetReturnValue().Set(gc());
 }
 
 v8::Handle<v8::Value>
@@ -106,9 +106,8 @@ eval_in_new_context(v8::Handle<v8::String> source,
 {
 	v8::HandleScope handle_scope;
 
-	v8::Persistent<v8::Context> tmp = v8::Context::New();
-	v8::Local<v8::Context> context = v8::Local<v8::Context>::New(tmp);
-	tmp.Dispose();
+	v8::Isolate *isolate = v8::Isolate::GetCurrent();
+	v8::Local<v8::Context> context = v8::Context::New(isolate);
 
 	v8::Local<v8::Object> global_proto = context->Global()->
 					     GetPrototype()->ToObject();
@@ -126,15 +125,14 @@ eval_in_new_context(v8::Handle<v8::String> source,
 	return handle_scope.Close(ret);
 }
 
-static v8::Handle<v8::Value>
-call_cb(const v8::Arguments& args)
+static void
+call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	if (args.IsConstructCall()) {
-		return v8::ThrowException(v8::Exception::Error(
+		v8::ThrowException(v8::Exception::Error(
 			v8::String::New("Constructor call")));
+		return;
 	}
-
-	return v8::Handle<v8::Value>();
 }
 
 v8::Handle<v8::FunctionTemplate>
