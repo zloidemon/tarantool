@@ -90,6 +90,12 @@ userdata_get(v8::Local<v8::Object> handle)
 	return object;
 }
 
+void
+template_cache_set(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl);
+
+v8::Local<v8::FunctionTemplate>
+template_cache_get(intptr_t key);
+
 } /* namespace js */
 
 #endif /* TARANTOOL_JS_JS_H_INCLUDED */

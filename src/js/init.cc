@@ -46,11 +46,33 @@
 #include <exception.h>
 #include <say.h>
 
+#define V8_ALLOW_ACCESS_TO_RAW_HANDLE_CONSTRUCTOR 1
 #include <v8.h>
 
 #include "js.h"
 #include "platform.h"
 #include "require.h"
+
+#include <unordered_map>
+namespace { /* anonymous */
+
+#define mh_name _tmplcache
+#define mh_key_t intptr_t
+struct mh_tmplcache_node_t {
+	mh_key_t key;
+	void *val;
+};
+
+#define mh_node_t struct mh_tmplcache_node_t
+#define mh_arg_t void *
+#define mh_hash(a, arg) (a->key)
+#define mh_hash_key(a, arg) (a)
+#define mh_eq(a, b, arg) ((a->key) == (b->key))
+#define mh_eq_key(a, b, arg) ((a) == (b->key))
+#define MH_SOURCE 1
+#include <mhash.h>
+
+} /* namespace (anonymous) */
 
 /**
  *  tarantool start-up module
@@ -59,10 +81,10 @@ const char *TARANTOOL_JS_INIT_MODULE = "init";
 
 static struct ev_idle idle_watcher;
 
-
 struct tarantool_js {
 	v8::Persistent<v8::Context> context;
 	v8::Isolate *isolate;
+	struct mh_tmplcache_t *tmplcache;
 };
 
 static void
@@ -243,6 +265,7 @@ tarantool_js_init()
 	tarantool_js_set_v8_flag("--harmony_typeof");
 	tarantool_js_set_v8_flag("--harmony_array_buffer");
 	tarantool_js_set_v8_flag("--harmony_typed_arrays");
+	tarantool_js_set_v8_flag("--expose_gc");
 
 	v8::V8::SetArrayBufferAllocator(&array_buffer_allocator);
 
@@ -262,6 +285,8 @@ tarantool_js_new()
 {
 	assert(fiber->fid == 1);
 	struct tarantool_js *js = new struct tarantool_js;
+
+	js->tmplcache = mh_tmplcache_new();
 
 	js->isolate = v8::Isolate::New();
 	assert(js->isolate != NULL);
@@ -286,6 +311,17 @@ tarantool_js_delete(struct tarantool_js *js)
 {
 	assert(fiber->fid == 1);
 
+	while (mh_size(js->tmplcache) > 0) {
+		mh_int_t k = mh_first(js->tmplcache);
+
+		v8::FunctionTemplate *tmpl = (v8::FunctionTemplate *)
+				mh_tmplcache_node(js->tmplcache, k)->val;
+		v8::Persistent<v8::FunctionTemplate> handle(tmpl);
+		handle.Dispose();
+		handle.Clear();
+		mh_tmplcache_del(js->tmplcache, k, NULL);
+	}
+
 	if (v8::Isolate::GetCurrent() != NULL) {
 		v8::Isolate::GetCurrent()->Exit();
 	}
@@ -305,18 +341,6 @@ tarantool_js_idle(EV_P_ struct ev_idle *w, int revents)
 	if (v8::V8::IdleNotification()) {
 		ev_idle_stop(EV_A_ &idle_watcher);
 	}
-}
-
-template <class TypeName>
-inline v8::Local<TypeName> PersistentToLocal(
-    v8::Isolate* isolate,
-    const v8::Persistent<TypeName>& persistent) {
-  if (persistent.IsWeak()) {
-    return v8::Local<TypeName>::New(isolate, persistent);
-  } else {
-    return *reinterpret_cast<v8::Local<TypeName>*>(
-	const_cast<v8::Persistent<TypeName>*>(&persistent));
-  }
 }
 
 static void
@@ -606,4 +630,33 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 
 	v8::String::Utf8Value output(result);
 	tbuf_printf(out, "%.*s" CRLF, output.length(), *output);
+}
+
+void
+js::template_cache_set(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl)
+{
+	struct tarantool_js *js = fiber_self()->js;
+
+	v8::Persistent<v8::FunctionTemplate> handle(js->isolate, tmpl);
+	v8::FunctionTemplate *ptr = handle.ClearAndLeak();
+
+	const struct mh_tmplcache_node_t node = { key, ptr };
+	mh_tmplcache_put(js->tmplcache, &node, NULL, NULL);
+}
+
+v8::Local<v8::FunctionTemplate>
+js::template_cache_get(intptr_t key)
+{
+	v8::HandleScope handleScope;
+
+	struct tarantool_js *js = fiber_self()->js;
+	mh_int_t k = mh_tmplcache_find(js->tmplcache, key, NULL);
+	if (k == mh_end(js->tmplcache))
+		return handleScope.Close(v8::Local<v8::FunctionTemplate>());
+
+	v8::FunctionTemplate *tmpl = (v8::FunctionTemplate *)
+			mh_tmplcache_node(js->tmplcache, k)->val;
+
+	v8::Local<v8::FunctionTemplate> handle(tmpl);
+	return handleScope.Close(handle);
 }
