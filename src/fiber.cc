@@ -43,6 +43,9 @@ extern "C" {
 #include <assoc.h>
 #include "iobuf.h"
 #include <rlist.h>
+#if defined(ENABLE_JS)
+#include "js/js.h"
+#endif /* defined(ENABLE_JS) */
 
 enum { FIBER_CALL_STACK = 16 };
 
@@ -78,11 +81,8 @@ static void
 fiber_on_resume(void)
 {
 #if defined(ENABLE_JS)
-	void
-	tarantool_js_fiber_on_resume(void);
-
 	if (fiber->js != NULL) {
-		tarantool_js_fiber_on_resume();
+		reinterpret_cast<js::JS *>(fiber->js)->FiberOnResume();
 	}
 #endif /* defined(ENABLE_JS) */
 }
@@ -91,11 +91,8 @@ static void
 fiber_on_pause(void)
 {
 #if defined(ENABLE_JS)
-	void
-	tarantool_js_fiber_on_pause(void);
-
 	if (fiber->js != NULL) {
-		tarantool_js_fiber_on_pause();
+		reinterpret_cast<js::JS *>(fiber->js)->FiberOnPause();
 	}
 #endif /* defined(ENABLE_JS) */
 }
@@ -104,11 +101,8 @@ static void
 fiber_on_stop(void)
 {
 #if defined(ENABLE_JS)
-	void
-	tarantool_js_fiber_on_stop(void);
-
 	if (fiber->js != NULL) {
-		tarantool_js_fiber_on_stop();
+		reinterpret_cast<js::JS *>(fiber->js)->FiberOnStop();
 	}
 #endif /* defined(ENABLE_JS) */
 }

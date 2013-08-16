@@ -34,19 +34,93 @@
  * @brief JS core utils
  */
 
+#define V8_ALLOW_ACCESS_TO_RAW_HANDLE_CONSTRUCTOR 1
 #include <v8.h>
 #include <assert.h>
 
 namespace js {
 
-v8::Handle<v8::Value>
-init_global(v8::Handle<v8::Object> global);
+void
+OnLoad();
+
+void
+OnUnload();
+
+class JS {
+public:
+	v8::Isolate *
+	GetIsolate() const {
+		return isolate;
+	}
+
+	v8::Local<v8::Context>
+	GetPrimaryContext() {
+		return v8::Local<v8::Context>::New(isolate, context);
+	}
+
+	static JS *
+	New();
+
+	void
+	Dispose();
+
+	v8::Local<v8::Object>
+	LoadLibrary(v8::Local<v8::String> rootModule);
+
+	v8::Local<v8::FunctionTemplate>
+	TemplateCacheGet(intptr_t key) const;
+
+	void
+	TemplateCacheSet(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl);
+
+	static JS *
+	GetCurrent();
+
+	void
+	FiberEnsure();
+
+	void
+	FiberOnStart();
+
+	void
+	FiberOnResume();
+
+	void
+	FiberOnPause();
+
+	void
+	FiberOnStop();
+
+private:
+	JS();
+	~JS();
+
+	JS(JS const&) = delete;
+	JS& operator=(JS const&) = delete;
+
+	v8::Persistent<v8::Context> context;
+	v8::Isolate *isolate;
+	void *tmplcache;
+};
 
 v8::Handle<v8::Value>
-copy_object(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src);
+InitGlobal(v8::Handle<v8::Object> global);
 
 v8::Handle<v8::Value>
-dump_object(v8::Handle<v8::Object> src);
+EvalInContext(v8::Handle<v8::String> source,
+		v8::Handle<v8::String> filename,
+		v8::Handle<v8::Context> context);
+
+v8::Handle<v8::Value>
+EvalInNewContext(v8::Handle<v8::String> source,
+		 v8::Handle<v8::String> filename,
+		 v8::Handle<v8::Object> global = v8::Handle<v8::Object>());
+
+v8::Handle<v8::Value>
+CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src);
+
+v8::Handle<v8::Value>
+DumpObject(v8::Handle<v8::Object> src);
 
 /**
  * @breif Initialize \a tmpl to work with userdata \a T
@@ -89,12 +163,6 @@ userdata_get(v8::Local<v8::Object> handle)
 	T object = static_cast<T>(ext->Value());
 	return object;
 }
-
-void
-template_cache_set(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl);
-
-v8::Local<v8::FunctionTemplate>
-template_cache_get(intptr_t key);
 
 } /* namespace js */
 

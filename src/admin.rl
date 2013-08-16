@@ -40,6 +40,8 @@
 #include <tarantool.h>
 #if defined(ENABLE_JS)
 #include "js/init.h"
+#include "js/js.h"
+extern js::JS *tarantool_js;
 #endif /* defined(ENABLE_JS) */
 #include "lua/init.h"
 #include <recovery.h>
@@ -248,7 +250,7 @@ admin_dispatch(struct ev_io *coio, struct iobuf *iobuf, lua_State *L)
 			start(out);
 			try {
 #if defined(ENABLE_JS)
-				fiber_enable_js(tarantool_js);
+				tarantool_js->FiberEnsure();
 				tarantool_js_eval(out,
 						  strstart, strlen(strstart),
 						  fiber_name(fiber));

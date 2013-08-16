@@ -41,16 +41,6 @@ constructor();
 v8::Handle<v8::Value>
 gc(void);
 
-v8::Handle<v8::Value>
-eval_in_context(v8::Handle<v8::String> source,
-		v8::Handle<v8::String> filename,
-		v8::Handle<v8::Context> context);
-
-v8::Handle<v8::Value>
-eval_in_new_context(v8::Handle<v8::String> source,
-		    v8::Handle<v8::String> filename,
-		    v8::Handle<v8::Object> global = v8::Handle<v8::Object>());
-
 } /* namespace platform */
 } /* namespace js */
 

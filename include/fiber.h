@@ -102,7 +102,7 @@ struct fiber {
 	 */
 	uint32_t sid;
 #if defined(ENABLE_JS)
-	struct tarantool_js *js;
+	void *js;
 	void *js_locker;
 	void *js_unlocker;
 	void *js_tls[V8_TLS_SIZE];

@@ -169,14 +169,12 @@ call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
 	if (sandbox) {
 		globals = v8::Object::New();
 		globals->Set(v8::String::NewSymbol("exports"), v8::Object::New());
-		ret = js::platform::eval_in_new_context(source,
-					filename, globals).As<v8::Object>();
+		js::EvalInNewContext(source, filename, globals).As<v8::Object>();
 	} else {
 		v8::Local<v8::Context> context = v8::Context::GetCurrent();
 		globals = context->Global();
 		globals->Set(v8::String::NewSymbol("exports"), v8::Object::New());
-		ret = js::platform::eval_in_context(source,
-					filename, context).As<v8::Object>();
+		js::EvalInContext(source, filename, context).As<v8::Object>();
 	}
 
 	if (ret.IsEmpty()) {

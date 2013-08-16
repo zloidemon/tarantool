@@ -73,7 +73,8 @@ extern "C" {
 
 #if defined(ENABLE_JS)
 #include "js/init.h"
-struct tarantool_js *tarantool_js = NULL;
+#include "js/js.h"
+struct js::JS *tarantool_js = NULL;
 #endif /* defined(ENABLE_JS) */
 
 static pid_t master_pid;
@@ -284,9 +285,6 @@ reload_cfg(struct tbuf *out)
 	/* All OK, activate the config. */
 	swap_tarantool_cfg(&cfg, &new_cfg);
 	tarantool_lua_load_cfg(tarantool_L, &cfg);
-#if defined(ENABLE_JS)
-	tarantool_js_load_cfg(tarantool_js, &cfg);
-#endif /* defined(ENABLE_JS) */
 
 	return 0;
 }
@@ -858,17 +856,14 @@ main(int argc, char **argv)
 
 	try {
 #if defined(ENABLE_JS)
-		tarantool_js_init();
-		tarantool_js = tarantool_js_new();
-		atexit(tarantool_js_free);
+		js::OnLoad();
+		tarantool_js = js::JS::New();
+		atexit(js::OnUnload);
 #endif /* defined(ENABLE_JS) */
 		tarantool_L = tarantool_lua_init();
 		box_init(false);
 		atexit(tarantool_lua_free);
 		memcached_init(cfg.bind_ipaddr, cfg.memcached_port);
-#if defined(ENABLE_JS)
-		tarantool_js_load_cfg(tarantool_js, &cfg);
-#endif /* defined(ENABLE_JS) */
 		tarantool_lua_load_cfg(tarantool_L, &cfg);
 		/*
 		 * init iproto before admin and after memcached:

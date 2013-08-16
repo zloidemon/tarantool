@@ -12,8 +12,8 @@ namespace fiber {
 static void
 fiber_js_wrapper(va_list ap)
 {
-	struct tarantool_js *js = va_arg(ap, struct tarantool_js *);
-	fiber_enable_js(js);
+	js::JS *js = va_arg(ap, js::JS *);
+	js->FiberOnStart();
 
 	v8::HandleScope handle_scope;
 
@@ -79,7 +79,7 @@ call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 	thiz->Set(v8::String::NewSymbol("id"),
 		  v8::Integer::NewFromUnsigned(f->fid));
 
-	fiber_call(f, fiber_self()->js, &args);
+	fiber_call(f, js::JS::GetCurrent(), &args);
 
 	args.GetReturnValue().Set(thiz);
 }

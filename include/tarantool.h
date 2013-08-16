@@ -45,9 +45,6 @@ extern char *cfg_filename_fullpath;
 extern bool booting;
 extern char *binary_filename;
 extern char *custom_proc_title;
-#if defined(ENABLE_JS)
-extern struct tarantool_js *tarantool_js;
-#endif /* defined(ENABLE_JS) */
 int reload_cfg(struct tbuf *out);
 void show_cfg(struct tbuf *out);
 int snapshot(void);

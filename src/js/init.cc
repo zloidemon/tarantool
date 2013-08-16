@@ -46,424 +46,18 @@
 #include <exception.h>
 #include <say.h>
 
-#define V8_ALLOW_ACCESS_TO_RAW_HANDLE_CONSTRUCTOR 1
-#include <v8.h>
-
 #include "js.h"
-#include "platform.h"
 #include "require.h"
-
-#include <unordered_map>
-namespace { /* anonymous */
-
-#define mh_name _tmplcache
-#define mh_key_t intptr_t
-struct mh_tmplcache_node_t {
-	mh_key_t key;
-	void *val;
-};
-
-#define mh_node_t struct mh_tmplcache_node_t
-#define mh_arg_t void *
-#define mh_hash(a, arg) (a->key)
-#define mh_hash_key(a, arg) (a)
-#define mh_eq(a, b, arg) ((a->key) == (b->key))
-#define mh_eq_key(a, b, arg) ((a) == (b->key))
-#define MH_SOURCE 1
-#include <mhash.h>
-
-} /* namespace (anonymous) */
 
 /**
  *  tarantool start-up module
  */
 const char *TARANTOOL_JS_INIT_MODULE = "init";
 
-static struct ev_idle idle_watcher;
-
-struct tarantool_js {
-	v8::Persistent<v8::Context> context;
-	v8::Isolate *isolate;
-	struct mh_tmplcache_t *tmplcache;
-};
-
-static void
-tarantool_js_idle(EV_P_ struct ev_idle *w, int revents);
-
-/*
- * The v8 TLS hack
- * The hack replaces pthread's local storage with our fiber local storage
- */
-
-#if defined(ENABLE_V8_HACK_LINK_TIME)
-/* Use link-time version of the hack */
-
-/* It is known that the link-time version does not work if v8 was compiled with
- * visibility=hidden */
-
-static volatile bool V8_THREAD_LOCAL_HACK_WORKS = false;
-
-/* Overload some v8 internal symbols in this compilation unit */
-#include "js_tls_hack_link_time.mm"
-
-static void
-js_tls_hack_init(void)
-{
-	if (!v8::V8::Initialize())
-		goto error_1;
-
-	if (V8_THREAD_LOCAL_HACK_WORKS) {
-		say_debug("v8 TLS link-time hack works");
-		return;
-	}
-
-error_1:
-	panic("v8 TLS link-time hack does not work - "
-	      "try to recompile without -DENABLE_V8_HACK_LINK_TIME=1");
-
-	return;
-}
-
-#else /* !defined(ENABLE_V8_HACK_LINK_TIME) */
-
-/* See fiber.h for V8_TLS_SIZE */
-static pthread_key_t js_tls_pthread_keys[V8_TLS_SIZE];
-
-static void
-js_tls_hack_init(void)
-{
-	pthread_key_t last_key;
-	size_t js_tls_size = 0;
-	v8::Isolate *isolate;
-
-	if (pthread_key_create(&last_key, NULL) != 0)
-		goto error_1;
-
-	enum { FLS_CHECK_MAX = 1024 };
-
-	if (last_key > FLS_CHECK_MAX)
-		goto error_2;
-
-	void *fls[FLS_CHECK_MAX];
-	for (pthread_key_t k = 0; k < last_key; k++) {
-		fls[k] = pthread_getspecific(k);
-	}
-
-	/* Initialize v8 and see what is changed */
-	if (!v8::V8::Initialize())
-		goto error_2;
-
-	isolate = v8::Isolate::GetCurrent();
-	if (isolate == NULL)
-		goto error_2;
-
-	for (pthread_key_t k = 0; k < last_key; k++) {
-		void *cur = pthread_getspecific(k);
-		/*
-		 * Check if the key was changed or if the key contains
-		 * a pointer to the current v8::Isolate which could be created
-		 * before our hack
-		 */
-		if (cur != fls[k] || cur == isolate) {
-			js_tls_pthread_keys[js_tls_size++] = k;
-		}
-	}
-
-	/* Check if we found enough number of keys */
-	if (js_tls_size != V8_TLS_SIZE)
-		goto error_2;
-
-	say_debug("v8 TLS run-time hack works - "
-		  "all %zu keys have been detected", js_tls_size);
-	say_debug("v8 pthread's TLS <-> fiber's FLS mapping:");
-	for (size_t t = 0; t < V8_TLS_SIZE; t++) {
-		say_debug(" %u => %zu",
-			  (uint32_t) js_tls_pthread_keys[t], t);
-	}
-
-	pthread_key_delete(last_key);
-
-	return;
-
-error_2:
-	pthread_key_delete(last_key);
-error_1:
-	panic("Can not detect v8 TLS keys - the hack does not work :(");
-}
-
-/**
- * @brief Clear all v8 pthread's TLS data
- */
-static void
-js_tls_hack_pthread_clear(void)
-{
-	for (size_t t = 0; t < V8_TLS_SIZE; t++) {
-		pthread_setspecific(js_tls_pthread_keys[t], NULL);
-	}
-}
-
-/**
- * @brief Copy v8 pthread's TLS data to fiber's FLS
- */
-static void
-js_tls_hack_pthread_to_fiber(void)
-{
-	for (size_t t = 0; t < V8_TLS_SIZE; t++) {
-		void *var = pthread_getspecific(js_tls_pthread_keys[t]);
-		fiber->js_tls[t] = var;
-	}
-}
-
-/**
- * @brief Copy v8 fiber's FLS data to pthread's TLS
- */
-static void
-js_tls_hack_fiber_to_pthread(void)
-{
-	for (size_t t = 0; t < V8_TLS_SIZE; t++) {
-		pthread_setspecific(js_tls_pthread_keys[t], fiber->js_tls[t]);
-	}
-}
-
-#endif /* defined(ENABLE_V8_HACK_LINK_TIME) */
-
-class ArrayBufferAllocator: public v8::ArrayBuffer::Allocator {
-public:
-	virtual void* Allocate(size_t length)
-	{
-		return calloc(1, length);
-	}
-
-	virtual void* AllocateUninitialized(size_t length)
-	{
-		return malloc(length);
-	}
-
-	virtual void Free(void* data, size_t)
-	{
-		free(data);
-	}
-};
-
-static ArrayBufferAllocator array_buffer_allocator;
-
-static inline void
-tarantool_js_set_v8_flag(const char *flag)
-{
-	v8::V8::SetFlagsFromString(flag, strlen(flag));
-}
+using namespace js;
 
 void
-tarantool_js_init()
-{
-	js_tls_hack_init();
-
-	v8::V8::InitializeICU();
-
-	/* Enable some cool extensions */
-	tarantool_js_set_v8_flag("--harmony");
-	tarantool_js_set_v8_flag("--harmony_typeof");
-	tarantool_js_set_v8_flag("--harmony_array_buffer");
-	tarantool_js_set_v8_flag("--harmony_typed_arrays");
-	tarantool_js_set_v8_flag("--expose_gc");
-
-	v8::V8::SetArrayBufferAllocator(&array_buffer_allocator);
-
-	ev_idle_init(&idle_watcher, tarantool_js_idle);
-
-	return;
-}
-
-void
-tarantool_js_free()
-{
-	ev_idle_stop(&idle_watcher);
-}
-
-struct tarantool_js *
-tarantool_js_new()
-{
-	assert(fiber->fid == 1);
-	struct tarantool_js *js = new struct tarantool_js;
-
-	js->tmplcache = mh_tmplcache_new();
-
-	js->isolate = v8::Isolate::New();
-	assert(js->isolate != NULL);
-
-	v8::Locker locker(js->isolate);
-	v8::Isolate::Scope isolate_scope(js->isolate);
-
-	v8::HandleScope handle_scope;
-	v8::Local<v8::Context> context = v8::Context::New(js->isolate);
-	js->context.Reset(js->isolate, context);
-	assert(!js->context.IsEmpty());
-
-	v8::Context::Scope context_scope(context);
-
-	js->isolate = v8::Isolate::GetCurrent();
-
-	return js;
-}
-
-void
-tarantool_js_delete(struct tarantool_js *js)
-{
-	assert(fiber->fid == 1);
-
-	while (mh_size(js->tmplcache) > 0) {
-		mh_int_t k = mh_first(js->tmplcache);
-
-		v8::FunctionTemplate *tmpl = (v8::FunctionTemplate *)
-				mh_tmplcache_node(js->tmplcache, k)->val;
-		v8::Persistent<v8::FunctionTemplate> handle(tmpl);
-		handle.Dispose();
-		handle.Clear();
-		mh_tmplcache_del(js->tmplcache, k, NULL);
-	}
-
-	if (v8::Isolate::GetCurrent() != NULL) {
-		v8::Isolate::GetCurrent()->Exit();
-	}
-
-	js->isolate->Dispose();
-
-	delete js;
-}
-
-static void
-tarantool_js_idle(EV_P_ struct ev_idle *w, int revents)
-{
-	(void) revents;
-	(void) w;
-
-	say_debug("js idle");
-	if (v8::V8::IdleNotification()) {
-		ev_idle_stop(EV_A_ &idle_watcher);
-	}
-}
-
-static void
-tarantool_js_fiber_on_start(void)
-{
-	say_debug("js enable");
-
-	struct tarantool_js *js = fiber->js;
-	assert(js != NULL);
-#if !defined(ENABLE_V8_HACK_LINK_TIME)
-	js_tls_hack_pthread_clear();
-#endif /* !defined(ENABLE_V8_HACK_LINK_TIME) */
-
-	v8::Locker *locker = new v8::Locker(fiber->js->isolate);
-	fiber->js_locker = locker;
-	say_debug("js create locker");
-
-	js->isolate->Enter();
-
-	v8::ResourceConstraints constraints;
-	constraints.set_stack_limit((uint32_t *) fiber->coro.stack);
-	v8::SetResourceConstraints(&constraints);
-
-	v8::HandleScope handle_scope;
-
-	v8::Local<v8::Context> context = v8::Local<v8::Context>::New(
-				js->isolate, js->context);
-	context->Enter();
-
-	/*
-	 * Workaround for v8 issue #1180
-	 * http://code.google.com/p/v8/issues/detail?id=1180
-	 */
-	v8::Script::Compile(v8::String::New("void 0;"));
-
-#if !defined(ENABLE_V8_HACK_LINK_TIME)
-	js_tls_hack_pthread_to_fiber();
-#endif /* !defined(ENABLE_V8_HACK_LINK_TIME) */
-}
-
-void
-tarantool_js_fiber_on_resume(void)
-{
-	assert(fiber->js != NULL);
-
-	say_debug("js fiber resume hook");
-
-#if !defined(ENABLE_V8_HACK_LINK_TIME)
-	js_tls_hack_fiber_to_pthread();
-#endif /* !defined(ENABLE_V8_HACK_LINK_TIME) */
-
-	v8::Unlocker *unlocker = static_cast<v8::Unlocker *>
-			(fiber->js_unlocker);
-	if (unlocker != NULL) {
-		fiber->js_unlocker = NULL;
-		say_debug("js delete unlocker");
-		delete unlocker;
-	}
-}
-
-void
-tarantool_js_fiber_on_pause(void)
-{
-	struct tarantool_js *js = fiber->js;
-	assert(js != NULL);
-
-	say_debug("js fiber pause hook");
-
-#if !defined(ENABLE_V8_HACK_LINK_TIME)
-	js_tls_hack_pthread_to_fiber();
-#endif /* !defined(ENABLE_V8_HACK_LINK_TIME) */
-
-	assert(fiber->js_unlocker == NULL);
-	say_debug("js create unlocker");
-	v8::Unlocker *unlocker = new v8::Unlocker(js->isolate);
-	fiber->js_unlocker = unlocker;
-
-	/* Invoke V8::IdleNotificaiton in subsequents event loops */
-	ev_idle_start(&idle_watcher);
-}
-
-void
-tarantool_js_fiber_on_stop(void)
-{
-	struct tarantool_js *js = fiber->js;
-	assert(js != NULL);
-
-	say_debug("js fiber stop hook");
-
-	js->isolate->Exit();
-
-	v8::Unlocker *unlocker = static_cast<v8::Unlocker *>
-			(fiber->js_unlocker);
-
-	if (unlocker != NULL) {
-		fiber->js_unlocker = NULL;
-		say_debug("js delete unlocker");
-		delete unlocker;
-	}
-
-	v8::Locker *locker = static_cast<v8::Locker *>(fiber->js_locker);
-	fiber->js_locker = NULL;
-	assert(locker != NULL);
-	say_debug("js delete locker");
-	delete locker;
-}
-
-void
-fiber_enable_js(struct tarantool_js *js)
-{
-	assert(js != NULL);
-
-	if (likely(fiber->js != NULL)) {
-		assert(fiber->js == js);
-		return;
-	}
-
-	fiber->js = js;
-	tarantool_js_fiber_on_start();
-}
-
-void
-tarantool_js_load_cfg(struct tarantool_js *js,
+tarantool_js_load_cfg(js::JS *js,
 		      struct tarantool_cfg *cfg)
 {
 	(void) js;
@@ -546,25 +140,18 @@ js_raise(v8::TryCatch *try_catch)
 static void
 init_library_fiber(va_list ap)
 {
-	struct tarantool_js *js = va_arg(ap, struct tarantool_js *);
+	JS *js = va_arg(ap, JS *);
 
 	/* Enable JS in the fiber */
-	fiber_enable_js(js);
+	js->FiberEnsure();
 
 	v8::HandleScope handle_scope;
 	v8::TryCatch try_catch;
 	try_catch.SetVerbose(true);
 
-	/* Init global with built-in modules */
-	v8::Local<v8::Object> global = v8::Context::GetCurrent()->Global();
-	js::init_global(global);
+	v8::Local<v8::Object> ret = js::JS::GetCurrent()->LoadLibrary(
+			v8::String::New(TARANTOOL_JS_INIT_MODULE));
 
-	/* Eval require(TARANTOOL_JS_INIT_MODULE, false) */
-	v8::Handle<v8::Object> require = global->Get(
-			v8::String::NewSymbol("require")).As<v8::Object>();
-	assert (!require.IsEmpty());
-	v8::Local<v8::String> what = v8::String::New(TARANTOOL_JS_INIT_MODULE);
-	v8::Handle<v8::Object> ret = js::require::call(require, what, false);
 	if (unlikely(try_catch.HasCaught())) {
 		js_raise(&try_catch);
 	}
@@ -594,7 +181,7 @@ init_library_fiber(va_list ap)
 }
 
 void
-tarantool_js_init_library(struct tarantool_js *js)
+tarantool_js_init_library(js::JS *js)
 {
 	struct fiber *loader = fiber_new("js-init-library", init_library_fiber);
 	fiber_call(loader, js);
@@ -607,7 +194,7 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 	/* it does not work in sched thread */
 	assert(fiber->fid > 1);
 
-	struct tarantool_js *js = fiber->js;
+	JS *js = JS::GetCurrent();
 	assert(js != NULL);
 
 	v8::HandleScope handle_scope;
@@ -622,8 +209,8 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 		js_source_origin = v8::String::New(source_origin);
 	}
 
-	v8::Handle<v8::Value> result = js::platform::eval_in_context(
-			js_source, js_source_origin, v8::Context::GetCurrent());
+	v8::Handle<v8::Value> result = EvalInContext(js_source,
+		js_source_origin, v8::Context::GetCurrent());
 	if (unlikely(try_catch.HasCaught())) {
 		js_raise(&try_catch);
 	}
@@ -632,31 +219,3 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 	tbuf_printf(out, "%.*s" CRLF, output.length(), *output);
 }
 
-void
-js::template_cache_set(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl)
-{
-	struct tarantool_js *js = fiber_self()->js;
-
-	v8::Persistent<v8::FunctionTemplate> handle(js->isolate, tmpl);
-	v8::FunctionTemplate *ptr = handle.ClearAndLeak();
-
-	const struct mh_tmplcache_node_t node = { key, ptr };
-	mh_tmplcache_put(js->tmplcache, &node, NULL, NULL);
-}
-
-v8::Local<v8::FunctionTemplate>
-js::template_cache_get(intptr_t key)
-{
-	v8::HandleScope handleScope;
-
-	struct tarantool_js *js = fiber_self()->js;
-	mh_int_t k = mh_tmplcache_find(js->tmplcache, key, NULL);
-	if (k == mh_end(js->tmplcache))
-		return handleScope.Close(v8::Local<v8::FunctionTemplate>());
-
-	v8::FunctionTemplate *tmpl = (v8::FunctionTemplate *)
-			mh_tmplcache_node(js->tmplcache, k)->val;
-
-	v8::Local<v8::FunctionTemplate> handle(tmpl);
-	return handleScope.Close(handle);
-}

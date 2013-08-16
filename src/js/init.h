@@ -38,57 +38,22 @@
 
 #include <stddef.h>
 
-#if defined(__cplusplus)
-extern "C" {
-#endif /* defined(__cplusplus) */
-
 struct tarantool_cfg;
 struct tbuf;
 struct fiber;
 
-void
-tarantool_js_init();
-
-void
-tarantool_js_free();
-
-/**
- * Create an instance of JS interpreter and load it with Tarantool modules.
- * @retval new JS instance on success
- * @retval NULL on memory error
- */
-struct tarantool_js *
-tarantool_js_new(void);
-
-void
-tarantool_js_delete(struct tarantool_js *js);
-
-/**
- * @brief Performs lazy initialization of JS engine on the current running fiber
- * @param js
- */
-void
-fiber_enable_js(struct tarantool_js *js);
-
-/**
- * @brief Make a new configuration available in JS
- */
-void
-tarantool_js_load_cfg(struct tarantool_js *js,
-		      struct tarantool_cfg *cfg);
+namespace js {
+class JS;
+}
 
 /**
  * Initialize built-in JS library and load start-up module
  */
 void
-tarantool_js_init_library(struct tarantool_js *js);
+tarantool_js_init_library(js::JS *js);
 
 void
 tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 		  const char *source_origin);
-
-#if defined(__cplusplus)
-} /* extern "C" */
-#endif /* defined(__cplusplus) */
 
 #endif /* TARANTOOL_JS_INIT_H_INCLUDED */

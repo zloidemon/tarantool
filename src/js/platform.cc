@@ -77,54 +77,6 @@ gc_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 	args.GetReturnValue().Set(gc());
 }
 
-v8::Handle<v8::Value>
-eval_in_context(v8::Handle<v8::String> source,
-		v8::Handle<v8::String> filename,
-		v8::Handle<v8::Context> context)
-{
-	v8::HandleScope handle_scope;
-
-	v8::Context::Scope context_scope(context);
-
-	v8::Local<v8::Script> script = v8::Script::Compile(source, filename);
-	if (script.IsEmpty()) {
-		return v8::Handle<v8::Value>();
-	}
-
-	v8::Handle<v8::Value> ret = script->Run();
-	if (ret.IsEmpty()) {
-		return v8::Handle<v8::Value>();
-	}
-
-	return handle_scope.Close(ret);
-}
-
-v8::Handle<v8::Value>
-eval_in_new_context(v8::Handle<v8::String> source,
-		    v8::Handle<v8::String> filename,
-		    v8::Handle<v8::Object> global)
-{
-	v8::HandleScope handle_scope;
-
-	v8::Isolate *isolate = v8::Isolate::GetCurrent();
-	v8::Local<v8::Context> context = v8::Context::New(isolate);
-
-	v8::Local<v8::Object> global_proto = context->Global()->
-					     GetPrototype()->ToObject();
-	assert(!global_proto.IsEmpty());
-	copy_object(global_proto, global);
-	init_global(global_proto);
-
-	v8::Handle<v8::Value> ret = eval_in_context(source, filename, context);
-	if (ret.IsEmpty()) {
-		return v8::Handle<v8::Value>();
-	}
-
-	copy_object(global, global_proto);
-
-	return handle_scope.Close(ret);
-}
-
 static void
 call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
