@@ -126,48 +126,6 @@ CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src);
 void
 DumpObject(v8::Handle<v8::Object> src);
 
-/**
- * @breif Initialize \a tmpl to work with userdata \a T
- */
-template<typename T> void
-userdata_init_template(v8::Handle<v8::FunctionTemplate> tmpl)
-{
-	/* One internal field is used for storing our native object */
-	tmpl->InstanceTemplate()->SetInternalFieldCount(1);
-}
-
-/**
- * @brief Set \a userdata in object \a handle
- */
-template<typename T> void
-userdata_set(v8::Local<v8::Object> handle, T userdata)
-{
-	/* Set the native object in the handle */
-	assert(handle->InternalFieldCount() > 0);
-	handle->SetInternalField(0, v8::External::New(userdata));
-}
-
-/**
- * @brief Get from object \a handle
- */
-template<typename T> T
-userdata_get(v8::Local<v8::Object> handle)
-{
-	/* Get the native object from the handle */
-	v8::HandleScope handle_scope;
-
-	assert(!handle.IsEmpty());
-	assert(handle->InternalFieldCount() > 0);
-
-	v8::Local<v8::External> ext = handle->GetInternalField(0).
-				      As<v8::External>();
-	assert(!ext.IsEmpty());
-	assert(ext->Value() != NULL);
-
-	T object = static_cast<T>(ext->Value());
-	return object;
-}
-
 } /* namespace js */
 
 #endif /* TARANTOOL_JS_JS_H_INCLUDED */

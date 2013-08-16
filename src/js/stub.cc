@@ -89,8 +89,9 @@ ctor(v8::Handle<v8::Object> thiz)
 
 	say_warn("new: %p", stub);
 
-	/* Set newly create userdata */
-	userdata_set(thiz, stub);
+	/* Set the native object in the handle */
+	assert(thiz->InternalFieldCount() > 0);
+	thiz->SetInternalField(0, v8::External::New(stub));
 
 	/* Hint v8 GC about the fact that a litle bit more memory is used. */
 	v8::V8::AdjustAmountOfExternalAllocatedMemory(+1000* sizeof(*stub));
@@ -145,7 +146,10 @@ add(v8::Handle<v8::Object> thiz, v8::Handle<v8::Integer> a)
 	v8::HandleScope handle_scope;
 
 	/* Some kind of magic. Get your native object from 'this' */
-	struct stub *wrapper = userdata_get<struct stub *>(thiz);
+	assert(thiz->InternalFieldCount() > 0);
+	v8::Local<v8::External> ext = thiz->GetInternalField(0).
+			As<v8::External>();
+	struct stub *wrapper = static_cast<struct stub *>(ext->Value());
 
 	/* Do work */
 	wrapper->test += a->Int32Value();
@@ -205,7 +209,7 @@ constructor()
 	 */
 
 	/* Initialize the user data */
-	userdata_init_template<struct stub *>(tmpl);
+	tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
 	/* Name it */
 	tmpl->SetClassName(v8::String::NewSymbol(CLAZZ_NAME));
