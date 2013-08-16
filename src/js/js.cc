@@ -296,6 +296,14 @@ JS::New()
 	assert(!js->context.IsEmpty());
 
 	js->isolate = v8::Isolate::GetCurrent();
+
+	v8::Context::Scope context_scope(context);
+
+	v8::Local<v8::Object> require = js::require::NewInstance();
+	js->_require_handle.Reset(js->isolate, require);
+
+	context->Global()->Set(v8::String::NewSymbol("require"), require);
+
 	return js;
 }
 
@@ -317,11 +325,14 @@ JS::Dispose()
 		mh_tmplcache_del(tmplcache, k, NULL);
 	}
 
+	_require_handle.Dispose();
+	_require_handle.Clear();
+
 	if (v8::Isolate::GetCurrent() != NULL) {
 		v8::Isolate::GetCurrent()->Exit();
 	}
 
-	this->isolate->Dispose();
+	isolate->Dispose();
 
 	delete this;
 }
@@ -441,28 +452,6 @@ JS::FiberOnStop(void)
 	delete locker;
 }
 
-
-
-v8::Local<v8::Object>
-JS::LoadLibrary(v8::Local<v8::String> rootModule)
-{
-	v8::HandleScope handleScope;
-
-	/* Init global with built-in modules */
-	v8::Local<v8::Object> global = v8::Context::GetCurrent()->Global();
-	js::InitGlobal(global);
-
-	/* Eval require(TARANTOOL_JS_INIT_MODULE, false) */
-	v8::Handle<v8::Object> require = global->Get(
-			v8::String::NewSymbol("require")).As<v8::Object>();
-	assert (!require.IsEmpty());
-
-	v8::Handle<v8::Object> ret = js::require::call(require, rootModule,
-						       false);
-
-	return handleScope.Close(ret);
-}
-
 void
 JS::TemplateCacheSet(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl)
 {
@@ -495,21 +484,19 @@ JS::TemplateCacheGet(intptr_t key) const
 	return handleScope.Close(handle);
 }
 
-v8::Handle<v8::Value>
-InitGlobal(v8::Handle<v8::Object> global)
+void
+LoadModules()
 {
-	v8::Local<v8::Function> require = js::require::constructor()->
-					 GetFunction();
-	global->Set(v8::String::NewSymbol("require"), require);
+	v8::HandleScope handle_scope;
+	v8::Local<v8::Object> require = JS::GetCurrent()->GetRequire();
 
 	/* Put built-in modules to the 'require' cache */
-	js::require::cache_put(require, v8::String::NewSymbol("platform"),
+	js::require::CacheSet(require, v8::String::NewSymbol("platform"),
 			       js::platform::constructor()->GetFunction());
-	js::require::cache_put(require, v8::String::NewSymbol("stub"),
+	js::require::CacheSet(require, v8::String::NewSymbol("stub"),
 			       js::stub::constructor()->GetFunction());
-	js::require::cache_put(require, v8::String::NewSymbol("fiber"),
+	js::require::CacheSet(require, v8::String::NewSymbol("fiber"),
 			       js::fiber::constructor()->GetFunction());
-	return v8::Handle<v8::Value>();
 }
 
 v8::Handle<v8::Value>
@@ -548,7 +535,9 @@ EvalInNewContext(v8::Handle<v8::String> source,
 					     GetPrototype()->ToObject();
 	assert(!global_proto.IsEmpty());
 	CopyObject(global_proto, global);
-	InitGlobal(global_proto);
+
+	v8::Local<v8::Object> require = JS::GetCurrent()->GetRequire();
+	global_proto->Set(v8::String::NewSymbol("require"), require);
 
 	v8::Handle<v8::Value> ret = EvalInContext(source, filename, context);
 	if (ret.IsEmpty()) {
@@ -560,7 +549,7 @@ EvalInNewContext(v8::Handle<v8::String> source,
 	return handle_scope.Close(ret);
 }
 
-v8::Handle<v8::Value>
+void
 CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src)
 {
 	v8::HandleScope handle_scope;
@@ -572,11 +561,9 @@ CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src)
 		v8::Local<v8::Value> value = src->Get(key);
 		dst->Set(key, value);
 	}
-
-	return v8::Handle<v8::Value>();
 }
 
-v8::Handle<v8::Value>
+void
 DumpObject(v8::Handle<v8::Object> src)
 {
 	v8::HandleScope handle_scope;
@@ -595,8 +582,6 @@ DumpObject(v8::Handle<v8::Object> src)
 		say_debug("%.*s => %.*s", key_utf8.length(), *key_utf8,
 			  value_utf8.length(), *value_utf8);
 	}
-
-	return v8::Handle<v8::Value>();
 }
 
 }  /* namespace js */

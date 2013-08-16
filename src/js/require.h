@@ -35,22 +35,21 @@
 namespace js {
 namespace require {
 
-v8::Handle<v8::FunctionTemplate>
-constructor();
+v8::Local<v8::Object>
+NewInstance();
 
-v8::Handle<v8::Object>
-call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what,
-     bool sandbox);
+v8::Local<v8::Object>
+Call(v8::Local<v8::Object> thiz, v8::Local<v8::String> what, bool sandbox);
 
-v8::Handle<v8::String>
-resolve(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what);
+v8::Local<v8::String>
+Resolve(v8::Local<v8::Object> thiz, v8::Local<v8::String> what);
 
-v8::Handle<v8::Object>
-cache_get(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what);
+v8::Local<v8::Object>
+CacheGet(v8::Local<v8::Object> thiz, v8::Local<v8::String> what);
 
 void
-cache_put(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what,
-		  v8::Handle<v8::Object> object);
+CacheSet(v8::Local<v8::Object> thiz, v8::Local<v8::String> what,
+	 v8::Local<v8::Object> object);
 
 } /* namespace require */
 } /* namespace js */

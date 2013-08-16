@@ -65,7 +65,10 @@ public:
 	Dispose();
 
 	v8::Local<v8::Object>
-	LoadLibrary(v8::Local<v8::String> rootModule);
+	GetRequire()
+	{
+		return v8::Local<v8::Object>::New(isolate, _require_handle);
+	}
 
 	v8::Local<v8::FunctionTemplate>
 	TemplateCacheGet(intptr_t key) const;
@@ -99,12 +102,13 @@ private:
 	JS& operator=(JS const&) = delete;
 
 	v8::Persistent<v8::Context> context;
+	v8::Persistent<v8::Object> _require_handle;
 	v8::Isolate *isolate;
 	void *tmplcache;
 };
 
-v8::Handle<v8::Value>
-InitGlobal(v8::Handle<v8::Object> global);
+void
+LoadModules();
 
 v8::Handle<v8::Value>
 EvalInContext(v8::Handle<v8::String> source,
@@ -116,10 +120,10 @@ EvalInNewContext(v8::Handle<v8::String> source,
 		 v8::Handle<v8::String> filename,
 		 v8::Handle<v8::Object> global = v8::Handle<v8::Object>());
 
-v8::Handle<v8::Value>
+void
 CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src);
 
-v8::Handle<v8::Value>
+void
 DumpObject(v8::Handle<v8::Object> src);
 
 /**

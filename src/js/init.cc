@@ -54,8 +54,6 @@
  */
 const char *TARANTOOL_JS_INIT_MODULE = "init";
 
-using namespace js;
-
 void
 tarantool_js_load_cfg(js::JS *js,
 		      struct tarantool_cfg *cfg)
@@ -140,7 +138,7 @@ js_raise(v8::TryCatch *try_catch)
 static void
 init_library_fiber(va_list ap)
 {
-	JS *js = va_arg(ap, JS *);
+	js::JS *js = va_arg(ap, js::JS *);
 
 	/* Enable JS in the fiber */
 	js->FiberEnsure();
@@ -149,8 +147,13 @@ init_library_fiber(va_list ap)
 	v8::TryCatch try_catch;
 	try_catch.SetVerbose(true);
 
-	v8::Local<v8::Object> ret = js::JS::GetCurrent()->LoadLibrary(
-			v8::String::New(TARANTOOL_JS_INIT_MODULE));
+	js::LoadModules();
+
+	v8::Local<v8::Object> require = js->GetRequire();
+	v8::Local<v8::String> rootModule =
+			v8::String::New(TARANTOOL_JS_INIT_MODULE);
+	v8::Handle<v8::Object> ret = js::require::Call(require, rootModule,
+						       false);
 
 	if (unlikely(try_catch.HasCaught())) {
 		js_raise(&try_catch);
@@ -194,7 +197,7 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 	/* it does not work in sched thread */
 	assert(fiber->fid > 1);
 
-	JS *js = JS::GetCurrent();
+	js::JS *js = js::JS::GetCurrent();
 	assert(js != NULL);
 
 	v8::HandleScope handle_scope;
@@ -209,7 +212,7 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 		js_source_origin = v8::String::New(source_origin);
 	}
 
-	v8::Handle<v8::Value> result = EvalInContext(js_source,
+	v8::Handle<v8::Value> result = js::EvalInContext(js_source,
 		js_source_origin, v8::Context::GetCurrent());
 	if (unlikely(try_catch.HasCaught())) {
 		js_raise(&try_catch);

@@ -36,27 +36,20 @@
 #include <cfg/tarantool_box_cfg.h>
 #include <say.h>
 
-#include "platform.h"
-
 namespace js {
 namespace require {
 
-static const char CLAZZ_NAME[] = "require";
-static const char PROP_CACHE_NAME[] = "cache";
-static const char PROP_EXTENSIONS_NAME[] = "extensions";
-static const char PROP_RESOLVE_NAME[] = "resolve";
-
-v8::Handle<v8::Object>
-cache_get(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what)
+v8::Local<v8::Object>
+CacheGet(v8::Local<v8::Object> thiz, v8::Local<v8::String> what)
 {
 	v8::HandleScope handle_scope;
 
-	v8::Handle<v8::Array> cache = thiz->Get(
-		v8::String::NewSymbol(PROP_CACHE_NAME)).As<v8::Array>();
+	v8::Local<v8::Array> cache = thiz->Get(
+		v8::String::NewSymbol("cache")).As<v8::Array>();
 
 	if (cache.IsEmpty()) {
 		say_warn("Require cache is disabled");
-		return v8::Handle<v8::Object>();
+		return v8::Local<v8::Object>();
 	}
 
 	/* Lookup cache */
@@ -64,13 +57,13 @@ cache_get(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what)
 }
 
 void
-cache_put(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what,
-		  v8::Handle<v8::Object> object)
+CacheSet(v8::Local<v8::Object> thiz, v8::Local<v8::String> what,
+	 v8::Local<v8::Object> object)
 {
 	v8::HandleScope handle_scope;
 
-	v8::Handle<v8::Array> cache = thiz->Get(
-		v8::String::NewSymbol(PROP_CACHE_NAME)).As<v8::Array>();
+	v8::Local<v8::Array> cache = thiz->Get(
+		v8::String::NewSymbol("cache")).As<v8::Array>();
 
 	if (cache.IsEmpty()) {
 		say_warn("Require cache is disabled");
@@ -83,8 +76,8 @@ cache_put(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what,
 	return;
 }
 
-v8::Handle<v8::String>
-resolve(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what)
+v8::Local<v8::String>
+Resolve(v8::Local<v8::Object> thiz, v8::Local<v8::String> what)
 {
 	(void) thiz;
 
@@ -100,32 +93,18 @@ resolve(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what)
 	return handle_scope.Close(filename);
 }
 
-
-static void
-resolve_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
-{
-	if (args.Length() != 1 || !args[0]->IsString()) {
-		v8::ThrowException(v8::Exception::Error(
-			v8::String::New("Invalid arguments")));
-		return;
-	}
-
-	args.GetReturnValue().Set(
-		resolve(args.This(), args[0].As<v8::String>()));
-}
-
-v8::Handle<v8::Object>
-call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
+v8::Local<v8::Object>
+Call(v8::Local<v8::Object> thiz, v8::Local<v8::String> what, bool sandbox)
 {
 	v8::HandleScope handle_scope;
 
-	v8::Handle<v8::Object> ret = cache_get(thiz, what);
+	v8::Local<v8::Object> ret = CacheGet(thiz, what);
 	if (!ret.IsEmpty() && !ret->IsUndefined()) {
 		return ret;
 	}
 
 	v8::String::Utf8Value what_utf8(what);
-	v8::Handle<v8::String> filename = resolve(thiz, what).As<v8::String>();
+	v8::Local<v8::String> filename = Resolve(thiz, what).As<v8::String>();
 	if (filename.IsEmpty()) {
 		say_warn("Module is not found: %.*s",
 			 what_utf8.length(), *what_utf8);
@@ -140,7 +119,7 @@ call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
 	if (f == NULL) {
 		v8::ThrowException(v8::Exception::Error(
 				v8::String::New("Can not open module file")));
-		return v8::Handle<v8::Object>();
+		return v8::Local<v8::Object>();
 	}
 
 	int rc = fseek(f, 0L, SEEK_END);
@@ -149,7 +128,7 @@ call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
 	if (rc != 0 || size <= 0 || size > INT_MAX) {
 		v8::ThrowException(v8::Exception::Error(
 				v8::String::New("Can not read module file 1")));
-		return v8::Handle<v8::Object>();
+		return v8::Local<v8::Object>();
 	}
 
 	char *buf = (char *) malloc(size);
@@ -158,7 +137,7 @@ call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
 		free(buf);
 		v8::ThrowException(v8::Exception::Error(
 				v8::String::New("Can not read module file 2")));
-		return v8::Handle<v8::Object>();
+		return v8::Local<v8::Object>();
 	}
 	fclose(f);
 
@@ -180,24 +159,41 @@ call(v8::Handle<v8::Object> thiz, v8::Handle<v8::String> what, bool sandbox)
 	if (ret.IsEmpty()) {
 		say_warn("Can not compile module %.*s",
 			 what_utf8.length(), *what_utf8);
-		return v8::Handle<v8::Object>();
+		return v8::Local<v8::Object>();
 	}
 
 	ret = globals->Get(v8::String::NewSymbol("exports")).As<v8::Object>();
 	if (ret.IsEmpty()) {
 		say_error("module %.*s: 'exports' is empty",
 			  what_utf8.length(), *what_utf8);
-		return v8::Handle<v8::Object>();
+		return v8::Local<v8::Object>();
 	}
 
-	cache_put(thiz, what, ret);
+	CacheSet(thiz, what, ret);
 
 	return handle_scope.Close(ret);
 }
 
-static void
-call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
+namespace { /* anonymous */
+
+void
+ResolveMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
+	if (args.Length() != 1 || !args[0]->IsString()) {
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Invalid arguments")));
+		return;
+	}
+
+	args.GetReturnValue().Set(Resolve(args.This(), args[0]->ToString()));
+}
+
+
+void
+CallMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
+{
+	v8::HandleScope handle_scope;
+
 	if (args.IsConstructCall()) {
 		v8::ThrowException(v8::Exception::Error(
 			v8::String::New("Constructor call")));
@@ -210,27 +206,41 @@ call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 		return;
 	}
 
-	args.GetReturnValue().Set(
-		call(args.Callee(), args[0].As<v8::String>(), true));
+	args.GetReturnValue().Set(Call(args.This(),
+				       args[0]->ToString(), true));
 }
 
-v8::Handle<v8::FunctionTemplate>
-constructor()
+v8::Local<v8::FunctionTemplate>
+GetTemplate()
 {
 	v8::HandleScope handle_scope;
-	v8::Local<v8::FunctionTemplate> tmpl =
-			v8::FunctionTemplate::New(call_cb);
-	tmpl->SetClassName(v8::String::NewSymbol(CLAZZ_NAME));
+	v8::Local<v8::FunctionTemplate> tmpl = v8::FunctionTemplate::New();
+	tmpl->SetClassName(v8::String::NewSymbol("Require"));
 
-	tmpl->Set(v8::String::NewSymbol(PROP_CACHE_NAME),
-		  v8::Array::New());
-	tmpl->Set(v8::String::NewSymbol(PROP_EXTENSIONS_NAME),
-		  v8::Object::New());
-	tmpl->Set(v8::String::NewSymbol(PROP_RESOLVE_NAME),
-		  v8::FunctionTemplate::New(resolve_cb));
+	tmpl->InstanceTemplate()->SetCallAsFunctionHandler(CallMethod);
+	tmpl->InstanceTemplate()->Set(v8::String::NewSymbol("cache"),
+				      v8::Array::New());
+	tmpl->InstanceTemplate()->Set(v8::String::NewSymbol("extensions"),
+				      v8::Object::New());
+	tmpl->InstanceTemplate()->Set(v8::String::NewSymbol("resolve"),
+				      v8::FunctionTemplate::New(ResolveMethod));
 
 	return handle_scope.Close(tmpl);
 }
 
-} /* namespace platform */
+} /* anonymous */
+
+v8::Local<v8::Object>
+NewInstance()
+{
+	v8::HandleScope handle_scope;
+
+	v8::Local<v8::FunctionTemplate> tmpl = GetTemplate();
+	v8::Local<v8::Object> thiz = tmpl->GetFunction()->NewInstance();
+	CacheSet(thiz, v8::String::NewSymbol("require"), thiz);
+
+	return handle_scope.Close(thiz);
+}
+
+} /* namespace require */
 } /* namespace js */
