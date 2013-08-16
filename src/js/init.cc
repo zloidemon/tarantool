@@ -103,8 +103,7 @@ js_raise(v8::TryCatch *try_catch)
 #endif
 
 	v8::String::Utf8Value trace_str(try_catch->StackTrace());
-	assert(*trace_str != NULL);
-	const char *trace_cstr = *trace_str;
+	const char *trace_cstr = (*trace_str != NULL) ? *trace_str : "(empty)";
 
 	/* Extract the first line from the stack trace */
 	enum { LINE_BUF_SIZE = 1024 };
@@ -148,6 +147,9 @@ init_library_fiber(va_list ap)
 	try_catch.SetVerbose(true);
 
 	js::LoadModules();
+	if (unlikely(try_catch.HasCaught())) {
+		js_raise(&try_catch);
+	}
 
 	v8::Local<v8::Object> require = js->GetRequire();
 	v8::Local<v8::String> rootModule =

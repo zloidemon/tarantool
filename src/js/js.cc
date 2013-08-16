@@ -34,10 +34,12 @@
 #include <say.h>
 #include <fiber.h>
 
+/* Built-in modules */
 #include "require.h"
 #include "platform.h"
 #include "stub.h"
 #include "fiber.h"
+#include "lua.h"
 
 /*
  * The v8 TLS hack
@@ -299,7 +301,7 @@ JS::New()
 
 	v8::Context::Scope context_scope(context);
 
-	v8::Local<v8::Object> require = js::require::NewInstance();
+	v8::Local<v8::Object> require = js::require::Exports();
 	js->_require_handle.Reset(js->isolate, require);
 
 	context->Global()->Set(v8::String::NewSymbol("require"), require);
@@ -491,12 +493,26 @@ LoadModules()
 	v8::Local<v8::Object> require = JS::GetCurrent()->GetRequire();
 
 	/* Put built-in modules to the 'require' cache */
+	v8::Local<v8::Object> platform = js::platform::Exports();
+	assert(!platform.IsEmpty());
 	js::require::CacheSet(require, v8::String::NewSymbol("platform"),
-			       js::platform::constructor()->GetFunction());
+			      platform);
+
+	v8::Local<v8::Object> stub = js::stub::Exports();
+	assert(!platform.IsEmpty());
 	js::require::CacheSet(require, v8::String::NewSymbol("stub"),
-			       js::stub::constructor()->GetFunction());
+			      stub);
+
+	v8::Local<v8::Object> lua = js::lua::Exports();
+	assert(!lua.IsEmpty());
+
+	js::require::CacheSet(require, v8::String::NewSymbol("lua"),
+			      lua);
+
+	v8::Local<v8::Object> fiber = js::fiber::Exports();
+	assert(!lua.IsEmpty());
 	js::require::CacheSet(require, v8::String::NewSymbol("fiber"),
-			       js::fiber::constructor()->GetFunction());
+			      fiber);
 }
 
 v8::Handle<v8::Value>

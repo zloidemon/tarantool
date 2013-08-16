@@ -34,7 +34,7 @@
  * @brief JS core utils
  */
 
-#define V8_ALLOW_ACCESS_TO_RAW_HANDLE_CONSTRUCTOR 1
+#define V8_ALLOW_ACCESS_TO_RAW_HANDLE_CONSTRUCTOR 1 /* Needed for mhash */
 #include <v8.h>
 #include <assert.h>
 

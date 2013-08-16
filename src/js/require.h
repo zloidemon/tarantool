@@ -36,7 +36,7 @@ namespace js {
 namespace require {
 
 v8::Local<v8::Object>
-NewInstance();
+Exports();
 
 v8::Local<v8::Object>
 Call(v8::Local<v8::Object> thiz, v8::Local<v8::String> what, bool sandbox);

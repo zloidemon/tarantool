@@ -35,11 +35,8 @@
 namespace js {
 namespace platform {
 
-v8::Handle<v8::FunctionTemplate>
-constructor();
-
-v8::Handle<v8::Value>
-gc(void);
+v8::Handle<v8::Object>
+Exports();
 
 } /* namespace platform */
 } /* namespace js */

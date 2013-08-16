@@ -231,7 +231,7 @@ GetTemplate()
 } /* anonymous */
 
 v8::Local<v8::Object>
-NewInstance()
+Exports()
 {
 	v8::HandleScope handle_scope;
 

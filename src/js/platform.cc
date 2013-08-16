@@ -33,11 +33,10 @@
 #include <cfg/tarantool_box_cfg.h>
 #include <say.h>
 
-namespace js {
-namespace platform {
+namespace { /* anonymous */
 
-static void
-say_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
+void
+SayMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope;
 
@@ -61,24 +60,8 @@ say_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 	return;
 }
 
-v8::Handle<v8::Value>
-gc(void)
-{
-	while (!v8::V8::IdleNotification()) {
-		say_info("js idle");
-	}
-
-	return v8::Handle<v8::Value>();
-}
-
-static void
-gc_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
-{
-	args.GetReturnValue().Set(gc());
-}
-
-static void
-call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
+void
+Call(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	if (args.IsConstructCall()) {
 		v8::ThrowException(v8::Exception::Error(
@@ -88,37 +71,40 @@ call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 }
 
 v8::Handle<v8::FunctionTemplate>
-constructor()
+GetTemplate()
 {
 	v8::HandleScope handle_scope;
 	v8::Local<v8::FunctionTemplate> tmpl =
-			v8::FunctionTemplate::New(call_cb);
+			v8::FunctionTemplate::New(Call);
 	tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 	tmpl->SetClassName(v8::String::NewSymbol("platform"));
 
-	v8::Local<v8::FunctionTemplate> log_tmpl =
-			v8::FunctionTemplate::New(say_cb);
-	log_tmpl->Set(v8::String::NewSymbol("FATAL"),
+	v8::Local<v8::FunctionTemplate> say_tmpl =
+			v8::FunctionTemplate::New(SayMethod);
+	say_tmpl->Set(v8::String::NewSymbol("FATAL"),
 		      v8::Integer::New((uint32_t) S_FATAL));
-	log_tmpl->Set(v8::String::NewSymbol("ERROR"),
+	say_tmpl->Set(v8::String::NewSymbol("ERROR"),
 		      v8::Integer::New((uint32_t) S_ERROR));
-	log_tmpl->Set(v8::String::NewSymbol("CRIT"),
+	say_tmpl->Set(v8::String::NewSymbol("CRIT"),
 		      v8::Integer::New((uint32_t) S_CRIT));
-	log_tmpl->Set(v8::String::NewSymbol("WARN"),
+	say_tmpl->Set(v8::String::NewSymbol("WARN"),
 		      v8::Integer::New((uint32_t) S_WARN));
-	log_tmpl->Set(v8::String::NewSymbol("INFO"),
+	say_tmpl->Set(v8::String::NewSymbol("INFO"),
 		      v8::Integer::New((uint32_t) S_INFO));
-	log_tmpl->Set(v8::String::NewSymbol("DEBUG"),
+	say_tmpl->Set(v8::String::NewSymbol("DEBUG"),
 		      v8::Integer::New((uint32_t) S_DEBUG));
 
-	tmpl->Set(v8::String::NewSymbol("say"),
-				log_tmpl);
+	tmpl->Set(v8::String::NewSymbol("say"), say_tmpl);
 
-	tmpl->Set(v8::String::NewSymbol("gc"),
-				v8::FunctionTemplate::New(gc_cb));
 
 	return handle_scope.Close(tmpl);
 }
 
-} /* namespace platform */
-} /* namespace js */
+} /* namespace (anonymous) */
+
+v8::Handle<v8::Object>
+js::platform::Exports()
+{
+	v8::HandleScope handle_scope;
+	return handle_scope.Close(GetTemplate()->GetFunction());
+}

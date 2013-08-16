@@ -35,8 +35,8 @@
 namespace js {
 namespace fiber {
 
-v8::Handle<v8::FunctionTemplate>
-constructor();
+v8::Local<v8::Object>
+Exports();
 
 } /* namespace fiber */
 } /* namespace js */

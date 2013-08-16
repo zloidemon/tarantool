@@ -46,8 +46,8 @@ namespace js {
 /* Namespace 'modname' */
 namespace stub {
 
-v8::Handle<v8::FunctionTemplate>
-constructor();
+v8::Local<v8::Object>
+Exports();
 
 } /* namespace stub */
 } /* namespace js */

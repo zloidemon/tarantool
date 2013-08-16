@@ -9,8 +9,10 @@
 namespace js {
 namespace fiber {
 
-static void
-fiber_js_wrapper(va_list ap)
+namespace { /* anonymous */
+
+void
+FiberWrapper(va_list ap)
 {
 	js::JS *js = va_arg(ap, js::JS *);
 	js->FiberOnStart();
@@ -18,7 +20,7 @@ fiber_js_wrapper(va_list ap)
 	v8::HandleScope handle_scope;
 
 	const v8::FunctionCallbackInfo<v8::Value>& args =
-			*va_arg(ap, const v8::FunctionCallbackInfo<v8::Value> *);
+		*va_arg(ap, const v8::FunctionCallbackInfo<v8::Value> *);
 
 	v8::Isolate *isolate = v8::Isolate::GetCurrent();
 	v8::Persistent<v8::Object> thiz(isolate, args.This());
@@ -58,8 +60,8 @@ fiber_js_wrapper(va_list ap)
 	thiz.Dispose();
 }
 
-static void
-call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
+void
+Call(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope;
 
@@ -73,7 +75,7 @@ call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 	v8::Local<v8::Object> thiz = args.This();
 
 	/* Call from the user */
-	struct fiber *f = fiber_new("js", fiber_js_wrapper);
+	struct fiber *f = fiber_new("js", FiberWrapper);
 
 	/* Save fiber id as a public member of the object */
 	thiz->Set(v8::String::NewSymbol("id"),
@@ -84,28 +86,17 @@ call_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 	args.GetReturnValue().Set(thiz);
 }
 
-static v8::Local<v8::Value>
-sleep(v8::Handle<v8::Object> thiz, v8::Handle<v8::Number> timeout)
-{
-	(void) thiz;
-	fiber_sleep(timeout->NumberValue());
-	return v8::Local<v8::Value>();
-}
-
-static void
-sleep_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
+void
+SleepMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope;
 
 	if (!args.IsConstructCall() && args.Length() == 0) {
-		auto ret = sleep(args.This(),
-				 v8::Number::New(TIMEOUT_INFINITY));
-		args.GetReturnValue().Set(ret);
+		fiber_sleep(TIMEOUT_INFINITY);
 		return;
 	} else if (!args.IsConstructCall() && args.Length() == 1 &&
 		   args[0]->IsNumber() && args[0]->NumberValue() >= 0.0) {
-		auto ret = sleep(args.This(), args[0]->ToNumber());
-		args.GetReturnValue().Set(ret);
+		fiber_sleep(args[0]->NumberValue());
 		return;
 	}
 
@@ -114,8 +105,8 @@ sleep_cb(const v8::FunctionCallbackInfo<v8::Value>& args)
 }
 
 void
-name_getter_cb(v8::Local<v8::String> property,
-	       const v8::PropertyCallbackInfo<v8::Value>& args)
+NameGetter(v8::Local<v8::String> property,
+	   const v8::PropertyCallbackInfo<v8::Value>& args)
 {
 	(void) property;
 
@@ -133,8 +124,8 @@ name_getter_cb(v8::Local<v8::String> property,
 }
 
 void
-name_setter_cb(v8::Local<v8::String> property, v8::Local<v8::Value> value,
-	       const v8::PropertyCallbackInfo<void>& args)
+NameSetter(v8::Local<v8::String> property, v8::Local<v8::Value> value,
+	   const v8::PropertyCallbackInfo<void>& args)
 {
 	(void) property;
 
@@ -153,8 +144,8 @@ name_setter_cb(v8::Local<v8::String> property, v8::Local<v8::Value> value,
 }
 
 void
-state_getter_cb(v8::Local<v8::String> property,
-	       const v8::PropertyCallbackInfo<v8::Value>& args)
+StateGetter(v8::Local<v8::String> property,
+	    const v8::PropertyCallbackInfo<v8::Value>& args)
 {
 	(void) property;
 
@@ -178,26 +169,35 @@ state_getter_cb(v8::Local<v8::String> property,
 }
 
 v8::Handle<v8::FunctionTemplate>
-constructor()
+GetTemplate()
 {
 	v8::HandleScope handle_scope;
 
 	v8::Local<v8::FunctionTemplate> tmpl =
-			v8::FunctionTemplate::New(call_cb);
+			v8::FunctionTemplate::New(Call);
 
 	tmpl->SetClassName(v8::String::NewSymbol("fiber"));
 
 	tmpl->Set(v8::String::NewSymbol("sleep"),
-		   v8::FunctionTemplate::New(sleep_cb));
+		   v8::FunctionTemplate::New(SleepMethod));
 	tmpl->Set(v8::String::NewSymbol("TIMEOUT_INFINITY"),
 		  v8::Number::New(TIMEOUT_INFINITY));
 
 	tmpl->InstanceTemplate()->SetAccessor(v8::String::NewSymbol("name"),
-		name_getter_cb, name_setter_cb);
+		NameGetter, NameSetter);
 	tmpl->InstanceTemplate()->SetAccessor(v8::String::NewSymbol("state"),
-		state_getter_cb);
+		StateGetter);
 
 	return handle_scope.Close(tmpl);
+}
+
+} /* namespace (anonymous) */
+
+v8::Local<v8::Object>
+Exports()
+{
+	v8::HandleScope handle_scope;
+	return handle_scope.Close(GetTemplate()->GetFunction());
 }
 
 } /* namespace fiber */
