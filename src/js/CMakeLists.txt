@@ -48,11 +48,21 @@ set_source_files_compile_flags(${js_stub_sources})
 add_library(js_stub STATIC ${js_stub_sources})
 target_link_libraries(js_stub js)
 
+# Mod Lua
+set(js_lua_sources
+    lua.cc
+)
+
+set_source_files_compile_flags(${js_lua_sources})
+add_library(js_lua STATIC ${js_lua_sources})
+target_link_libraries(js_lua js)
+
 target_link_libraries(js
     js_stub
     js_platform
     js_require
     js_fiber
+    js_lua
 )
 
 ##
