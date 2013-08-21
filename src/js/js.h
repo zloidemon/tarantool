@@ -38,6 +38,9 @@
 #include <v8.h>
 #include <assert.h>
 
+class ClientError;
+class Exception;
+
 namespace js {
 
 void
@@ -50,12 +53,12 @@ class JS {
 public:
 	v8::Isolate *
 	GetIsolate() const {
-		return isolate;
+		return _isolate;
 	}
 
 	v8::Local<v8::Context>
 	GetPrimaryContext() {
-		return v8::Local<v8::Context>::New(isolate, context);
+		return v8::Local<v8::Context>::New(_isolate, _context);
 	}
 
 	static JS *
@@ -67,7 +70,7 @@ public:
 	v8::Local<v8::Object>
 	GetRequire()
 	{
-		return v8::Local<v8::Object>::New(isolate, _require_handle);
+		return v8::Local<v8::Object>::New(_isolate, _require_handle);
 	}
 
 	v8::Local<v8::FunctionTemplate>
@@ -101,10 +104,10 @@ private:
 	JS(JS const&) = delete;
 	JS& operator=(JS const&) = delete;
 
-	v8::Persistent<v8::Context> context;
+	v8::Persistent<v8::Context> _context;
 	v8::Persistent<v8::Object> _require_handle;
-	v8::Isolate *isolate;
-	void *tmplcache;
+	v8::Isolate *_isolate;
+	void *_tmplcache;
 };
 
 void
@@ -125,6 +128,19 @@ CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src);
 
 void
 DumpObject(v8::Handle<v8::Object> src);
+
+v8::Local<v8::Object>
+CatchNativeException(const ClientError &e);
+
+void
+LogException(v8::Local<v8::Object> e, bool rethrow_native = false);
+
+/* Used from admin console */
+v8::Local<v8::Object>
+FillException(v8::TryCatch *try_catch);
+
+v8::Local<v8::Value>
+FormatJSON(v8::Local<v8::Value> obj);
 
 } /* namespace js */
 

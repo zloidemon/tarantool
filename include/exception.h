@@ -30,6 +30,7 @@
  */
 #include "object.h"
 #include <stdarg.h>
+#include <limits.h> /* PATH_MAX */
 #include "errcode.h"
 #include "say.h"
 
@@ -43,13 +44,22 @@ public:
 
 	virtual void log() const = 0;
 
+
+	const char *file() const {
+		return m_file;
+	}
+
+	unsigned line() const {
+		return m_line;
+	}
+
 protected:
 	Exception(const char *file, unsigned line);
 	/* The copy constructor is needed for C++ throw */
 	Exception(const Exception&);
 
 	/* file name */
-	const char *m_file;
+	char m_file[PATH_MAX];
 	/* line number */
 	unsigned m_line;
 

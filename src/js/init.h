@@ -53,7 +53,7 @@ void
 tarantool_js_init_library(js::JS *js);
 
 void
-tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
-		  const char *source_origin);
+tarantool_js_admin(struct tbuf *out, const void *source, size_t source_size,
+		   const char *source_origin);
 
 #endif /* TARANTOOL_JS_INIT_H_INCLUDED */

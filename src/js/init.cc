@@ -45,6 +45,7 @@
 #include <errcode.h>
 #include <exception.h>
 #include <say.h>
+#include <scoped_guard.h>
 
 #include "js.h"
 #include "require.h"
@@ -53,83 +54,6 @@
  *  tarantool start-up module
  */
 const char *TARANTOOL_JS_INIT_MODULE = "init";
-
-void
-tarantool_js_load_cfg(js::JS *js,
-		      struct tarantool_cfg *cfg)
-{
-	(void) js;
-	(void) cfg;
-}
-
-static void
-js_raise(v8::TryCatch *try_catch)
-{
-	v8::HandleScope handle_scope;
-
-	assert(try_catch->HasCaught());
-
-	v8::Local<v8::Message> message = try_catch->Message();
-	v8::String::Utf8Value e_str(try_catch->Exception());
-	const char *e_cstr = (*e_str != NULL) ? *e_str : "<empty>";
-
-	if (message.IsEmpty()) {
-		/* V8 didn't provide any extra information about this error */
-		try_catch->Reset();
-		tnt_raise(ClientError, ER_PROC_JS, e_cstr);
-	}
-
-	v8::String::Utf8Value filename_str(message->GetScriptResourceName());
-	const char *filename_cstr = (*filename_str != NULL)
-				    ? *filename_str : "unknown";
-	int linenum = message->GetLineNumber();
-#if 0
-	_say(S_ERROR, filename_cstr, linenum, NULL, "JS %s", e_cstr);
-
-	v8::String::Utf8Value source_str(message->GetSourceLine());
-	const char *source_cstr = (*source_str != NULL)
-					? *source_str
-					: "<unknown source>";
-	printf("%s", source_cstr);
-	int start = message->GetStartColumn();
-	for (int i = 0; i < start; i++) {
-		printf(" ");
-	}
-	int end = message->GetEndColumn();
-	for (int i = start; i < end; i++) {
-		printf("^");
-	}
-	printf("\n");
-#endif
-
-	v8::String::Utf8Value trace_str(try_catch->StackTrace());
-	const char *trace_cstr = (*trace_str != NULL) ? *trace_str : "(empty)";
-
-	/* Extract the first line from the stack trace */
-	enum { LINE_BUF_SIZE = 1024 };
-	char line[LINE_BUF_SIZE];
-	size_t line_len = strcspn(trace_cstr, "\r\n");
-	if (line_len == 0) {
-		strcpy(line, "UnknownError");
-	} else if (line_len < LINE_BUF_SIZE) {
-		strncpy(line, trace_cstr, line_len);
-		line[line_len] = 0;
-	} else {
-		line_len = LINE_BUF_SIZE - 4;
-		strncpy(line, trace_cstr, line_len);
-		line[line_len] = 0;
-		strcat(line, "...");
-	}
-
-	/* Log error */
-	_say(S_ERROR, filename_cstr, linenum, NULL, "%s", line);
-	/* Log JS stack trace */
-	_say(S_ERROR, filename_cstr, linenum, NULL, "JS stack trace:\n%s",
-	     trace_cstr);
-
-	/* Raise tnt_Exception to upper levels */
-	tnt_raise(ClientError, ER_PROC_JS, line);
-}
 
 /**
  * @brief Initialize JS library and load the init module
@@ -144,11 +68,11 @@ init_library_fiber(va_list ap)
 
 	v8::HandleScope handle_scope;
 	v8::TryCatch try_catch;
-	try_catch.SetVerbose(true);
 
 	js::LoadModules();
 	if (unlikely(try_catch.HasCaught())) {
-		js_raise(&try_catch);
+		v8::Local<v8::Object> e = js::FillException(&try_catch);
+		js::LogException(e);
 	}
 
 	v8::Local<v8::Object> require = js->GetRequire();
@@ -158,7 +82,9 @@ init_library_fiber(va_list ap)
 						       false);
 
 	if (unlikely(try_catch.HasCaught())) {
-		js_raise(&try_catch);
+		v8::Local<v8::Object> e = js::FillException(&try_catch);
+		js::LogException(e, false);
+		panic("Cannot load library");
 	}
 
 	/* Display the list of modules in 'export' */
@@ -193,8 +119,8 @@ tarantool_js_init_library(js::JS *js)
 }
 
 void
-tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
-		  const char *source_origin)
+tarantool_js_admin(struct tbuf *out, const void *source, size_t source_size,
+		   const char *source_origin)
 {
 	/* it does not work in sched thread */
 	assert(fiber->fid > 1);
@@ -204,7 +130,6 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 
 	v8::HandleScope handle_scope;
 	v8::TryCatch try_catch;
-	try_catch.SetVerbose(true);
 
 	assert(source_size <= INT_MAX);
 	v8::Local<v8::String> js_source =
@@ -214,13 +139,19 @@ tarantool_js_eval(struct tbuf *out, const void *source, size_t source_size,
 		js_source_origin = v8::String::New(source_origin);
 	}
 
-	v8::Handle<v8::Value> result = js::EvalInContext(js_source,
+	v8::Handle<v8::Value> ret = js::EvalInContext(js_source,
 		js_source_origin, v8::Context::GetCurrent());
 	if (unlikely(try_catch.HasCaught())) {
-		js_raise(&try_catch);
+		v8::Local<v8::Object> ret2 = v8::Object::New();
+		ret2->Set(v8::String::NewSymbol("error"),
+			  js::FillException(&try_catch));
+		ret = ret2;
 	}
 
-	v8::String::Utf8Value output(result);
-	tbuf_printf(out, "%.*s" CRLF, output.length(), *output);
-}
+	/* TODO: replace JSON with YAML here */
+	v8::Local<v8::Value> output = js::FormatJSON(ret);
 
+	v8::String::Utf8Value output_utf8(output);
+	tbuf_append(out, *output_utf8, output_utf8.length());
+	tbuf_append(out, "\n", 1);
+}

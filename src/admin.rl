@@ -248,21 +248,13 @@ admin_dispatch(struct ev_io *coio, struct iobuf *iobuf, lua_State *L)
 		action js {
 			strstart[strend-strstart]='\0';
 			start(out);
-			try {
 #if defined(ENABLE_JS)
-				tarantool_js->FiberEnsure();
-				tarantool_js_eval(out,
-						  strstart, strlen(strstart),
-						  fiber_name(fiber));
+			tarantool_js->FiberEnsure();
+			tarantool_js_admin(out, strstart, strlen(strstart),
+					   fiber_name(fiber));
 #else
-				tnt_raise(ClientError, ER_UNSUPPORTED,
-					  "The build", "js");
+			tbuf_printf(out, "JavaScript is not supported\n");
 #endif /* defined(ENABLE_JS) */
-			} catch(const Exception& e) {
-				e.log();
-				tbuf_printf(out, "%s\n", e.errmsg());
-			}
-
 			end(out);
 		}
 

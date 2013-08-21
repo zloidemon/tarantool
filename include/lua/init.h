@@ -112,7 +112,8 @@ tarantool_lua(struct lua_State *L,
  */
 int luaL_pushnumber64(struct lua_State *L, uint64_t val);
 
-
+const char *
+tarantool_lua_tostring(lua_State *L, int index);
 
 /**
  * show plugin statistics (for admin port)

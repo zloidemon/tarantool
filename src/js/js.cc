@@ -269,53 +269,32 @@ OnUnload()
 
 JS::JS()
 {
+	_tmplcache = mh_tmplcache_new();
 
-}
+	_isolate = v8::Isolate::New();
+	assert(_isolate != NULL);
 
-JS::~JS()
-{
-
-}
-
-JS *
-JS::New()
-{
-	assert(fiber_self()->fid == 1);
-
-	JS *js = new JS();
-
-	js->tmplcache = mh_tmplcache_new();
-
-	js->isolate = v8::Isolate::New();
-	assert(js->isolate != NULL);
-
-	v8::Locker locker(js->isolate);
-	v8::Isolate::Scope isolate_scope(js->isolate);
+	v8::Locker locker(_isolate);
+	v8::Isolate::Scope isolate_scope(_isolate);
 
 	v8::HandleScope handle_scope;
-	v8::Local<v8::Context> context = v8::Context::New(js->isolate);
-	js->context.Reset(js->isolate, context);
-	assert(!js->context.IsEmpty());
+	v8::Local<v8::Context> context = v8::Context::New(_isolate);
+	_context.Reset(_isolate, context);
+	assert(!_context.IsEmpty());
 
-	js->isolate = v8::Isolate::GetCurrent();
+	_isolate = v8::Isolate::GetCurrent();
 
 	v8::Context::Scope context_scope(context);
 
 	v8::Local<v8::Object> require = js::require::Exports();
-	js->_require_handle.Reset(js->isolate, require);
+	_require_handle.Reset(_isolate, require);
 
 	context->Global()->Set(v8::String::NewSymbol("require"), require);
-
-	return js;
 }
 
-void
-JS::Dispose()
+JS::~JS()
 {
-	assert(fiber_self()->fid == 1);
-
-	struct mh_tmplcache_t *tmplcache = (struct mh_tmplcache_t *)
-			this->tmplcache;
+	struct mh_tmplcache_t *tmplcache = (struct mh_tmplcache_t *) _tmplcache;
 	while (mh_size(tmplcache) > 0) {
 		mh_int_t k = mh_first(tmplcache);
 
@@ -334,7 +313,21 @@ JS::Dispose()
 		v8::Isolate::GetCurrent()->Exit();
 	}
 
-	isolate->Dispose();
+	_isolate->Dispose();
+}
+
+JS *
+JS::New()
+{
+	assert(fiber_self()->fid == 1);
+
+	return new JS();
+}
+
+void
+JS::Dispose()
+{
+	assert(fiber_self()->fid == 1);
 
 	delete this;
 }
@@ -356,7 +349,6 @@ JS::FiberEnsure()
 	FiberOnStart();
 }
 
-
 void
 JS::FiberOnStart()
 {
@@ -367,18 +359,18 @@ JS::FiberOnStart()
 	js_tls_hack_pthread_clear();
 #endif /* !defined(ENABLE_V8_HACK_LINK_TIME) */
 
-	v8::Locker *locker = new v8::Locker(this->GetIsolate());
+	v8::Locker *locker = new v8::Locker(_isolate);
 	fiber_self()->js_locker = locker;
 	say_debug("js create locker");
 
-	this->GetIsolate()->Enter();
+	_isolate->Enter();
 
 	v8::ResourceConstraints constraints;
 	constraints.set_stack_limit((uint32_t *) fiber_self()->coro.stack);
 	v8::SetResourceConstraints(&constraints);
 
 	v8::HandleScope handle_scope;
-	this->GetPrimaryContext()->Enter();
+	GetPrimaryContext()->Enter();
 
 	/*
 	 * Workaround for v8 issue #1180
@@ -422,7 +414,7 @@ JS::FiberOnPause(void)
 
 	assert(fiber_self()->js_unlocker == NULL);
 	say_debug("js create unlocker");
-	v8::Unlocker *unlocker = new v8::Unlocker(this->GetIsolate());
+	v8::Unlocker *unlocker = new v8::Unlocker(_isolate);
 	fiber_self()->js_unlocker = unlocker;
 
 	/* Invoke V8::IdleNotificaiton in subsequents event loops */
@@ -457,10 +449,9 @@ JS::FiberOnStop(void)
 void
 JS::TemplateCacheSet(intptr_t key, v8::Local<v8::FunctionTemplate> tmpl)
 {
-	struct mh_tmplcache_t *tmplcache =
-			(struct mh_tmplcache_t *) this->tmplcache;
+	struct mh_tmplcache_t *tmplcache = (struct mh_tmplcache_t *) _tmplcache;
 
-	v8::Persistent<v8::FunctionTemplate> handle(this->isolate, tmpl);
+	v8::Persistent<v8::FunctionTemplate> handle(_isolate, tmpl);
 	v8::FunctionTemplate *ptr = handle.ClearAndLeak();
 
 	const struct mh_tmplcache_node_t node = { key, ptr };
@@ -472,8 +463,7 @@ JS::TemplateCacheGet(intptr_t key) const
 {
 	v8::HandleScope handleScope;
 
-	struct mh_tmplcache_t *tmplcache =
-			(struct mh_tmplcache_t *) this->tmplcache;
+	struct mh_tmplcache_t *tmplcache = (struct mh_tmplcache_t *) _tmplcache;
 
 	mh_int_t k = mh_tmplcache_find(tmplcache, key, NULL);
 	if (k == mh_end(tmplcache))
@@ -597,6 +587,146 @@ DumpObject(v8::Handle<v8::Object> src)
 
 		say_debug("%.*s => %.*s", key_utf8.length(), *key_utf8,
 			  value_utf8.length(), *value_utf8);
+	}
+}
+
+v8::Local<v8::Object>
+CatchNativeException(const ClientError &e)
+{
+	v8::HandleScope handle_scope;
+
+	v8::Local<v8::Object> ex = v8::Exception::Error(
+		v8::String::New(e.errmsg()))->ToObject();
+
+	ex->Set(v8::String::NewSymbol("code"),
+		v8::Integer::New(e.errcode()));
+	ex->Set(v8::String::NewSymbol("name"),
+		v8::String::New(tnt_errcode_str(e.errcode())));
+
+	ex->Set(v8::String::NewSymbol("fileName"),
+		v8::String::New(e.file()));
+	ex->Set(v8::String::NewSymbol("lineNumber"),
+		v8::Integer::NewFromUnsigned(e.line()));
+
+	return handle_scope.Close(ex);
+}
+
+void
+LogException(v8::Local<v8::Object> e, bool rethrow_native)
+{
+	auto message_key = v8::String::NewSymbol("message");
+	auto file_name_key = v8::String::NewSymbol("fileName");
+	auto line_number_key = v8::String::NewSymbol("lineNumber");
+	auto code_key = v8::String::NewSymbol("code");
+
+	v8::String::Utf8Value message_utf8(e->Get(message_key));
+	v8::String::Utf8Value file_name_utf8(e->Get(file_name_key)->ToString());
+	int line_number = e->Get(line_number_key)->Int32Value();
+	uint32_t code = e->Get(code_key)->Uint32Value();
+
+	v8::Local<v8::Value> details = js::FormatJSON(e);
+	v8::String::Utf8Value details_utf8(details);
+
+	_say(S_ERROR, *file_name_utf8, line_number, NULL, "%s\n%s",
+	     *message_utf8, *details_utf8);
+
+	/* Convert exception to C++ */
+	if (!rethrow_native)
+		return;
+
+	throw ClientError(*file_name_utf8, line_number, *message_utf8, code);
+}
+
+v8::Local<v8::Object>
+FillException(v8::TryCatch *try_catch)
+{
+	v8::HandleScope handle_scope;
+
+	auto message_key = v8::String::NewSymbol("message");
+
+	v8::Local<v8::Object> e;
+	v8::Local<v8::Message> eparams = try_catch->Message();
+	(void) try_catch->StackTrace();
+
+	if (try_catch->Exception()->IsObject()) {
+		e = try_catch->Exception()->ToObject();
+	} else {
+		/* Convert primitive exception to object */
+		v8::Local<v8::Object> e2 = v8::Object::New();
+		e2->Set(message_key, try_catch->Exception()->ToString());
+		e2->SetPrototype(try_catch->Exception());
+		e = e2;
+	}
+	assert (!e.IsEmpty());
+
+	/* Check message */
+	auto message = e->Get(message_key);
+	if (message->IsUndefined()) {
+		e->ForceSet(message_key, e->ToString(), v8::ReadOnly);
+	} else {
+		/* Convert to string and remove v8::DontEnum flag */
+		e->ForceSet(message_key, message->ToString(), v8::ReadOnly);
+	}
+
+	/* Check error code */
+	v8::Local<v8::String> code_key = v8::String::NewSymbol("code");
+	auto code = e->Get(code_key);
+	if (code->IsUndefined() || !code->IsInt32()) {
+		e->Set(code_key, v8::Uint32::New(ER_PROC_JS));
+	}
+
+	/* Check file:line */
+	auto file_name_key = v8::String::NewSymbol("fileName");
+	auto line_number_key = v8::String::NewSymbol("lineNumber");
+	auto file_name = e->Get(file_name_key);
+	auto line_number = e->Get(line_number_key);
+	if (!file_name->IsString() || !line_number->IsUint32()) {
+		e->Delete(file_name_key);
+		e->Delete(line_number_key);
+		if (!eparams.IsEmpty()) {
+			e->Set(file_name_key,
+			       eparams->GetScriptResourceName());
+			e->Set(line_number_key,
+			       v8::Int32::New(eparams->GetLineNumber()));
+		}
+	}
+
+	if (!eparams.IsEmpty()) {
+		e->Set(v8::String::NewSymbol("sourceLine"),
+		       eparams->GetSourceLine());
+		e->Set(v8::String::NewSymbol("startColumn"),
+		       v8::Int32::New(eparams->GetStartColumn()));
+		e->Set(v8::String::NewSymbol("endColumn"),
+		       v8::Int32::New(eparams->GetEndColumn()));
+	}
+
+	return handle_scope.Close(e);
+}
+
+v8::Local<v8::Value>
+FormatJSON(v8::Local<v8::Value> obj)
+{
+	v8::HandleScope handle_scope;
+
+	auto json = v8::Context::GetCurrent()->Global()->Get(
+				v8::String::NewSymbol("JSON"))->ToObject();
+
+	auto json_stringify = json->Get(v8::String::NewSymbol("stringify"))->
+			ToObject();
+
+	if (json->IsObject() && json_stringify->IsObject()) {
+		v8::Local<v8::Value> argv[] = {
+			obj,
+			v8::Undefined(),
+			v8::String::New("\t")
+		};
+
+		auto output = json_stringify->CallAsFunction(json, 3, argv);
+		return handle_scope.Close(output);
+	} else {
+		say_warn("Cannot convert to JSON because JSON object was "
+			 "removed from globals");
+		return handle_scope.Close(obj);
 	}
 }
 

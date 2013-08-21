@@ -3,6 +3,7 @@
 #include <say.h>
 #include <exception.h>
 #include <fiber.h>
+#include <scoped_guard.h>
 
 #include "init.h"
 
@@ -39,6 +40,11 @@ FiberWrapper(va_list ap)
 	assert(!thiz.IsEmpty());
 	assert(!fun.IsEmpty());
 
+	auto scope_guard = make_scoped_guard([&]{
+		fun.Dispose();
+		thiz.Dispose();
+	});
+
 	/* Finish with initialization and return control to the caller  */
 	fiber_sleep(0.0);
 
@@ -55,9 +61,12 @@ FiberWrapper(va_list ap)
 		}
 	}
 
+	v8::TryCatch try_catch;
 	(void) fun2->CallAsFunction(thiz2, fun_argc, fun_argv_arr);
-	fun.Dispose();
-	thiz.Dispose();
+	if (try_catch.HasCaught()) {
+		v8::Local<v8::Object> e = js::FillException(&try_catch);
+		js::LogException(e);
+	}
 }
 
 void

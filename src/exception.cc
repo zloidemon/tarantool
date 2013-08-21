@@ -34,15 +34,18 @@
 #include <errno.h>
 
 Exception::Exception(const char *file, unsigned line)
-	: m_file(file), m_line(line)
+	: m_line(line)
 {
+	strncpy(m_file, file, sizeof(m_file) - 1);
+	m_file[sizeof(m_file) - 1] = 0;
 	m_errmsg[0] = 0;
 }
 
 Exception::Exception(const Exception& e)
-	: Object(), m_file(e.m_file), m_line(e.m_line)
+	: Object(), m_line(e.m_line)
 {
 	memcpy(m_errmsg, e.m_errmsg, sizeof(m_errmsg));
+	memcpy(m_file, e.m_file, sizeof(m_file));
 }
 
 SystemError::SystemError(const char *file, unsigned line)
@@ -98,8 +101,7 @@ ClientError::ClientError(const char *file, unsigned line, const char *msg,
 void
 ClientError::log() const
 {
-	say_error("%s at %s:%d, %s", "ClientError",
-		  m_file, m_line, m_errmsg);
+	_say(S_ERROR, m_file, m_line, NULL, "%s", m_errmsg);
 }
 
 IllegalParams::IllegalParams(const char *file, unsigned line, const char *msg)
