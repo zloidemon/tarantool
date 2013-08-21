@@ -76,9 +76,17 @@ init_library_fiber(va_list ap)
 	}
 
 	v8::Local<v8::Object> require = js->GetRequire();
-	v8::Local<v8::String> rootModule =
+	v8::Local<v8::String> root_module =
 			v8::String::New(TARANTOOL_JS_INIT_MODULE);
-	v8::Handle<v8::Object> ret = js::require::Call(require, rootModule,
+	v8::String::Utf8Value root_module_path_utf8(js::require::Resolve(
+		require, root_module));
+	if (*root_module_path_utf8 == NULL ||
+	    access(*root_module_path_utf8, F_OK ) != 0) {
+		/* a root module was not found */
+		return;
+	}
+
+	v8::Handle<v8::Object> ret = js::require::Call(require, root_module,
 						       false);
 
 	if (unlikely(try_catch.HasCaught())) {
