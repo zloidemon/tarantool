@@ -73,6 +73,7 @@ init_library_fiber(va_list ap)
 	if (unlikely(try_catch.HasCaught())) {
 		v8::Local<v8::Object> e = js::FillException(&try_catch);
 		js::LogException(e);
+		panic("Cannot load library");
 	}
 
 	v8::Local<v8::Object> require = js->GetRequire();

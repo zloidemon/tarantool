@@ -44,8 +44,8 @@ CacheGet(v8::Local<v8::Object> thiz, v8::Local<v8::String> what)
 {
 	v8::HandleScope handle_scope;
 
-	v8::Local<v8::Array> cache = thiz->Get(
-		v8::String::NewSymbol("cache")).As<v8::Array>();
+	v8::Local<v8::Object> cache = thiz->Get(
+		v8::String::NewSymbol("cache"))->ToObject();
 
 	if (cache.IsEmpty()) {
 		say_warn("Require cache is disabled");
@@ -62,8 +62,8 @@ CacheSet(v8::Local<v8::Object> thiz, v8::Local<v8::String> what,
 {
 	v8::HandleScope handle_scope;
 
-	v8::Local<v8::Array> cache = thiz->Get(
-		v8::String::NewSymbol("cache")).As<v8::Array>();
+	v8::Local<v8::Object> cache = thiz->Get(
+		v8::String::NewSymbol("cache"))->ToObject();
 
 	if (cache.IsEmpty()) {
 		say_warn("Require cache is disabled");
@@ -100,7 +100,7 @@ Call(v8::Local<v8::Object> thiz, v8::Local<v8::String> what, bool sandbox)
 
 	v8::Local<v8::Object> ret = CacheGet(thiz, what);
 	if (!ret.IsEmpty() && !ret->IsUndefined()) {
-		return ret;
+		return handle_scope.Close(ret);
 	}
 
 	v8::String::Utf8Value what_utf8(what);
@@ -108,6 +108,7 @@ Call(v8::Local<v8::Object> thiz, v8::Local<v8::String> what, bool sandbox)
 	if (filename.IsEmpty()) {
 		say_warn("Module is not found: %.*s",
 			 what_utf8.length(), *what_utf8);
+		return v8::Local<v8::Object>();
 	}
 
 	v8::String::Utf8Value filename_utf8(filename);
@@ -185,7 +186,10 @@ ResolveMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 		return;
 	}
 
-	args.GetReturnValue().Set(Resolve(args.This(), args[0]->ToString()));
+	v8::Local<v8::String> ret = Resolve(args.This(), args[0]->ToString());
+	if (!ret.IsEmpty()) {
+		args.GetReturnValue().Set(ret);
+	}
 }
 
 
@@ -206,8 +210,10 @@ CallMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 		return;
 	}
 
-	args.GetReturnValue().Set(Call(args.This(),
-				       args[0]->ToString(), true));
+	v8::Local<v8::Object> ret = Call(args.This(), args[0]->ToString(),true);
+	if (!ret.IsEmpty()) {
+		args.GetReturnValue().Set(ret);
+	}
 }
 
 v8::Local<v8::FunctionTemplate>
@@ -219,7 +225,7 @@ GetTemplate()
 
 	tmpl->InstanceTemplate()->SetCallAsFunctionHandler(CallMethod);
 	tmpl->InstanceTemplate()->Set(v8::String::NewSymbol("cache"),
-				      v8::Array::New());
+				      v8::Object::New());
 	tmpl->InstanceTemplate()->Set(v8::String::NewSymbol("extensions"),
 				      v8::Object::New());
 	tmpl->InstanceTemplate()->Set(v8::String::NewSymbol("resolve"),

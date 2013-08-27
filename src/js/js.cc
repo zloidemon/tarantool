@@ -428,8 +428,6 @@ JS::FiberOnStop(void)
 
 	assert (GetCurrent() == this);
 
-	this->GetIsolate()->Exit();
-
 	v8::Unlocker *unlocker = static_cast<v8::Unlocker *>
 			(fiber_self()->js_unlocker);
 
@@ -438,6 +436,16 @@ JS::FiberOnStop(void)
 		say_debug("js delete unlocker");
 		delete unlocker;
 	}
+
+	{
+		v8::HandleScope handle_scope;
+		v8::Local<v8::Context> current_contexnt = GetPrimaryContext();
+		if (current_contexnt->InContext()) {
+			current_contexnt->Exit();
+		}
+	}
+
+	this->GetIsolate()->Exit();
 
 	v8::Locker *locker = static_cast<v8::Locker *>(fiber_self()->js_locker);
 	fiber_self()->js_locker = NULL;
@@ -480,7 +488,9 @@ void
 LoadModules()
 {
 	v8::HandleScope handle_scope;
+
 	v8::Local<v8::Object> require = JS::GetCurrent()->GetRequire();
+	assert(!require.IsEmpty());
 
 	/* Put built-in modules to the 'require' cache */
 	v8::Local<v8::Object> platform = js::platform::Exports();
@@ -489,20 +499,16 @@ LoadModules()
 			      platform);
 
 	v8::Local<v8::Object> stub = js::stub::Exports();
-	assert(!platform.IsEmpty());
-	js::require::CacheSet(require, v8::String::NewSymbol("stub"),
-			      stub);
+	assert(!stub.IsEmpty());
+	js::require::CacheSet(require, v8::String::NewSymbol("stub"), stub);
 
 	v8::Local<v8::Object> lua = js::lua::Exports();
 	assert(!lua.IsEmpty());
-
-	js::require::CacheSet(require, v8::String::NewSymbol("lua"),
-			      lua);
+	js::require::CacheSet(require, v8::String::NewSymbol("lua"), lua);
 
 	v8::Local<v8::Object> fiber = js::fiber::Exports();
-	assert(!lua.IsEmpty());
-	js::require::CacheSet(require, v8::String::NewSymbol("fiber"),
-			      fiber);
+	assert(!fiber.IsEmpty());
+	js::require::CacheSet(require, v8::String::NewSymbol("fiber"), fiber);
 }
 
 v8::Handle<v8::Value>
@@ -519,7 +525,7 @@ EvalInContext(v8::Handle<v8::String> source,
 		return v8::Handle<v8::Value>();
 	}
 
-	v8::Handle<v8::Value> ret = script->Run();
+	v8::Local<v8::Value> ret = script->Run();
 	if (ret.IsEmpty()) {
 		return v8::Handle<v8::Value>();
 	}
