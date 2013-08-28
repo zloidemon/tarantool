@@ -40,6 +40,7 @@
 #include "stub.h"
 #include "fiber.h"
 #include "lua.h"
+#include "session.h"
 #include "../box/js/box.h"
 
 /*
@@ -490,6 +491,11 @@ LoadModules()
 	v8::Local<v8::Object> fiber = js::fiber::Exports();
 	assert(!fiber.IsEmpty());
 	js::require::CacheSet(require, v8::String::NewSymbol("fiber"), fiber);
+
+	v8::Local<v8::Object> session = js::session::Exports();
+	assert(!session.IsEmpty());
+	js::require::CacheSet(require, v8::String::NewSymbol("session"),
+			      session);
 
 	v8::Local<v8::Object> box = js::box::Exports();
 	assert(!box.IsEmpty());

@@ -60,12 +60,22 @@ set_source_files_compile_flags(${js_lua_sources})
 add_library(js_lua STATIC ${js_lua_sources})
 target_link_libraries(js_lua js)
 
+# Mod Session
+set(js_session_sources
+    session.cc
+)
+
+set_source_files_compile_flags(${js_session_sources})
+add_library(js_session STATIC ${js_session_sources})
+target_link_libraries(js_session js)
+
 target_link_libraries(js
     js_stub
     js_platform
     js_require
     js_fiber
     js_lua
+    js_session
     js_box
 )
 
