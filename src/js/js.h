@@ -129,11 +129,36 @@ CopyObject(v8::Handle<v8::Object> dst, v8::Handle<v8::Object> src);
 void
 DumpObject(v8::Handle<v8::Object> src);
 
+inline bool
+Inherits(v8::Local<v8::Value> constructor, v8::Local<v8::Value> obj)
+{
+	if (!constructor->IsObject() || !obj->IsObject())
+		return false;
+	return constructor->ToObject()->Equals(obj->ToObject()->GetConstructor());
+}
+
 v8::Local<v8::Object>
 CatchNativeException(const ClientError &e);
 
 void
 LogException(v8::Local<v8::Object> e, bool rethrow_native = false);
+
+
+/* Exception wrappers */
+#define JS_BEGIN()								\
+try {
+
+#define JS_END() \
+} catch (const ClientError& e) {						\
+	v8::Local<v8::Object> ex = CatchNativeException(e);			\
+	v8::ThrowException(ex);							\
+	return;									\
+} catch (const Exception& e) {							\
+	e.log();								\
+	panic("Unhandled C++ exception in JS bindings");			\
+} catch (...) {									\
+	panic("Unhandled C++ exception in JS bindings");			\
+}
 
 /* Used from admin console */
 v8::Local<v8::Object>

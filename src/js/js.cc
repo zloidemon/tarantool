@@ -40,6 +40,7 @@
 #include "stub.h"
 #include "fiber.h"
 #include "lua.h"
+#include "../box/js/box.h"
 
 /*
  * The v8 TLS hack
@@ -509,6 +510,10 @@ LoadModules()
 	v8::Local<v8::Object> fiber = js::fiber::Exports();
 	assert(!fiber.IsEmpty());
 	js::require::CacheSet(require, v8::String::NewSymbol("fiber"), fiber);
+
+	v8::Local<v8::Object> box = js::box::Exports();
+	assert(!box.IsEmpty());
+	js::require::CacheSet(require, v8::String::NewSymbol("box"), box);
 }
 
 v8::Handle<v8::Value>
@@ -595,6 +600,9 @@ DumpObject(v8::Handle<v8::Object> src)
 			  value_utf8.length(), *value_utf8);
 	}
 }
+
+extern inline bool
+Inherits(v8::Local<v8::Value> constructor, v8::Local<v8::Value> obj);
 
 v8::Local<v8::Object>
 CatchNativeException(const ClientError &e)

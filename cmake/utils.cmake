@@ -43,9 +43,11 @@ function(lua_source varname filename)
     set (tmpfile "${CMAKE_CURRENT_BINARY_DIR}/${filename}.new.c")
     set (dstfile "${CMAKE_CURRENT_BINARY_DIR}/${filename}.c")
     get_filename_component(module ${filename} NAME_WE)
+    get_filename_component(ext2 ${filename} EXT)
+    string(SUBSTRING ${ext2} 1 -1 ext)
 
     ADD_CUSTOM_COMMAND(OUTPUT ${dstfile}
-        COMMAND ${ECHO} 'const char ${module}_lua[] =' > ${tmpfile}
+        COMMAND ${ECHO} 'const char ${module}_${ext}[] =' > ${tmpfile}
         COMMAND ${CMAKE_BINARY_DIR}/extra/txt2c ${srcfile} >> ${tmpfile}
         COMMAND ${ECHO} '\;' >> ${tmpfile}
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${tmpfile} ${dstfile}

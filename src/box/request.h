@@ -136,4 +136,20 @@ void
 request_create(struct request *request, uint32_t type, const char *data,
 	       uint32_t len);
 
+void
+execute_select(const struct request *request, struct txn *txn,
+	       struct port *port);
+
+void
+execute_replace(const struct request *request, struct txn *txn,
+		struct port *port);
+
+void
+execute_update(const struct request *request, struct txn *txn,
+	       struct port *port);
+
+void
+execute_delete(const struct request *request, struct txn *txn,
+	       struct port *port);
+
 #endif /* TARANTOOL_BOX_REQUEST_H_INCLUDED */

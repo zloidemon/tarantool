@@ -63,6 +63,7 @@ target_link_libraries(js
     js_require
     js_fiber
     js_lua
+    js_box
 )
 
 ##

@@ -33,4 +33,7 @@ tarantool_module("box"
     box_lua.cc
     box_lua_space.cc)
 
+if (ENABLE_JS)
+    add_subdirectory(js)
+endif()
 target_link_libraries(tarantool_box bitset)

@@ -59,7 +59,7 @@ dup_replace_mode(uint32_t flags)
 		DUP_REPLACE : DUP_REPLACE_OR_INSERT;
 }
 
-static void
+void
 execute_replace(const struct request *request, struct txn *txn,
 		struct port *port)
 {
@@ -83,7 +83,7 @@ execute_replace(const struct request *request, struct txn *txn,
 	}
 }
 
-static void
+void
 execute_update(const struct request *request, struct txn *txn,
 	       struct port *port)
 {
@@ -120,7 +120,7 @@ execute_update(const struct request *request, struct txn *txn,
 
 /** }}} */
 
-static void
+void
 execute_select(const struct request *request, struct txn *txn,
 	       struct port *port)
 {
@@ -170,7 +170,7 @@ execute_select(const struct request *request, struct txn *txn,
 		tnt_raise(IllegalParams, "can't unpack request");
 }
 
-static void
+void
 execute_delete(const struct request *request, struct txn *txn,
 	       struct port *port)
 {
