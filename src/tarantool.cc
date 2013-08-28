@@ -74,7 +74,7 @@ extern "C" {
 #if defined(ENABLE_JS)
 #include "js/init.h"
 #include "js/js.h"
-struct js::JS *tarantool_js = NULL;
+class js::JS *tarantool_js = NULL;
 #endif /* defined(ENABLE_JS) */
 
 static pid_t master_pid;

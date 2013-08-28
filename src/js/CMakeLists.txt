@@ -4,6 +4,9 @@
 set(js_sources
     js.cc
 )
+# Needed for mhash
+set_source_files_properties(${js_sources} PROPERTIES
+    COMPILE_FLAGS "-Wno-unused-function")
 set_source_files_compile_flags(${js_sources})
 add_library(js STATIC ${js_sources})
 target_link_libraries(js ${LIBV8_LIBRARIES})
