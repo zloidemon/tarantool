@@ -197,8 +197,6 @@ struct mh_tmplcache_node_t {
 #define MH_SOURCE 1
 #include <mhash.h>
 
-struct ev_idle idle_watcher;
-
 class ArrayBufferAllocator: public v8::ArrayBuffer::Allocator {
 public:
 	virtual void* Allocate(size_t length)
@@ -225,19 +223,6 @@ V8SetFlag(const char *flag)
 	v8::V8::SetFlagsFromString(flag, strlen(flag));
 }
 
-
-void
-V8Idle(EV_P_ struct ev_idle *w, int revents)
-{
-	(void) revents;
-	(void) w;
-
-	say_debug("js idle");
-	if (v8::V8::IdleNotification()) {
-		ev_idle_stop(EV_A_ &idle_watcher);
-	}
-}
-
 } /* namespace (anonymous) */
 
 namespace js {
@@ -257,14 +242,12 @@ OnLoad()
 	V8SetFlag("--expose_gc");
 
 	v8::V8::SetArrayBufferAllocator(&array_buffer_allocator);
-
-	ev_idle_init(&idle_watcher, V8Idle);
 }
 
 void
 OnUnload()
 {
-	ev_idle_stop(&idle_watcher);
+
 }
 
 
@@ -417,9 +400,6 @@ JS::FiberOnPause(void)
 	say_debug("js create unlocker");
 	v8::Unlocker *unlocker = new v8::Unlocker(_isolate);
 	fiber_self()->js_unlocker = unlocker;
-
-	/* Invoke V8::IdleNotificaiton in subsequents event loops */
-	ev_idle_start(&idle_watcher);
 }
 
 void
