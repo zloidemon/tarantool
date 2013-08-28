@@ -27,12 +27,16 @@
  * SUCH DAMAGE.
  */
 
-#include "platform.h"
+#include "console.h"
 
 #include <tarantool.h>
 #include <cfg/tarantool_box_cfg.h>
 #include <say.h>
 
+extern char console_js[];
+
+namespace js {
+namespace console {
 namespace { /* anonymous */
 
 void
@@ -40,44 +44,40 @@ SayMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
 	v8::HandleScope handle_scope;
 
-	int level = -1;
-	if (args.Length() == 2 && args[0]->IsInt32()) {
-		level = args[0].As<v8::Integer>()->Int32Value();
+	if (args.Length() < 3 || !args[0]->IsInt32() || !args[1]->IsString() ||
+			!args[2]->IsUint32()) {
+		v8::ThrowException(v8::Exception::Error(
+			v8::String::New("Usage: say(level, "
+					"fileName, lineNumber)")));
+		return;
 	}
 
+	int level = args[0]->Int32Value();
 	if (level < S_FATAL || level > S_DEBUG) {
 		v8::ThrowException(v8::Exception::RangeError(
 			v8::String::New("Invalid log level")));
 		return;
 	}
 
-	v8::String::Utf8Value str(args[1]);
-	_say(level, "js", 0, NULL, "%.*s", str.length(), *str);
+	v8::String::Utf8Value filename_utf8(args[1]);
+	uint32_t linenumber = args[2]->Uint32Value();
+
+	v8::String::Utf8Value message_utf8(args[3]);
+	_say(level, *filename_utf8, linenumber, NULL, "%s", *message_utf8);
 	if (level == S_FATAL) {
-		panic("js say(PANIC) was called");
+		panic("panic() was called from JS: %s", *message_utf8);
 	}
 
-	return;
-}
-
-void
-Call(const v8::FunctionCallbackInfo<v8::Value>& args)
-{
-	if (args.IsConstructCall()) {
-		v8::ThrowException(v8::Exception::Error(
-			v8::String::New("Constructor call")));
-		return;
-	}
+	args.GetReturnValue().Set(args[3]);
 }
 
 v8::Handle<v8::FunctionTemplate>
 GetTemplate()
 {
 	v8::HandleScope handle_scope;
-	v8::Local<v8::FunctionTemplate> tmpl =
-			v8::FunctionTemplate::New(Call);
-	tmpl->InstanceTemplate()->SetInternalFieldCount(1);
-	tmpl->SetClassName(v8::String::NewSymbol("platform"));
+	v8::Local<v8::FunctionTemplate> tmpl = v8::FunctionTemplate::New();
+
+	tmpl->SetClassName(v8::String::NewSymbol("Console"));
 
 	v8::Local<v8::FunctionTemplate> say_tmpl =
 			v8::FunctionTemplate::New(SayMethod);
@@ -94,8 +94,7 @@ GetTemplate()
 	say_tmpl->Set(v8::String::NewSymbol("DEBUG"),
 		      v8::Integer::New((uint32_t) S_DEBUG));
 
-	tmpl->Set(v8::String::NewSymbol("say"), say_tmpl);
-
+	tmpl->PrototypeTemplate()->Set(v8::String::NewSymbol("say"), say_tmpl);
 
 	return handle_scope.Close(tmpl);
 }
@@ -103,8 +102,18 @@ GetTemplate()
 } /* namespace (anonymous) */
 
 v8::Handle<v8::Object>
-js::platform::Exports()
+Exports()
 {
 	v8::HandleScope handle_scope;
-	return handle_scope.Close(GetTemplate()->GetFunction());
+	/* Load JavaScript source to alter native object */
+	v8::Local<v8::String> exports_key = v8::String::NewSymbol("exports");
+	v8::Local<v8::Object> globals = v8::Object::New();
+	globals->Set(exports_key, GetTemplate()->GetFunction()->NewInstance());
+	v8::Local<v8::String> source = v8::String::New(console_js);
+	v8::Local<v8::String> filename = v8::String::New("console.js");
+	EvalInNewContext(source, filename, globals);
+	return handle_scope.Close(globals->Get(exports_key)->ToObject());
 }
+
+} /* namespace console */
+} /* namespace js */

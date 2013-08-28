@@ -27,7 +27,7 @@
  * SUCH DAMAGE.
  */
 
-#include "platform.h"
+#include "require.h"
 
 #include <stdio.h>
 #include <limits.h>

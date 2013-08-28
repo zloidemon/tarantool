@@ -1,5 +1,5 @@
-#ifndef TARANTOOL_JS_LIB_PLATFORM_H_INCLUDED
-#define TARANTOOL_JS_LIB_PLATFORM_H_INCLUDED
+#ifndef TARANTOOL_JS_LIB_CONSOLE_H_INCLUDED
+#define TARANTOOL_JS_LIB_CONSOLE_H_INCLUDED
 
 /*
  * Redistribution and use in source and binary forms, with or
@@ -33,12 +33,12 @@
 #include "js.h"
 
 namespace js {
-namespace platform {
+namespace console {
 
 v8::Handle<v8::Object>
 Exports();
 
-} /* namespace platform */
+} /* namespace console */
 } /* namespace js */
 
-#endif /* TARANTOOL_JS_LIB_PLATFORM_H_INCLUDED */
+#endif /* TARANTOOL_JS_LIB_CONSOLE_H_INCLUDED */

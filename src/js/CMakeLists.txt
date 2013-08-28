@@ -15,14 +15,22 @@ target_link_libraries(js ${LIBV8_LIBRARIES})
 ## Modules
 ##
 
-# Mod Platform
-set(js_platform_sources
-    platform.cc
+lua_source(js_console_sources console.js)
+
+# Mod Console
+set(js_console_sources
+    ${js_console_sources}
+    console.cc
 )
 
-set_source_files_compile_flags(${js_platform_sources})
-add_library(js_platform STATIC ${js_platform_sources})
-target_link_libraries(js_platform js)
+add_custom_target(generate_console_js_sources
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src/box
+    DEPENDS ${js_console_sources})
+set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${js_console_sources})
+
+set_source_files_compile_flags(${js_console_sources})
+add_library(js_console STATIC ${js_console_sources})
+target_link_libraries(js_console js)
 
 # Mod Require
 set(js_require_sources
@@ -31,7 +39,7 @@ set(js_require_sources
 
 set_source_files_compile_flags(${js_require_sources})
 add_library(js_require STATIC ${js_require_sources})
-target_link_libraries(js_require js js_platform)
+target_link_libraries(js_require js)
 
 # Mod Fiber
 set(js_fiber_sources
@@ -71,7 +79,7 @@ target_link_libraries(js_session js)
 
 target_link_libraries(js
     js_stub
-    js_platform
+    js_console
     js_require
     js_fiber
     js_lua

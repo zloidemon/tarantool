@@ -36,7 +36,7 @@
 
 /* Built-in modules */
 #include "require.h"
-#include "platform.h"
+#include "console.h"
 #include "stub.h"
 #include "fiber.h"
 #include "lua.h"
@@ -475,10 +475,10 @@ LoadModules()
 	assert(!require.IsEmpty());
 
 	/* Put built-in modules to the 'require' cache */
-	v8::Local<v8::Object> platform = js::platform::Exports();
-	assert(!platform.IsEmpty());
-	js::require::CacheSet(require, v8::String::NewSymbol("platform"),
-			      platform);
+	v8::Local<v8::Object> console = js::console::Exports();
+	assert(!console.IsEmpty());
+	js::require::CacheSet(require, v8::String::NewSymbol("console"),
+			      console);
 
 	v8::Local<v8::Object> stub = js::stub::Exports();
 	assert(!stub.IsEmpty());
