@@ -1,0 +1,39 @@
+\h
+---
+- - - Usage
+    - \f [pattern]: show fiber information
+      \c: show cluster information
+      \m[+]: show memory information
+      \d[S][+] [space name]: show spaces list
+      \h [topic]: help
+      \i[+] space: show indexes in space
+      \s: show request statistics
+  - Help topics:
+    - Basics
+    - Administration
+  - To get help on a topic, type help('topic') (with quotes)
+  - To get help on a function/object, type help(function) (without quotes)
+  - To start tutorial, type tutorial()
+...
+\h Basics
+---
+- First thing to be done before any database object can be created, is calling box.cfg()
+  to configure and bootstrap the database instance. Once this is done, define database
+  objects using box.schema, for example type box.schema.space.create('test') to create
+  space 'test'. To add an index on a space, type box.space.test:create_index(). With
+  an index, the space can accept tuples. Insert a tuple with box.space.test:insert{1,
+  'First tuple'}
+...
+\h Administration
+---
+- Server administrative commands:
+  - box.snapshot()
+  - box.info()
+  - box.stat()
+  - box.slab.info()
+  - box.slab.check()
+  - box.fiber.info()
+  - box.plugin.info()
+  - box.cfg()
+  - box.coredump()
+...

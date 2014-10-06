@@ -97,10 +97,10 @@ static const char *lua_modules[] = {
 	"fio", fio_lua,
 	"socket", bsdsocket_lua,
 	"net.box", box_net_box_lua,
-	"console", console_lua,
 	"tap", tap_lua,
 	"help.en_US", help_en_US_lua,
 	"help", help_lua,
+	"console", console_lua,
 	NULL
 };
 

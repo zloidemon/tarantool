@@ -6,6 +6,7 @@ local socket = require('socket')
 local log = require('log')
 local errno = require('errno')
 local urilib = require('uri')
+local help = require('help')
 
 -- admin formatter must be able to encode any Lua variable
 local formatter = require('yaml').new()
@@ -15,6 +16,7 @@ formatter.cfg{
     encode_use_tostring    = true;
     encode_invalid_as_nil  = true;
 }
+
 
 local function format(status, ...)
     -- When storing a nil in a Lua table, there is no way to
@@ -45,6 +47,14 @@ local function local_eval(self, line)
     if not line then
         return nil
     end
+
+    local cmd, output = help.process(line)
+
+    if cmd == nil then
+        return format(true, output)
+    end
+
+    line = cmd
     --
     -- Attempt to append 'return ' before the chunk: if the chunk is
     -- an expression, this pushes results of the expression onto the
@@ -188,9 +198,10 @@ local function repl(self)
         self:on_start()
     end
 
+    local output, command
     while self.running do
-        local command = self:read()
-        local output = self:eval(command)
+        command = self:read()
+        output = self:eval(command)
         self:print(output)
     end
     fiber.self().storage.console = nil
