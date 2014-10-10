@@ -7,7 +7,7 @@ help = {
         {
             ['\\h [topic]'] = 'help',
             ['\\d[S][+] [space name]'] = 'show spaces list',
-            ['\\i[+] space'] = 'show indexes in space',
+            ['\\i[S] [space]'] = 'show indexes information',
             ['\\m[+]'] = 'show memory information',
             ['\\s'] = 'show request statistics',
             ['\\c'] = 'show cluster information',
@@ -161,32 +161,54 @@ function help_indexes(mods, extended, arg)
     if rawget(box, 'space') == nil then
         return { error = 'Box is not configured' }
     end
+    
+    local show_system = string.match(mods, 'S') ~= nil
 
-    if arg == nil then
-        return { error = 'Usage: \\i[+] space_name' }
-    end
+    local spaces = {}
 
-    local space = box.space[arg]
-    if space == nil then
-        return { error = 'No such space: ' .. arg }
-    end
-
-    local res = {}
-    for i = 0, 100 do
-        if space.index[i] == nil then
-            break
+    for name, space in pairs(box.space) do
+        if arg ~= nil then
+            if name == arg then
+                table.insert(spaces, space)
+                break
+            end
         end
-        local info = {
-            [space.index[i].name] = {
-                type = space.index[i].type,
-                parts = space.index[i].parts
-            }
-        }
-        table.insert(res, info)
+        if name ~= space.id then
+            if show_system then
+                table.insert(spaces, space)
+            elseif string.match(space.name, '^_') == nil then
+                table.insert(spaces, space)
+            end
+        end
     end
 
-    return { [space.name .. ' indexes'] = res }
+    local result = {}
 
+    for _, space in pairs(spaces) do
+
+        local info = {}
+
+        for i = 0, 100 do
+            if space.index[i] == nil then
+                if i == 0 then
+                    info = { error = 'Indexes not found' }
+                end
+                break
+            end
+
+
+            local index_info = {
+                id  = i,
+                len = space.index[i]:len(),
+                memsize = space.index[i]:memsize()
+            }
+            info[space.index[i].name] = index_info
+        end
+
+        result[space.name] = info
+    end
+
+    return result
 end
 
 

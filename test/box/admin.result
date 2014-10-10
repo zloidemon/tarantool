@@ -9,7 +9,15 @@ index = space:create_index('primary', { type = 'hash' })
 --# push filter 'listen: .*' to 'listen: <uri>'
 help()
 ---
-- - Help topics:
+- - - Usage
+    - \f [pattern]: show fiber information
+      \c: show cluster information
+      \m[+]: show memory information
+      \d[S][+] [space name]: show spaces list
+      \h [topic]: help
+      \i[S] [space]: show indexes information
+      \s: show request statistics
+  - Help topics:
     - Basics
     - Administration
   - To get help on a topic, type help('topic') (with quotes)

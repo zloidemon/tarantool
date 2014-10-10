@@ -50,5 +50,6 @@ void *ffi_symbols[] = {
 	(void *) base64_decode,
 	(void *) base64_encode,
 	(void *) base64_bufsize,
-	(void *) SHA1internal
+	(void *) SHA1internal,
+	(void *) boxffi_index_memsize
 };

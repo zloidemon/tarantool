@@ -6,7 +6,7 @@
       \m[+]: show memory information
       \d[S][+] [space name]: show spaces list
       \h [topic]: help
-      \i[+] space: show indexes in space
+      \i[S] [space]: show indexes information
       \s: show request statistics
   - Help topics:
     - Basics

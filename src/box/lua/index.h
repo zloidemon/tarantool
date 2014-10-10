@@ -55,6 +55,10 @@ boxffi_index_iterator(uint32_t space_id, uint32_t index_id, int type,
 struct tuple*
 boxffi_iterator_next(struct iterator *itr);
 
+size_t
+boxffi_index_memsize(uint32_t space_id, uint32_t index_id);
+
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */
