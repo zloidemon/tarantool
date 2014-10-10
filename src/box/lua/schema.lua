@@ -154,7 +154,7 @@ end
 --]]
 local function update_param_table(table, defaults)
     if table == nil then
-        table = {}
+        return defaults
     end
     if (defaults == nil) then
         return table
@@ -340,6 +340,7 @@ box.schema.index.create = function(space_id, name, options)
     end
     _index:insert{space_id, iid, name, options.type,
                   unique, part_count, unpack(options.parts)}
+    return box.space[space_id].index[name]
 end
 
 box.schema.index.drop = function(space_id, index_id)
@@ -520,7 +521,7 @@ function box.schema.space.bless(space)
     local index_mt = {}
     -- __len and __index
     index_mt.len = function(index)
-        local ret = builtin.boxffi_index_len(index.space.id, index.id)
+        local ret = builtin.boxffi_index_len(index.space_id, index.id)
         if ret == -1 then
             box.error()
         end
@@ -555,7 +556,7 @@ function box.schema.space.bless(space)
     end
     index_mt.random = function(index, rnd)
         rnd = rnd or math.random()
-        local tuple = builtin.boxffi_index_random(index.space.id, index.id, rnd)
+        local tuple = builtin.boxffi_index_random(index.space_id, index.id, rnd)
         if tuple == ffi.cast('void *', -1) then
             box.error() -- error
         elseif tuple ~= nil then
@@ -566,7 +567,6 @@ function box.schema.space.bless(space)
     end
     -- iteration
     index_mt.pairs = function(index, key, opts)
-        check_param_table(opts, {iterator = 'number,string'});
         local pkey, pkey_end = msgpackffi.encode_tuple(key)
         -- Use ALL for {} and nil keys and EQ for other keys
         local itype = pkey + 1 < pkey_end and box.index.EQ or box.index.ALL
@@ -579,11 +579,13 @@ function box.schema.space.bless(space)
                 if itype == nil then
                     box.error(box.error.ITERATOR_TYPE, opts.iterator)
                 end
+            else
+                box.error(box.error.ITERATOR_TYPE, tostring(opts.iterator))
             end
         end
 
         local keybuf = ffi.string(pkey, pkey_end - pkey)
-        local cdata = builtin.boxffi_index_iterator(index.space.id, index.id,
+        local cdata = builtin.boxffi_index_iterator(index.space_id, index.id,
             itype, keybuf);
         if cdata == nil then
             box.error()
@@ -624,7 +626,7 @@ function box.schema.space.bless(space)
     index_mt.get = function(index, key)
         local key, key_end = msgpackffi.encode_tuple(key)
         port.size = 0;
-        if builtin.boxffi_select(ffi.cast(port_t, port), index.space.id,
+        if builtin.boxffi_select(ffi.cast(port_t, port), index.space_id,
            index.id, box.index.EQ, 0, 2, key, key_end) ~=0 then
             return box.error()
         end
@@ -638,36 +640,37 @@ function box.schema.space.bless(space)
     end
 
     index_mt.select = function(index, key, opts)
-        local options_template = {
-            offset = 'number',
-            limit = 'number',
-            iterator = 'number,string',
-        }
-        check_param_table(opts, options_template);
+        local offset = 0
+        local limit = 4294967295
+        local iterator = box.index.EQ
 
-        local options_defaults = {
-            offset = 0,
-            limit = 4294967295,
-            iterator = box.index.EQ,
-        }
         local key, key_end = msgpackffi.encode_tuple(key)
         if key_end == key + 1 then -- empty array
-            options_defaults.iterator = box.index.ALL
+            iterator = box.index.ALL
         end
-        opts = update_param_table(opts, options_defaults)
 
-        if type(opts.iterator) == "string" then
-            local resolved_iter = box.index[string.upper(opts.iterator)]
-            if resolved_iter == nil then
-                box.error(box.error.ITERATOR_TYPE, opts.iterator);
+        if opts ~= nil then
+            if opts.offset ~= nil then
+                offset = opts.offset
             end
-            opts.iterator = resolved_iter
+            if type(opts.iterator) == "string" then
+                local resolved_iter = box.index[string.upper(opts.iterator)]
+                if resolved_iter == nil then
+                    box.error(box.error.ITERATOR_TYPE, opts.iterator);
+                end
+                opts.iterator = resolved_iter
+            end
+            if opts.iterator ~= nil then
+                iterator = opts.iterator
+            end
+            if opts.limit ~= nil then
+                limit = opts.limit
+            end
         end
 
         port.size = 0;
-        local space_id = index.space.id
-        if builtin.boxffi_select(ffi.cast(port_t, port), space_id, index.id,
-            opts.iterator, opts.offset, opts.limit, key, key_end) ~= 0 then
+        if builtin.boxffi_select(ffi.cast(port_t, port), index.space_id,
+            index.id, iterator, offset, limit, key, key_end) ~=0 then
             return box.error()
         end
 
@@ -679,22 +682,22 @@ function box.schema.space.bless(space)
     end
     index_mt.update = function(index, key, ops)
         ops = normalize_update_ops(ops)
-        return internal.update(index.space.id, index.id, keify(key), ops);
+        return internal.update(index.space_id, index.id, keify(key), ops);
     end
     index_mt.delete = function(index, key)
-        return internal.delete(index.space.id, index.id, keify(key));
+        return internal.delete(index.space_id, index.id, keify(key));
     end
     index_mt.drop = function(index)
-        return box.schema.index.drop(index.space.id, index.id)
+        return box.schema.index.drop(index.space_id, index.id)
     end
     index_mt.rename = function(index, name)
-        return box.schema.index.rename(index.space.id, index.id, name)
+        return box.schema.index.rename(index.space_id, index.id, name)
     end
     index_mt.alter= function(index, options)
-        if index.id == nil or index.space == nil then
+        if index.id == nil or index.space_id == nil then
             box.error(box.error.PROC_LUA, "Usage: index:alter{opts}")
         end
-        return box.schema.index.alter(index.space.id, index.id, options)
+        return box.schema.index.alter(index.space_id, index.id, options)
     end
     --
     local space_mt = {}

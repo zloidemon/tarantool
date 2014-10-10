@@ -145,7 +145,7 @@ box_check_wal_mode(const char *mode_name)
 	}
 }
 
-static void
+void
 box_check_config()
 {
 	box_check_wal_mode(cfg_gets("wal_mode"));
@@ -537,12 +537,6 @@ box_snapshot(void)
 
 	exit(EXIT_SUCCESS);
 	return 0;
-}
-
-void
-box_info(struct tbuf *out)
-{
-	tbuf_printf(out, "  status: %s" CRLF, status);
 }
 
 const char *
