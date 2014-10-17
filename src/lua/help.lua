@@ -390,10 +390,28 @@ local function process(cmd)
     }
 end
 
+-- register extention
+-- example help.register_extention('\q', 'show queue list', 'q', function(mods, extended, arg) ... end)
+local function register_extention(shortexample, shortdescription, letter, formatter)
+    letter = tostring(letter)
+    if #letter > 1 or #letter == 0 then
+        box.error(box.error.PROC_LUA, string.format("Wrong letter: %s", letter))
+    end
+    if help_commands[letter] ~= nil then
+        box.error(box.error.PROC_LUA,
+            string.format("Letter '%s' is already used", tostring(letter)))
+    end
+    if type(formatter) ~= 'function' then
+        box.error(box.error.PROC_LUA, "Wrong help formatter")
+    end
+    help_commands[letter] = formatter
+    help[1][2][shortexample] = shortdescription    
+end
 
 
 return {
     help = help;
-    tutorial= tutorial;
-    process = process;
+    tutorial                = tutorial;
+    process                 = process;
+    register_extention     = register_extention;
 }
