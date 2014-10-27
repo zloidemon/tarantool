@@ -35,6 +35,7 @@
 #include "space.h"
 #include "main.h"
 #include "cluster.h"
+#include "bsync.h"
 #include "recovery.h"
 #include <fiber.h>
 #include "request.h" /* for request_name */
@@ -153,19 +154,23 @@ txn_commit(struct txn *txn)
 	req->n_rows = 0;
 
 	rlist_foreach_entry(stmt, &txn->stmts, next) {
-		if (stmt->row == NULL)
+		if (stmt->row == NULL || (stmt->new_tuple == NULL &&
+					  stmt->old_tuple == NULL))
 			continue;
 		/*
 		 * Bump current LSN even if wal_mode = NONE, so that
 		 * snapshots still works with WAL turned off.
 		 */
-		recovery_fill_lsn(recovery, stmt->row);
+		if (!recovery->bsync_remote) {
+			recovery_fill_lsn(recovery, stmt->row);
+			stmt->row->commit_sn = vclock_sum(&recovery->vclock);
+		}
 		stmt->row->tm = ev_now(loop());
 		req->rows[req->n_rows++] = stmt->row;
 	}
 	if (req->n_rows) {
 		ev_tstamp start = ev_now(loop()), stop;
-		int64_t res = wal_write(recovery, req);
+		int64_t res = bsync_write(recovery, txn, req);
 		stop = ev_now(loop());
 		if (stop - start > too_long_threshold)
 			say_warn("too long WAL write: %.3f sec", stop - start);

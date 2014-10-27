@@ -1,8 +1,6 @@
-#ifndef TARANTOOL_REPLICATION_RELAY_H_INCLUDED
-#define TARANTOOL_REPLICATION_RELAY_H_INCLUDED
+#ifndef TARANTOOL_BOX_BSYNC_H_INCLUDED
+#define TARANTOOL_BOX_BSYNC_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
- *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
  * conditions are met:
@@ -30,41 +28,52 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "evio.h"
+#include <stdbool.h>
+
+#include "queue.h"
 #include "fiber.h"
+#include "vclock.h"
+#include "recovery.h"
 
-struct xrow_header;
+#if defined(__cplusplus)
+extern "C" {
+#endif /* defined(__cplusplus) */
 
-/** State of a replication relay. */
-class Relay {
-public:
-	/** The thread in which we relay data to the replica. */
-	struct cord cord;
-	/** Replica connection */
-	struct ev_io io;
-	/* Request sync */
-	uint64_t sync;
-	struct recovery_state *r;
-	ev_tstamp wal_dir_rescan_delay;
-	Relay(int fd_arg, uint64_t sync_arg);
-	~Relay();
-};
+void bsync_init(struct recovery_state *r);
+void bsync_start(struct recovery_state *r, int rows_per_wal);
+int bsync_write(struct recovery_state *r, struct txn *txn, struct wal_request *req);
+void bsync_writer_stop(struct recovery_state *r);
 
-bool
-replication_join(int fd, struct xrow_header *packet,
-		 void (*on_join)(const struct tt_uuid *));
+void bsync_push_connection(int remote_id);
+void bsync_push_localhost(int remote_id);
 
-/**
- * Subscribe a replica to updates.
- *
- * @return None. On error, closes the socket.
+/*
+ * Return id of server who will send snapshot
  */
-void
-replication_subscribe(struct recovery_state *r, int fd,
-		struct xrow_header *packet, struct tt_uuid local);
+int bsync_join();
 
-void
-relay_send(Relay *relay, struct xrow_header *packet);
+/*
+ * Return id of server who will send xlogs
+ */
+int bsync_subscribe();
+int bsync_replica_stop();
 
-#endif /* TARANTOOL_REPLICATION_RELAY_H_INCLUDED */
+bool bsync_process_join(int fd, struct tt_uuid *uuid,
+			void (*on_join)(const struct tt_uuid *));
 
+bool bsync_process_subscribe(int fd, struct tt_uuid *uuid,
+			struct recovery_state *state);
+
+bool bsync_follow(struct recovery_state *r);
+
+void bsync_replication_fail(struct recovery_state *r);
+
+void bsync_replica_fail();
+
+void bsync_commit_local(uint32_t server_id, uint64_t lsn);
+
+#if defined(__cplusplus)
+} /* extern "C" */
+#endif /* defined(__cplusplus) */
+
+#endif /* TARANTOOL_BOX_BSYNC_H_INCLUDED */

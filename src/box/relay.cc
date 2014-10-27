@@ -45,6 +45,8 @@
 #include "cfg.h"
 #include "trigger.h"
 #include "errinj.h"
+#include "box.h"
+#include "bsync.h"
 
 void
 relay_send_row(struct recovery_state *r, void *param,
@@ -90,17 +92,23 @@ replication_join_f(va_list ap)
 	/* Send snapshot */
 	engine_join(relay);
 
+        say_info("snapshot sent");
 }
 
-void
+bool
 replication_join(int fd, struct xrow_header *packet,
 		 void (*on_join)(const struct tt_uuid *))
 {
-	Relay relay(fd, packet->sync);
-	struct recovery_state *r = relay.r;
-
 	struct tt_uuid server_uuid = uuid_nil;
 	xrow_decode_join(packet, &server_uuid);
+	if (tt_uuid_is_equal(&server_uuid, &recovery->server_uuid))
+		tnt_raise(ClientError, ER_SERVER_ID_IS_LOCAL);
+	if (recovery->bsync_remote) {
+		if (!bsync_process_join(fd, &server_uuid, on_join))
+			return false;
+	}
+	Relay relay(fd, packet->sync);
+	struct recovery_state *r = relay.r;
 
 	cord_costart(&relay.cord, "join", replication_join_f, &relay);
 	cord_cojoin(&relay.cord);
@@ -110,13 +118,15 @@ replication_join(int fd, struct xrow_header *packet,
 	 * sending OK - if the hook fails, the error reaches the
 	 * client.
 	 */
-	on_join(&server_uuid);
-
+	if (!recovery->bsync_remote) {
+		on_join(&server_uuid);
+	}
 	/* Send response to JOIN command = end of stream */
 	struct xrow_header row;
 	xrow_encode_vclock(&row, vclockset_last(&r->snap_dir.index));
 	relay_send(&relay, &row);
 	say_info("snapshot sent");
+	return true;
 }
 
 static void
@@ -139,7 +149,6 @@ replication_subscribe_f(va_list ap)
 	relay_set_cord_name(relay->io.fd);
 	recovery_follow_local(r, fiber_name(fiber()),
 			      relay->wal_dir_rescan_delay);
-
 	/*
 	 * Init a read event: when replica closes its end
 	 * of the socket, we can read EOF and shutdown the
@@ -167,6 +176,7 @@ replication_subscribe_f(va_list ap)
 	};
 	trigger_add(&r->watcher->on_stop, &on_follow_error);
 	while (! fiber_is_dead(r->watcher)) {
+
 		ev_io_start(loop(), &read_ev);
 		fiber_yield();
 		ev_io_stop(loop(), &read_ev);
@@ -183,12 +193,16 @@ replication_subscribe_f(va_list ap)
 			say_syserror("recv");
 	}
 	recovery_stop_local(r);
+	struct xrow_header response;
+	xrow_encode_vclock(&response, &r->vclock);
+	relay_send(relay, &response);
 	say_crit("exiting the relay loop");
 }
 
 /** Replication acceptor fiber handler. */
 void
-replication_subscribe(int fd, struct xrow_header *packet)
+replication_subscribe(struct recovery_state *lr, int fd,
+		struct xrow_header *packet, struct tt_uuid local)
 {
 	Relay relay(fd, packet->sync);
 
@@ -203,22 +217,46 @@ replication_subscribe(int fd, struct xrow_header *packet)
 	 * replica connect, and refuse a connection from a replica
 	 * which belongs to a different cluster.
 	 */
-	if (!tt_uuid_is_equal(&uu, &cluster_id)) {
-		tnt_raise(ClientError, ER_CLUSTER_ID_MISMATCH,
-			  tt_uuid_str(&uu), tt_uuid_str(&cluster_id));
-	}
+	if (recovery_has_data(lr) || !lr->bsync_remote) {
+		if (!tt_uuid_is_equal(&uu, &cluster_id)) {
+			tnt_raise(ClientError, ER_CLUSTER_ID_MISMATCH,
+				  tt_uuid_str(&uu), tt_uuid_str(&cluster_id));
+		}
 
-	/* Check server uuid */
-	r->server_id = schema_find_id(BOX_CLUSTER_ID, 1,
-				   tt_uuid_str(&server_uuid), UUID_STR_LEN);
+		/* Check server uuid */
+		if (tt_uuid_is_equal(&server_uuid, &local)) {
+			tnt_raise(ClientError, ER_SERVER_ID_IS_LOCAL);
+		}
+		r->server_id = schema_find_id(BOX_CLUSTER_ID, 1,
+					   tt_uuid_str(&server_uuid), UUID_STR_LEN);
+		if (r->server_id == BOX_ID_NIL) {
+			tnt_raise(ClientError, ER_UNKNOWN_SERVER,
+				  tt_uuid_str(&server_uuid));
+		}
+	}
+	if (!bsync_process_subscribe(fd, &server_uuid, r))
+		return;
 	if (r->server_id == BOX_ID_NIL) {
-		tnt_raise(ClientError, ER_UNKNOWN_SERVER,
-			  tt_uuid_str(&server_uuid));
+		panic("try to recovery unknown host");
 	}
-
+	for (size_t i = 0; i < lr->remote_size; ++i) {
+		if (!tt_uuid_is_equal(&server_uuid, &lr->remote[i].server_uuid))
+			continue;
+		char *vclock = vclock_to_string(&r->vclock);
+		say_debug("start to recovery %s from %s",
+			  lr->remote[i].source, vclock);
+		free(vclock);
+		break;
+	}
+	assert(cord_is_main());
 	struct cord cord;
 	cord_costart(&cord, "subscribe", replication_subscribe_f, &relay);
-	cord_cojoin(&cord);
+	try {
+		cord_cojoin(&cord);
+	} catch (...) {
+		bsync_replication_fail(relay.r);
+		throw;
+	}
 }
 
 void
@@ -240,7 +278,8 @@ relay_send_row(struct recovery_state *r, void *param,
 	       struct xrow_header *packet)
 {
 	Relay *relay = (Relay *) param;
-	assert(iproto_type_is_dml(packet->type));
+	assert(iproto_type_is_dml(packet->type) || packet->commit_sn > 0 ||
+		packet->rollback_sn > 0);
 
 	/*
 	 * If packet->server_id == 0 this is a snapshot packet.
@@ -250,12 +289,14 @@ relay_send_row(struct recovery_state *r, void *param,
 	 * it not from the same server (i.e. don't send
 	 * replica's own rows back).
 	 */
-	if (packet->server_id == 0 || packet->server_id != r->server_id)
+	if (packet->server_id == 0 || recovery->bsync_remote ||
+	    packet->server_id != r->server_id)
 		relay_send(relay, packet);
 	/*
 	 * Update local vclock. During normal operation wal_write()
 	 * updates local vclock. In relay mode we have to update
 	 * it here.
 	 */
-	vclock_follow(&r->vclock, packet->server_id, packet->lsn);
+	if (packet->type != IPROTO_WAL_FLAG)
+		vclock_follow(&r->vclock, packet->server_id, packet->lsn);
 }

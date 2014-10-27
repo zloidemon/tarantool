@@ -49,8 +49,8 @@
 #include "xrow.h"
 #include "iproto_constants.h"
 #include "user_def.h"
-#include "authentication.h"
 #include "stat.h"
+#include "tt_uuid.h"
 #include "lua/call.h"
 
 /* {{{ iproto_msg - declaration */
@@ -92,6 +92,7 @@ struct iproto_msg: public cmsg
 };
 
 static struct mempool iproto_msg_pool;
+struct tt_uuid local_server_uuid;
 
 static struct iproto_msg *
 iproto_msg_new(struct iproto_connection *con, struct cmsg_hop *route)
@@ -658,8 +659,8 @@ tx_process_msg(struct cmsg *m)
 			assert(msg->request.type == msg->header.type);
 			const char *user = msg->request.key;
 			uint32_t len = mp_decode_strl(&user);
-			authenticate(user, len, msg->request.tuple,
-				     msg->request.tuple_end);
+			box_authenticate(user, len, msg->request.tuple,
+					 msg->request.tuple_end);
 			iproto_reply_ok(out, msg->header.sync);
 			break;
 		}
@@ -673,6 +674,7 @@ tx_process_msg(struct cmsg *m)
 			 * will re-activate the watchers for us.
 			 */
 			box_process_join(con->input.fd, &msg->header);
+			say_info("done JOIN command for %d", con->input.fd);
 			break;
 		case IPROTO_SUBSCRIBE:
 			/*
@@ -682,6 +684,7 @@ tx_process_msg(struct cmsg *m)
 			 * the same way as for JOIN.
 			 */
 			box_process_subscribe(con->input.fd, &msg->header);
+			say_info("done SUBSCRIBE command for %d", con->input.fd);
 			break;
 		default:
 			tnt_raise(ClientError, ER_UNKNOWN_REQUEST_TYPE,
@@ -717,19 +720,6 @@ net_send_msg(struct cmsg *m)
 	iproto_msg_delete(msg);
 }
 
-const char *
-iproto_greeting(const char *salt)
-{
-	static __thread char greeting[IPROTO_GREETING_SIZE + 1];
-	char base64buf[SESSION_SEED_SIZE * 4 / 3 + 5];
-
-	base64_encode(salt, SESSION_SEED_SIZE, base64buf, sizeof(base64buf));
-	snprintf(greeting, sizeof(greeting),
-		 "Tarantool %-20s %-32s\n%-63s\n",
-		 tarantool_version(), custom_proc_title, base64buf);
-	return greeting;
-}
-
 /**
  * Handshake a connection: invoke the on-connect trigger
  * and possibly authenticate. Try to send the client an error
@@ -743,7 +733,8 @@ tx_process_connect(struct cmsg *m)
 	struct obuf *out = &msg->iobuf->out;
 	try {              /* connect. */
 		con->session = session_create(con->input.fd, con->cookie);
-		obuf_dup(out, iproto_greeting(con->session->salt),
+		obuf_dup(out, xrow_encode_greeting(con->session->salt,
+						   &local_server_uuid),
 			 IPROTO_GREETING_SIZE);
 		if (! rlist_empty(&session_on_connect))
 			session_run_on_connect_triggers(con->session);
@@ -851,9 +842,10 @@ net_cord_f(va_list /* ap */)
 
 /** Initialize the iproto subsystem and start network io thread */
 void
-iproto_init()
+iproto_init(const struct tt_uuid *local_uuid)
 {
 	tx_cord = cord();
+	memcpy(&local_server_uuid, local_uuid, sizeof(struct tt_uuid));
 
 	cbus_create(&net_tx_bus);
 	cpipe_create(&tx_pipe);

@@ -40,6 +40,8 @@
 #include "tt_uuid.h"
 #include "uri.h"
 #include "wal.h"
+#include "xrow.h"
+#include "small/region.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -62,9 +64,17 @@ enum { REMOTE_SOURCE_MAXLEN = 1024 }; /* enough to fit URI with passwords */
 /** State of a replication connection to the master */
 struct remote {
 	struct fiber *reader;
+	struct fiber *writer;
+	struct fiber *connecter;
+	struct ev_io in;
+	struct ev_io out;
 	const char *status;
 	ev_tstamp lag, last_row_time;
+	tt_uuid server_uuid;
 	bool warning_said;
+	bool connected;
+	bool switched;
+	bool localhost;
 	char source[REMOTE_SOURCE_MAXLEN];
 	struct uri uri;
 	union {
@@ -72,6 +82,14 @@ struct remote {
 		struct sockaddr_storage addrstorage;
 	};
 	socklen_t addr_len;
+};
+
+struct xrow_queue {
+	struct xrow_header queue[MAX_UNCOMMITED_REQ];
+	struct region queue_gc[MAX_UNCOMMITED_REQ];
+	bool queue_gc_init[MAX_UNCOMMITED_REQ];
+	size_t begin;
+	size_t end;
 };
 
 struct recovery_state {
@@ -87,7 +105,9 @@ struct recovery_state {
 	 * locally or send to the replica.
 	 */
 	struct fiber *watcher;
-	struct remote remote;
+	struct remote remote[VCLOCK_MAX];
+	bool bsync_remote;
+	size_t remote_size;
 	/**
 	 * apply_row is a module callback invoked during initial
 	 * recovery and when reading rows from the master.
@@ -98,6 +118,9 @@ struct recovery_state {
 	enum wal_mode wal_mode;
 	struct tt_uuid server_uuid;
 	uint32_t server_id;
+
+	bool finalize;
+	xrow_queue commit;
 };
 
 struct recovery_state *

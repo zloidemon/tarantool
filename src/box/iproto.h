@@ -31,7 +31,7 @@
  * SUCH DAMAGE.
  */
 void
-iproto_init();
+iproto_init(const struct tt_uuid *local_uuid);
 
 void
 iproto_set_listen(const char *uri);

@@ -34,6 +34,8 @@
 #include <stdint.h>
 #include "cbus.h"
 
+#define MAX_UNCOMMITED_REQ 1024
+
 struct fiber;
 struct recovery_state;
 
@@ -57,8 +59,11 @@ struct wal_request: public cmsg {
 int64_t
 wal_write(struct recovery_state *r, struct wal_request *req);
 
+void
+wal_writer_init(struct recovery_state *r, int rows_per_wal);
+
 int
-wal_writer_start(struct recovery_state *state, int rows_per_wal);
+wal_writer_start(struct recovery_state *state);
 
 void
 wal_writer_stop(struct recovery_state *r);

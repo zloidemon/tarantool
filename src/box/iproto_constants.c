@@ -86,6 +86,8 @@ const unsigned char iproto_key_type[IPROTO_KEY_MAX] =
 	/* 0x26 */	MP_MAP, /* IPROTO_VCLOCK */
 	/* 0x27 */	MP_STR, /* IPROTO_EXPR */
 	/* 0x28 */	MP_ARRAY, /* IPROTO_OPS */
+	/* 0x29 */	MP_UINT, /* IPROTO_BSYNC_COMMIT */
+	/* 0x30 */	MP_UINT, /* IPROTO_BSYNC_ROLLBACK */
 	/* }}} */
 };
 
@@ -160,5 +162,7 @@ const char *iproto_key_strs[IPROTO_KEY_MAX] = {
 	"vector clock",     /* 0x26 */
 	"expression",       /* 0x27 */
 	"operations",       /* 0x28 */
+	"commit flag",      /* 0x29 */
+	"rollback flag",    /* 0x30 */
 };
 

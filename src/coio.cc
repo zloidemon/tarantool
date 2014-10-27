@@ -98,7 +98,7 @@ coio_connect_addr(struct ev_io *coio, struct sockaddr *addr,
 	fiber_testcancel();
 	if (is_timedout) {
 		errno = ETIMEDOUT;
-		return -1;
+		tnt_raise(SocketError, coio->fd, "connect");
 	}
 	int error = EINPROGRESS;
 	socklen_t sz = sizeof(error);
@@ -337,7 +337,7 @@ coio_read_ahead_timeout(struct ev_io *coio, void *buf, size_t sz,
 		fiber_testcancel();
 		if (is_timedout) {
 			errno = ETIMEDOUT;
-			return sz - to_read;
+			tnt_raise(SocketError, coio->fd, "read");
 		}
 		coio_timeout_update(start, &delay);
 	}
@@ -432,7 +432,7 @@ coio_write_timeout(struct ev_io *coio, const void *buf, size_t sz,
 
 		if (is_timedout) {
 			errno = ETIMEDOUT;
-			return sz - towrite;
+			tnt_raise(SocketError, coio->fd, "write");
 		}
 		coio_timeout_update(start, &delay);
 	}
@@ -504,7 +504,7 @@ coio_writev_timeout(struct ev_io *coio, struct iovec *iov, int iovcnt,
 
 		if (is_timedout) {
 			errno = ETIMEDOUT;
-			return total;
+			tnt_raise(SocketError, coio->fd, "writev");
 		}
 		coio_timeout_update(start, &delay);
 	}
@@ -551,7 +551,7 @@ coio_sendto_timeout(struct ev_io *coio, const void *buf, size_t sz, int flags,
 		fiber_testcancel();
 		if (is_timedout) {
 			errno = ETIMEDOUT;
-			return 0;
+			tnt_raise(SocketError, coio->fd, "send");
 		}
 		coio_timeout_update(start, &delay);
 	}
@@ -598,7 +598,7 @@ coio_recvfrom_timeout(struct ev_io *coio, void *buf, size_t sz, int flags,
 		fiber_testcancel();
 		if (is_timedout) {
 			errno = ETIMEDOUT;
-			return 0;
+			tnt_raise(SocketError, coio->fd, "recv");
 		}
 		coio_timeout_update(start, &delay);
 	}

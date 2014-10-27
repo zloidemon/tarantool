@@ -56,6 +56,11 @@ struct wal_writer
 	bool is_rollback;
 	ev_loop *txn_loop;
 	struct vclock vclock;
+
+	uint64_t commit_lsn[MAX_UNCOMMITED_REQ];
+	uint32_t commit_server_id[MAX_UNCOMMITED_REQ];
+	uint32_t commit_begin;
+	uint32_t commit_end;
 };
 
 static void
@@ -134,25 +139,26 @@ tx_fetch_output(ev_loop * /* loop */, ev_async *watcher, int /* event */)
  * encapsulate the details just in case we may use
  * more writers in the future.
  */
-static void
-wal_writer_init(struct wal_writer *writer, struct vclock *vclock,
-		int rows_per_wal)
+void
+wal_writer_init(struct recovery_state *r, int rows_per_wal)
 {
-	cbus_create(&writer->tx_wal_bus);
+	assert(rows_per_wal > 1);
+	assert(r->writer == NULL);
+	assert(r->current_wal == NULL);
 
-	cpipe_create(&writer->tx_pipe);
-	cpipe_set_fetch_cb(&writer->tx_pipe, tx_fetch_output, writer);
+	static struct wal_writer wal_writer;
 
+	struct wal_writer *writer = &wal_writer;
+	r->writer = writer;
 	writer->rows_per_wal = rows_per_wal;
-
-	writer->batch = fio_batch_new();
-
-	if (writer->batch == NULL)
-		panic_syserror("fio_batch_alloc");
 
 	/* Create and fill writer->cluster hash */
 	vclock_create(&writer->vclock);
-	vclock_copy(&writer->vclock, vclock);
+	vclock_copy(&writer->vclock, &r->vclock);
+	memset(writer->commit_lsn, 0, sizeof(writer->commit_lsn));
+	memset(writer->commit_server_id, 0, sizeof(writer->commit_server_id));
+	writer->commit_begin = 0;
+	writer->commit_end = 0;
 }
 
 /** Destroy a WAL writer structure. */
@@ -180,30 +186,26 @@ static void wal_writer_f(va_list ap);
  *         points to a newly created WAL writer.
  */
 int
-wal_writer_start(struct recovery_state *r, int rows_per_wal)
+wal_writer_start(struct recovery_state *r)
 {
-	assert(r->writer == NULL);
-	assert(r->current_wal == NULL);
-	assert(rows_per_wal > 1);
-
-	static struct wal_writer wal_writer;
-
-	struct wal_writer *writer = &wal_writer;
-	r->writer = writer;
-
-	/* I. Initialize the state. */
-	wal_writer_init(writer, &r->vclock, rows_per_wal);
-
 	/* II. Start the thread. */
 
-	if (cord_costart(&writer->cord, "wal", wal_writer_f, r)) {
-		wal_writer_destroy(writer);
+	cbus_create(&r->writer->tx_wal_bus);
+
+	cpipe_create(&r->writer->tx_pipe);
+	cpipe_set_fetch_cb(&r->writer->tx_pipe, tx_fetch_output, r->writer);
+	r->writer->batch = fio_batch_new();
+	if (r->writer->batch == NULL)
+		panic_syserror("fio_batch_alloc");
+
+	if (cord_costart(&r->writer->cord, "wal", wal_writer_f, r)) {
+		wal_writer_destroy(r->writer);
 		r->writer = NULL;
 		return -1;
 	}
-	cbus_join(&writer->tx_wal_bus, &writer->tx_pipe);
-	cpipe_set_flush_cb(&writer->wal_pipe, wal_flush_input,
-			   &writer->wal_pipe);
+	cbus_join(&r->writer->tx_wal_bus, &r->writer->tx_pipe);
+	cpipe_set_flush_cb(&r->writer->wal_pipe, wal_flush_input,
+			   &r->writer->wal_pipe);
 	return 0;
 }
 
@@ -285,6 +287,84 @@ wal_fio_batch_write(struct fio_batch *batch, int fd)
 {
 	ERROR_INJECT(ERRINJ_WAL_WRITE, return 0);
 	return fio_batch_write(batch, fd);
+}
+
+static void
+wal_write_commit_sign(struct wal_writer *writer, uint64_t sign)
+{
+	while (vclock_sum(&writer->vclock) < sign) {
+		vclock_follow(&writer->vclock,
+			writer->commit_server_id[writer->commit_begin],
+			writer->commit_lsn[writer->commit_begin]);
+		writer->commit_lsn[writer->commit_begin] = 0;
+		if (++writer->commit_begin == MAX_UNCOMMITED_REQ)
+			writer->commit_begin = 0;
+		if (vclock_sum(&writer->vclock) < sign) {
+			assert(writer->commit_begin != writer->commit_end);
+		}
+	}
+}
+
+static void
+wal_write_rollback_sign(struct wal_writer *writer, uint64_t sign)
+{
+	struct vclock vclock_local;
+	vclock_copy(&vclock_local, &writer->vclock);
+	while (vclock_sum(&vclock_local) < sign) {
+		vclock_follow(&vclock_local,
+			writer->commit_server_id[writer->commit_begin],
+			writer->commit_lsn[writer->commit_begin]);
+		writer->commit_lsn[writer->commit_begin] = 0;
+		if (++writer->commit_begin == MAX_UNCOMMITED_REQ)
+			writer->commit_begin = 0;
+		if (vclock_sum(&vclock_local) < sign) {
+			assert(writer->commit_begin != writer->commit_end);
+		}
+	}
+}
+
+static uint32_t
+wal_inc_commit_end(struct wal_writer *writer)
+{
+	if (writer->commit_end++ == MAX_UNCOMMITED_REQ)
+		writer->commit_end = 1;
+	uint32_t result = writer->commit_end - 1;
+	assert(result < MAX_UNCOMMITED_REQ);
+	assert(writer->commit_lsn[result] == 0);
+	return result;
+}
+
+static void
+wal_commit_request(struct wal_request *req, struct wal_writer *writer)
+{
+	uint32_t commit_i = MAX_UNCOMMITED_REQ;
+	for (int i = 0; i < req->n_rows; ++i) {
+		struct xrow_header *row = req->rows[i];
+		if (row->lsn || row->server_id) {
+			if (commit_i == MAX_UNCOMMITED_REQ)
+				commit_i = wal_inc_commit_end(writer);
+			writer->commit_lsn[commit_i] = row->lsn;
+			writer->commit_server_id[commit_i] = row->server_id;
+		}
+		if (row->commit_sn && row->rollback_sn) {
+			if (row->rollback_sn > row->commit_sn) {
+				wal_write_commit_sign(writer, row->commit_sn);
+				wal_write_rollback_sign(writer, row->rollback_sn);
+			} else {
+				wal_write_rollback_sign(writer, row->rollback_sn);
+				wal_write_commit_sign(writer, row->commit_sn);
+			}
+		} else if (row->commit_sn)
+			wal_write_commit_sign(writer, row->commit_sn);
+		else if (row->rollback_sn)
+			wal_write_rollback_sign(writer, row->rollback_sn);
+		if ((row->commit_sn || row->rollback_sn) &&
+			(row->lsn || row->server_id) &&
+			i < (req->n_rows - 1))
+		{
+			commit_i = wal_inc_commit_end(writer);
+		}
+	}
 }
 
 /**
@@ -378,8 +458,8 @@ wal_write_to_disk(struct recovery_state *r, struct wal_writer *writer,
 				 * flush added statements and rotate batch.
 				 */
 				assert(fio_batch_size(batch) > 0);
-				ssize_t nwr = wal_fio_batch_write(batch,
-					fileno(wal->f));
+				ssize_t nwr =
+					wal_fio_batch_write(batch, fileno(wal->f));
 				if (nwr < 0)
 					goto done; /* to break outer loop */
 
@@ -393,7 +473,7 @@ wal_write_to_disk(struct recovery_state *r, struct wal_writer *writer,
 			int iovcnt = xlog_encode_row(*row, iov);
 			batched_bytes += fio_batch_add(batch, iovcnt);
 		}
-
+		wal_commit_request(req, writer);
 		/* Save relative offset of request end */
 		req->end_offset = batched_bytes;
 	}
@@ -446,10 +526,6 @@ done:
 			break;
 		}
 
-		/* Update internal vclock */
-		vclock_follow(&writer->vclock,
-			      req->rows[req->n_rows - 1]->server_id,
-			      req->rows[req->n_rows - 1]->lsn);
 		/* Update row counter for wal_opt_rotate() */
 		wal->rows += req->n_rows;
 		/* Mark request as successed for tx thread */

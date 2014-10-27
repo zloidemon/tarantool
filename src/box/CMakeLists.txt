@@ -57,6 +57,7 @@ add_library(box
     replica.cc
     relay.cc
     wal.cc
+    bsync.cc
     ${lua_sources}
     lua/call.cc
     lua/tuple.cc

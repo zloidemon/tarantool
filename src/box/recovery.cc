@@ -35,10 +35,12 @@
 #include "bootstrap.h"
 #include "xlog.h"
 #include "xrow.h"
-
+#include "box.h"
+#include "bsync.h"
 #include "replica.h"
 #include "cluster.h"
 #include "session.h"
+#include "iproto_constants.h"
 
 /*
  * Recovery subsystem
@@ -148,7 +150,8 @@ recovery_new(const char *snap_dirname, const char *wal_dirname,
 	auto guard = make_scoped_guard([=]{
 		free(r);
 	});
-
+	r->commit.begin = r->commit.end = 0;
+	memset(r->commit.queue_gc_init, 0, sizeof(r->commit.queue_gc_init));
 	recovery_update_mode(r, WAL_NONE);
 
 	r->apply_row = apply_row;
@@ -260,9 +263,72 @@ void
 recovery_apply_row(struct recovery_state *r, struct xrow_header *row)
 {
 	/* Check lsn */
-	int64_t current_lsn = vclock_get(&r->vclock, row->server_id);
-	if (row->lsn > current_lsn)
+	if (row->bodycnt > 0) {
+		int64_t current_lsn = vclock_get(&r->vclock, row->server_id);
+		if (current_lsn < 0 && r != recovery)
+			current_lsn = 0;
+		assert(current_lsn >= 0);
+		if (row->lsn > current_lsn)
+			r->apply_row(r, r->apply_row_param, row);
+	} else if (row->server_id > 0) {
+		assert(row->commit_sn > 0 || row->rollback_sn > 0);
 		r->apply_row(r, r->apply_row_param, row);
+	}
+}
+
+static void
+recovery_commit_rows(struct recovery_state *r, uint64_t sign, bool panic)
+{
+	while (vclock_sum(&r->vclock) < sign) {
+		struct xrow_header *row = &r->commit.queue[r->commit.begin];
+		try {
+			recovery_apply_row(r, row);
+			region_free(&r->commit.queue_gc[r->commit.begin]);
+		} catch (ClientError *e) {
+			if (panic)
+				throw;
+			say_error("can't apply row: ");
+			e->log();
+			if (row->commit_sn) {
+				vclock_follow(&r->vclock, row->server_id, row->lsn);
+			}
+			region_free(&r->commit.queue_gc[r->commit.begin]);
+		}
+		if (row->server_id && vclock_get(&r->vclock, row->server_id) < row->lsn)
+			vclock_follow(&r->vclock, row->server_id, row->lsn);
+		assert(r->commit.end != r->commit.begin);
+		if (++r->commit.begin == MAX_UNCOMMITED_REQ)
+			r->commit.begin = 0;
+	}
+}
+
+static void
+recovery_rollback_row(struct recovery_state *r)
+{
+	region_free(&r->commit.queue_gc[r->commit.begin]);
+	if (++r->commit.begin == MAX_UNCOMMITED_REQ)
+		r->commit.begin = 0;
+}
+
+static void
+recovery_rollback_end(struct recovery_state *r)
+{
+	while (r->commit.begin != r->commit.end)
+		recovery_rollback_row(r);
+}
+
+static void
+recovery_rollback_rows(struct recovery_state *r, uint64_t sign)
+{
+	struct vclock vclock_local;
+	vclock_copy(&vclock_local, &r->vclock);
+	while (vclock_sum(&vclock_local) < sign) {
+		struct xrow_header *row = &r->commit.queue[r->commit.begin];
+		if (row->type != IPROTO_WAL_FLAG)
+			vclock_follow(&vclock_local, row->server_id, row->lsn);
+		recovery_rollback_row(r);
+		assert(r->commit.end != r->commit.begin);
+	}
 }
 
 /**
@@ -280,22 +346,52 @@ recover_xlog(struct recovery_state *r, struct xlog *l)
 	auto guard = make_scoped_guard([&]{
 		xlog_cursor_close(&i);
 	});
-
-	struct xrow_header row;
+	bool panic = l->dir->panic_if_error;
+	struct region *reg = NULL;
+	if (l->snap || r != recovery) {
+		reg = &fiber()->gc;
+	} else {
+		reg = &r->commit.queue_gc[r->commit.end];
+		if (!r->commit.queue_gc_init[r->commit.end])
+			region_create(reg, &cord()->slabc);
+	}
 	/*
 	 * xlog_cursor_next() returns 1 when
 	 * it can not read more rows. This doesn't mean
 	 * the file is fully read: it's fully read only
 	 * when EOF marker has been read, see i.eof_read
 	 */
-	while (xlog_cursor_next(&i, &row) == 0) {
-		try {
-			recovery_apply_row(r, &row);
-		} catch (ClientError *e) {
-			if (l->dir->panic_if_error)
-				throw;
-			say_error("can't apply row: ");
-			e->log();
+	for (struct xrow_header *row = &r->commit.queue[r->commit.end];
+		xlog_cursor_next(&i, row, reg) == 0;
+		row = &r->commit.queue[r->commit.end])
+	{
+		if (l->snap || r != recovery) {
+			recovery_apply_row(r, row);
+			continue;
+		}
+		if (++r->commit.end == MAX_UNCOMMITED_REQ)
+			r->commit.end = 0;
+		assert(r->commit.end != r->commit.begin);
+
+		reg = &r->commit.queue_gc[r->commit.end];
+		if (!r->commit.queue_gc_init[r->commit.end])
+			region_create(reg, &cord()->slabc);
+
+		if (row->commit_sn == 0 && row->rollback_sn == 0)
+			continue;
+		if (row->commit_sn && row->rollback_sn) {
+			if (row->commit_sn > row->rollback_sn) {
+				recovery_rollback_rows(r, row->rollback_sn);
+				recovery_commit_rows(r, row->commit_sn, panic);
+			} else {
+				recovery_commit_rows(r, row->commit_sn, panic);
+				recovery_rollback_rows(r, row->rollback_sn);
+			}
+		} else {
+			if (row->commit_sn)
+				recovery_commit_rows(r, row->commit_sn, panic);
+			else
+				recovery_rollback_rows(r, row->rollback_sn);
 		}
 	}
 	/**
@@ -321,12 +417,13 @@ recovery_bootstrap(struct recovery_state *r)
 	const char *filename = "bootstrap.snap";
 	FILE *f = fmemopen((void *) &bootstrap_bin,
 			   sizeof(bootstrap_bin), "r");
-	struct xlog *snap = xlog_open_stream(&r->snap_dir, 0, f, filename);
+	struct xlog *snap = xlog_open_stream(&r->snap_dir, 0, f, filename, true);
 	auto guard = make_scoped_guard([=]{
 		xlog_close(snap);
 	});
 	/** The snapshot must have a EOF marker. */
 	recover_xlog(r, snap);
+	assert(r->commit.begin == r->commit.end);
 }
 
 /**
@@ -380,13 +477,14 @@ recover_remaining_wals(struct recovery_state *r)
 
 			if (r->wal_dir.panic_if_error)
 				throw e;
+
 			e->log();
 			/* Ignore missing WALs */
 			say_warn("ignoring a gap in LSN");
 		}
 		recovery_close_log(r);
 
-		r->current_wal = xlog_open(&r->wal_dir, vclock_sum(clock));
+		r->current_wal = xlog_open(&r->wal_dir, vclock_sum(clock), false);
 
 		say_info("recover from `%s'", r->current_wal->filename);
 
@@ -400,6 +498,7 @@ recover_current_wal:
 		 * and re-scan the last log in recovery_finalize().
 		 */
 	}
+	recovery_rollback_end(r);
 	region_free(&fiber()->gc);
 }
 
@@ -408,6 +507,8 @@ recovery_finalize(struct recovery_state *r, enum wal_mode wal_mode,
 		  int rows_per_wal)
 {
 	recovery_stop_local(r);
+
+	r->finalize = true;
 
 	recover_remaining_wals(r);
 
@@ -428,7 +529,7 @@ recovery_finalize(struct recovery_state *r, enum wal_mode wal_mode,
 	if (r->wal_mode == WAL_FSYNC)
 		(void) strcat(r->wal_dir.open_wflags, "s");
 
-	wal_writer_start(r, rows_per_wal);
+	bsync_start(r, rows_per_wal);
 }
 
 
@@ -483,7 +584,7 @@ recovery_stat_cb(ev_loop * /* loop */, ev_stat *stat, int /* revents */)
 
 static void
 recovery_follow_f(va_list ap)
-{
+try {
 	struct recovery_state *r = va_arg(ap, struct recovery_state *);
 	ev_tstamp wal_dir_rescan_delay = va_arg(ap, ev_tstamp);
 	fiber_set_user(fiber(), &admin_credentials);
@@ -496,6 +597,16 @@ recovery_follow_f(va_list ap)
 
 	while (! fiber_is_cancelled()) {
 		recover_remaining_wals(r);
+
+		/**
+		 * Try to switch to in-memory replication
+		 */
+		if (bsync_follow(r)) {
+			if (!cord_is_main()) {
+				say_info("async replication stopped, start sync");
+			}
+			break;
+		}
 
 		if (r->current_wal == NULL ||
 		    strcmp(r->current_wal->filename, stat_file.path) != 0) {
@@ -517,6 +628,12 @@ recovery_follow_f(va_list ap)
 		}
 		signaled = false;
 	}
+} catch(FiberCancelException *e) {
+	say_error("replication cancelled");
+	throw;
+} catch(Exception* e) {
+	say_error("error found: %s", e->errmsg());
+	throw;
 }
 
 void
@@ -542,4 +659,3 @@ recovery_stop_local(struct recovery_state *r)
 }
 
 /* }}} */
-
