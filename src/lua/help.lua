@@ -1,18 +1,30 @@
 local doc = require('help.en_US')
+local gtx = require('gettext')
+
+gtx.bindtextdomain('tarantool')
+gtx.bind_textdomain_codeset('tarantool', 'utf-8')
+gtx.textdomain('tarantool')
+
+function _(str)
+    if gtx.gettext then
+        return gtx.gettext(str)
+    end
+    return str
+end
 
 help = {}
 help[1] = {}
-help[1]["Help topics"] = { "Basics", "Administration" }
-help[2] = "To get help on a topic, type help('topic') (with quotes)"
-help[3] = "To get help on a function/object, type help(function) (without quotes)"
-help[4] = "To start tutorial, type tutorial()"
+help[1][_("Help topics")] = { _("Basics"), _("Administration") }
+help[2] = _("To get help on a topic, type help('topic') (with quotes)")
+help[3] = _("To get help on a function/object, type help(function) (without quotes)")
+help[4] = _("To start tutorial, type tutorial()")
 
 tutorial = {}
 tutorial[1] = help[4]
 
 local help_function_data = {};
-help_function_data["Administration"] = {}
-help_function_data["Administration"]["Server administrative commands"] =
+help_function_data[_("Administration")] = {}
+help_function_data[_("Administration")][_("Server administrative commands")] =
 {		"box.snapshot()",
 		"box.info()",
 		"box.stat()",
@@ -23,7 +35,7 @@ help_function_data["Administration"]["Server administrative commands"] =
 		"box.cfg()",
 		"box.coredump()"
 }
-help_function_data["Basics"] = "First thing to be done before any database object can be created, is calling box.cfg() to configure and bootstrap the database instance. Once this is done, define database objects using box.schema, for example type box.schema.space.create('test') to create space 'test'. To add an index on a space, type box.space.test:create_index(). With an index, the space can accept tuples. Insert a tuple with box.space.test:insert{1, 'First tuple'}"
+help_function_data[_("Basics")] = "First thing to be done before any database object can be created, is calling box.cfg() to configure and bootstrap the database instance. Once this is done, define database objects using box.schema, for example type box.schema.space.create('test') to create space 'test'. To add an index on a space, type box.space.test:create_index(). With an index, the space can accept tuples. Insert a tuple with box.space.test:insert{1, 'First tuple'}"
 
 local help_object_data = {}
 
@@ -39,7 +51,7 @@ local function help_call(table, param)
         end
     end
     if param ~= nil then
-        return "Help object not found"
+        return _("Help object not found")
     end
     return table
 end

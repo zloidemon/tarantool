@@ -1,0 +1,41 @@
+# Copyright (C) 2015
+# This file is distributed under the same license as the tarantool package.
+# Veniamin Gvozdikov <vgvozdikov@tarantool.org>, 2015.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: tarantool \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2015-03-22 23:34+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: Veniamin Gvozdikov <vgvozdikov@tarantool.org>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Administration"
+msgstr "Администрирование"
+
+msgid "Basics"
+msgstr "База"
+
+msgid "Help object not found"
+msgstr "Информация об объекте не найдена"
+
+msgid "Help topics"
+msgstr "Темы справки"
+
+msgid "Server administrative commands"
+msgstr "Команды администрирования сервера"
+
+msgid "To get help on a function/object, type help(function) (without quotes)"
+msgstr "Для получения помощи по функции/объекту, наберите help(функция) (без ковычек)"
+
+msgid "To get help on a topic, type help('topic') (with quotes)"
+msgstr "Для получения помощи по теме, наберите help('тема') (вместе с ковычками)"
+
+msgid "To start tutorial, type tutorial()"
+msgstr "Для запуска обучения, введите tutorial()"

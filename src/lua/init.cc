@@ -83,6 +83,7 @@ extern char uuid_lua[],
 	help_lua[],
 	help_en_US_lua[],
 	tap_lua[],
+	gettext_lua[],
 	fio_lua[];
 
 static const char *lua_modules[] = {
@@ -99,6 +100,7 @@ static const char *lua_modules[] = {
 	"net.box", net_box_lua,
 	"console", console_lua,
 	"tap", tap_lua,
+	"gettext", gettext_lua,
 	"help.en_US", help_en_US_lua,
 	"help", help_lua,
 	NULL

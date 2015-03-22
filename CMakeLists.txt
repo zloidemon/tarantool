@@ -52,6 +52,7 @@ include(cmake/simd.cmake)
 include(cmake/profile.cmake)
 include(cmake/FindReadline.cmake)
 include(cmake/FindSphinx.cmake)
+include(cmake/FindGettext.cmake)
 include(cmake/systemd.cmake)
 
 if (NOT READLINE_FOUND)
