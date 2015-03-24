@@ -40,6 +40,18 @@ local function pid()
     return tonumber(ffi.C.getpid())
 end
 
+function _(str)
+    local gtx = {}
+    local s, e = pcall(function() gtx = require('gettext') end)
+    if gtx.gettext then
+        gtx.bindtextdomain('tarantool')
+        gtx.bind_textdomain_codeset('tarantool', 'utf-8')
+        gtx.textdomain('tarantool')
+        return gtx.gettext(str)
+    end
+    return str
+end
+
 return {
     uptime = uptime;
     pid = pid;

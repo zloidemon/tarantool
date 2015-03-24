@@ -8,19 +8,24 @@ if (GETTEXT_MSGMERGE_EXECUTABLE AND GETTEXT_MSGFMT_EXECUTABLE AND XGETTEXT_EXECU
     set(GETTEXT_FOUND TRUE)
 endif()
 
-if (GETTEXT_FOUND)
-    message(STATUS "Gettext found")
+if (GETTEXT_FOUND AND ENABLE_GETTEXT)
+    message(STATUS "Gettext found and enabled to build")
+    set(HAVE_GETTEXT 1)
     set(languages en ru)
     set(_mos)
+    set(_wrkdir ${CMAKE_CURRENT_BINARY_DIR})
+
     foreach(_lang ${languages})
-        set(_wrkdir ${CMAKE_CURRENT_BINARY_DIR})
         set(_mo ${_wrkdir}/${_lang}.mo)
         set(_po ${CMAKE_SOURCE_DIR}/po/${_lang}.po)
         set(_newpot ${_wrkdir}/${_lang}.pot)
-        set(_src ${CMAKE_SOURCE_DIR}/src/lua/help.lua)
+        set(_src
+            ${CMAKE_SOURCE_DIR}/src/lua/help.lua
+            ${CMAKE_SOURCE_DIR}/src/lua/help_en_US.lua
+	)
         add_custom_command(
             OUTPUT ${_newpot}
-            COMMAND ${XGETTEXT_EXECUTABLE} --no-location --keyword=_ --language=lua --from-code=UTF-8 --package-name=${PROJECT_NAME} -o ${_newpot} ${_src}
+            COMMAND ${XGETTEXT_EXECUTABLE} --sort-output --no-location --keyword=_ --from-code=UTF-8 --package-name=${PROJECT_NAME} -o ${_newpot} ${_src}
             DEPENDS ${_src}
             WORKING_DIRECTORY ${_wrkdir}
             COMMENT "Extract translatable messages to ${_newpot}"

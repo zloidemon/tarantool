@@ -1,16 +1,4 @@
 local doc = require('help.en_US')
-local gtx = require('gettext')
-
-gtx.bindtextdomain('tarantool')
-gtx.bind_textdomain_codeset('tarantool', 'utf-8')
-gtx.textdomain('tarantool')
-
-function _(str)
-    if gtx.gettext then
-        return gtx.gettext(str)
-    end
-    return str
-end
 
 help = {}
 help[1] = {}
@@ -35,7 +23,7 @@ help_function_data[_("Administration")][_("Server administrative commands")] =
 		"box.cfg()",
 		"box.coredump()"
 }
-help_function_data[_("Basics")] = "First thing to be done before any database object can be created, is calling box.cfg() to configure and bootstrap the database instance. Once this is done, define database objects using box.schema, for example type box.schema.space.create('test') to create space 'test'. To add an index on a space, type box.space.test:create_index(). With an index, the space can accept tuples. Insert a tuple with box.space.test:insert{1, 'First tuple'}"
+help_function_data[_("Basics")] = _("First thing to be done before any database object can be created, is calling box.cfg() to configure and bootstrap the database instance. Once this is done, define database objects using box.schema, for example type box.schema.space.create('test') to create space 'test'. To add an index on a space, type box.space.test:create_index(). With an index, the space can accept tuples. Insert a tuple with box.space.test:insert{1, 'First tuple'}")
 
 local help_object_data = {}
 

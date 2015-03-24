@@ -112,6 +112,10 @@
 *  Defined if compatible with GNU readline installed.
 */
 #cmakedefine HAVE_GNU_READLINE 1
+/*
+*  Defined if this platform has gettext.
+*/
+#cmakedefine HAVE_GETTEXT 1
 
 /*
  * Set if compiler has __builtin_XXX methods.

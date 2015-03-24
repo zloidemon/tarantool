@@ -198,6 +198,8 @@ with gcc. If GNU binutils and binutils-dev libraries are installed, backtrace
 is output with resolved function (symbol) names. Otherwise only frame
 addresses are printed." ${CMAKE_COMPILER_IS_GNUCC})
 
+option(ENABLE_GETTEXT "Enable native language support" OFF)
+
 set (HAVE_BFD False)
 if (ENABLE_BACKTRACE)
     if (NOT ${CMAKE_COMPILER_IS_GNUCC} OR
@@ -390,6 +392,7 @@ message (STATUS "ENABLE_BUNDLED_LIBEV: ${ENABLE_BUNDLED_LIBEV}")
 message (STATUS "ENABLE_BUNDLED_LIBEIO: ${ENABLE_BUNDLED_LIBEIO}")
 message (STATUS "ENABLE_BUNDLED_LIBCORO: ${ENABLE_BUNDLED_LIBCORO}")
 message (STATUS "ENABLE_DOC: ${ENABLE_DOC}")
+message (STATUS "ENABLE_GETTEXT: ${ENABLE_GETTEXT}")
 list_optional_packages()
 if (TARGET_OS_DARWIN)
     message (STATUS "DARWIN_BUILD_TYPE: ${DARWIN_BUILD_TYPE}")
