@@ -2,8 +2,7 @@
 
 return {
     tutorial = {
-    [[
-Tutorial -- Screen #1 -- Hello, Moon
+    _([[Tutorial -- Screen #1 -- Hello, Moon
 ====================================
 
 Welcome to the Tarantool tutorial.
@@ -33,10 +32,9 @@ You’ll see the response:
 Then you’ll get a chance to repeat -- perhaps entering
 something else such as "Longer String",-1,-3,0.
 When you’re ready to go to the next screen, enter <tutorial("next")>.
-]];
+]]);
 
-[[
-Tutorial -- Screen #2 -- Variables
+_([[Tutorial -- Screen #2 -- Variables
 ==================================
 
 
@@ -65,10 +63,9 @@ Take all three lines and enter them below after the
 "tarantool>" prompt, then type Enter.
 Or try different values in a different order.
 When you’re ready to go to the next screen, enter <tutorial("next")>.
-]];
+]]);
 
-[[
-Tutorial -- Screen #3 -- Loops
+_([[Tutorial -- Screen #3 -- Loops
 ==============================
 
 Add action by using loops rather than static displays.
@@ -93,10 +90,9 @@ Take all four lines and enter them below after the
 For adventure, change the loop to "for i=1,3,1"
 (don’t worry, it won’t crash).
 When you’re ready to go to the next screen, enter <tutorial("next")>.
-]];
+]]);
 
-[[
-Tutorial -- Screen #4 -- Operators
+_([[Tutorial -- Screen #4 -- Operators
 ==================================
 
 Among the many operators that Lua supports, you most often see:
@@ -120,10 +116,9 @@ try to predict whether the display will be
 
 The answer will appear when you type in the request.
 When you’re ready to go to the next screen, enter <tutorial("next")>.
-]];
+]]);
 
-[[
-Tutorial -- Screen #5 -- Conditions
+_([[Tutorial -- Screen #5 -- Conditions
 ===================================
 
 A condition involves a comparison operator such as "==",
@@ -145,10 +140,9 @@ the result, try to predict whether the display will be
 (c) no
 The answer will appear when you type in the request.
 When you’re ready to go to the next screen, enter <tutorial("next")>.
-]];
+]]);
 
-[[
-Tutorial -- Screen #6 -- Delimiters
+_([[Tutorial -- Screen #6 -- Delimiters
 ===================================
 
 This is just to prepare for later exercises
@@ -170,10 +164,9 @@ but you’ll see "!" in following exercises.
 
 When you’re ready to go to the next screen, enter <tutorial("next")!>.
 Yes, <tutorial("next")!> has to end with an exclamation mark too!
-]];
+]]);
 
-[[
-Tutorial -- Screen #7 -- Simple Functions
+_([[Tutorial -- Screen #7 -- Simple Functions
 =========================================
 
 A function, or a stored procedure that returns a value,
@@ -193,10 +186,9 @@ func()!
 This defines a function which sums all the numbers
 between 1 and 100, and returns the final result.
 The request "func()!" invokes the function.
-]];
+]]);
 
-[[
-Tutorial -- Screen #8 -- Improved Functions
+_([[Tutorial -- Screen #8 -- Improved Functions
 ===========================================
 
 Improve the simple function by avoiding globals.
@@ -213,10 +205,9 @@ return n
 end!
 func(0)!
 ------------------------------------
-]];
+]]);
 
-[[
-Tutorial -- Screen #9 -- Comments
+_([[Tutorial -- Screen #9 -- Comments
 =================================
 
 There are several ways to add comments, but
@@ -242,10 +233,9 @@ func(0)!
 -------------------------------------------
 
 Obviously it will work, so just type <tutorial("next")!> now.
-]];
+]]);
 
-[[
-Tutorial -- Screen #10 -- Packages
+_([[Tutorial -- Screen #10 -- Packages
 ==================================
 
 Many developers have gone to the trouble of making
@@ -277,10 +267,9 @@ First you’ll see a list of functions, one of which
 is "user". Then you’ll see the name of the current
 user, which happens to be "admin", which happens to
 be you.
-]];
+]]);
 
-[[
-Tutorial -- Screen #11 -- The socket package
+_([[Tutorial -- Screen #11 -- The socket package
 ============================================
 
 Connect to the Internet and send a message to the parent of
@@ -306,10 +295,9 @@ The response will be short -- "- "HTTP/1.1 302 OK\r\n"" --
 but it shows you’ve gotten in touch with a distant server.
 More in the Tarantool manual:
 http://tarantool.org/doc/master/user_guide.html#sp-box-socket
-]];
+]]);
 
-[[
-Tutorial -- Section #12 -- Fibers
+_([[Tutorial -- Section #12 -- Fibers
 =================================
 
 Make a function that will run like a daemon in the
@@ -344,10 +332,9 @@ During waking moments, gvar will go up by 1 -- and
 gvar is deliberately a global variable. So it’s
 possible to monitor it: slowly type "gvar!" a few
 times and notice how the value mysteriously increases.
-]];
+]]);
 
-[[
-Tutorial -- Screen #13 -- Tarantool’s box package
+_([[Tutorial -- Screen #13 -- Tarantool’s box package
 =================================================
 
 So far you’ve seen Tarantool in action as a
@@ -389,10 +376,9 @@ To understand the description, you just have to know that:
 Much of the description doesn’t matter right now; it’s
 enough if you see that package box gets a space which is
 named tutor, and it has one index on the first field.
-]];
+]]);
 
-[[
-Tutorial -- Screen #14 -- box.select()
+_([[Tutorial -- Screen #14 -- box.select()
 ======================================
 
 The most common data-manipulation function is box.select().
@@ -425,10 +411,9 @@ So select() is returning a set of tuples into a Lua table
 named t, and the loop is going to print each element of
 the table. That is, when you call database_display()! you’ll
 see a display of what’s in the tuples.
-]];
+]]);
 
-[[
-Tutorial -- Screen #15 -- box.replace()
+_([[Tutorial -- Screen #15 -- box.replace()
 =======================================
 
 Pick any of the tuples that were displayed on the last screen.
@@ -452,10 +437,9 @@ If there is already a "tuple" (our equivalent of a record)
 whose number is equal to 1, it will be replaced with your
 new data. Otherwise it will be created for the first time.
 The display will be the formal description of the new tuple.
-]];
+]]);
 
-[[
-Tutorial -- Screen #16 -- Create your own space
+_([[Tutorial -- Screen #16 -- Create your own space
 ===============================================
 
 You’ve now selected and replaced tuples from the
@@ -479,10 +463,9 @@ will be "memtx" -- the engine which keeps all tuples
 in memory, and writes changes to a log file to ensure
 that data can’t be lost. Although "memtx" is the
 default engine anyway, specifying it does no harm.
-]];
+]]);
 
-[[
-Tutorial -- Screen #17 -- Create your own index
+_([[Tutorial -- Screen #17 -- Create your own index
 ===============================================
 
 Having a space isn’t enough -- you must have at
@@ -505,10 +488,9 @@ tuple, and will be numeric. The second index will
 be named secondary, doesn’t have to be unique, will
 be on the second field of each tuple, and will be
 in order by string value.
-]];
+]]);
 
-[[
-Tutorial -- Screen #18 -- Insert multiple tuples
+_([[Tutorial -- Screen #18 -- Insert multiple tuples
 ================================================
 
 In a loop, put some tuples in your new space.
@@ -528,10 +510,9 @@ end!
 
 Tip: to select the tuples later, use the function
 that you created earlier: database_display("test")!
-]];
+]]);
 
-[[
-Tutorial -- Screen #19 -- Become another user
+_([[Tutorial -- Screen #19 -- Become another user
 =============================================
 
 Remember, you’re currently "admin" -- administrator.
@@ -549,10 +530,9 @@ unauthorized users from working with databases.
 But you can say session.su("admin")! to become
 a powerful user again, because for this tutorial
 the "admin" user isn’t protected by a password.
-]];
+]]);
 
-[[
-Tutorial -- Screen #20 -- The Bigger Tutorials
+_([[Tutorial -- Screen #20 -- The Bigger Tutorials
 ==============================================
 
 You can continue to type in whatever Lua instructions,
@@ -574,6 +554,6 @@ Request #20 is:
 
 When you’re finished, don’t type <tutorial("next")!>, just wander off
 and have a nice day.
-]];
+]]);
     }; --[[ tutorial ]]--
 }

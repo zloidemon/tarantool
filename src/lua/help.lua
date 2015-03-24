@@ -66,7 +66,7 @@ local function tutorial_call(table, action)
     elseif screen_id > #doc.tutorial then
         screen_id = #doc.tutorial
     end
-    return doc.tutorial[screen_id]
+    return print(doc.tutorial[screen_id])
 end
 
 setmetatable(tutorial, { __call = tutorial_call })

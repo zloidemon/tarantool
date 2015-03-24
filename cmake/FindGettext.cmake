@@ -39,7 +39,7 @@ if (GETTEXT_FOUND AND ENABLE_GETTEXT)
             WORKING_DIRECTORY ${_wrkdir}
             COMMENT "Update translated files and compile"
         )
-        install(FILES ${_mo} DESTINATION share/locale/${_lang}/LC_MESSAGES RENAME ${PROJECT_NAME}.mo)
+        install(FILES ${_mo} DESTINATION share/locale/${_lang}/LC_MESSAGES RENAME ${PROJECT_NAME}_help.mo)
         list(APPEND _mos ${_mo})
     endforeach()
     add_custom_target(translation "ALL" DEPENDS ${_mos})

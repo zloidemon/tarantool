@@ -44,9 +44,9 @@ function _(str)
     local gtx = {}
     local s, e = pcall(function() gtx = require('gettext') end)
     if gtx.gettext then
-        gtx.bindtextdomain('tarantool')
-        gtx.bind_textdomain_codeset('tarantool', 'utf-8')
-        gtx.textdomain('tarantool')
+        gtx.bindtextdomain('tarantool_help')
+        gtx.bind_textdomain_codeset('tarantool_help', 'utf-8')
+        gtx.textdomain('tarantool_help')
         return gtx.gettext(str)
     end
     return str
