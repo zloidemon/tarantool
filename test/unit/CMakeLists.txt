@@ -59,6 +59,12 @@ target_link_libraries(vclock.test core small)
 add_executable(quota.test quota.cc unit.c)
 target_link_libraries(quota.test pthread)
 
+add_executable(heap.test heap.cc unit.c)
+target_link_libraries(heap.test salad)
+
+add_executable(salloc.test salloc.cc unit.c)
+target_link_libraries(salloc.test salad small)
+
 add_executable(fiber.test fiber.cc unit.c)
 target_link_libraries(fiber.test core)
 

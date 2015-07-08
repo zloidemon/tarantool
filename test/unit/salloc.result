@@ -1,0 +1,4 @@
+	*** test_salloc ***
+slab_allocer.alloc_count = 0, mext_allocer.alloc_count = 0
+	*** test_salloc: done ***
+ 

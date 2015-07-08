@@ -1,0 +1,19 @@
+	*** test_heap_push_pop_visual ***
+rand   12, 50, 11, 16, 0, 1, 2, 42, 41, 40
+sorted 50, 42, 41, 40, 16, 12, 11, 2, 1, 0
+	*** test_heap_push_pop_visual: done ***
+ 	*** test_heap_build_visual ***
+rand   12, 50, 11, 16, 0, 1, 2, 42, 41, 40
+sorted 50, 42, 41, 40, 16, 12, 11, 2, 1, 0
+	*** test_heap_build_visual: done ***
+ 	*** test_heap_stupid ***
+	*** test_heap_stupid: done ***
+ 	*** test_heap_clear ***
+	*** test_heap_clear: done ***
+ 	*** test_heap_push_pop ***
+	*** test_heap_push_pop: done ***
+ 	*** test_heap_build ***
+	*** test_heap_build: done ***
+ 	*** test_heap_delete ***
+	*** test_heap_delete: done ***
+ 
