@@ -1846,8 +1846,6 @@ bsync_inc_rejected(uint8_t host_id, struct bsync_operation *oper, const char *re
 static void
 bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 {BSYNC_TRACE
-	oper->common->dup_key = oper->txn_data->common->dup_key;
-	oper->common->region = oper->txn_data->common->region;
 	if (!proxy) {
 		oper->req = (struct wal_request *)
 			region_alloc0(&fiber()->gc, sizeof(struct wal_request) +
@@ -1980,6 +1978,8 @@ bsync_proxy_leader(struct bsync_operation *oper, struct bsync_send_elem *send)
 	BSYNC_TRACE
 	oper->sign = oper->txn_data->sign;
 	if (oper->txn_data->result >= 0) {
+		oper->common->dup_key = oper->txn_data->common->dup_key;
+		oper->common->region = oper->txn_data->common->region;
 		bsync_queue_leader(oper, true);
 		return;
 	}
@@ -2487,6 +2487,8 @@ restart:BSYNC_TRACE
 			goto exit;
 		}
 	}
+	oper->common->dup_key = oper->txn_data->common->dup_key;
+	oper->common->region = oper->txn_data->common->region;
 	if (bsync_state.leader_id == bsync_state.local_id) {
 		bsync_queue_leader(oper, false);
 	} else {
