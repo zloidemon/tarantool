@@ -38,11 +38,11 @@ const unsigned char iproto_key_type[IPROTO_KEY_MAX] =
 		/* 0x02 */	MP_UINT,   /* IPROTO_SERVER_ID */
 		/* 0x03 */	MP_UINT,   /* IPROTO_LSN */
 		/* 0x04 */	MP_DOUBLE, /* IPROTO_TIMESTAMP */
+		/* 0x05 */	MP_UINT, /* IPROTO_BSYNC_COMMIT */
+		/* 0x06 */	MP_UINT, /* IPROTO_BSYNC_ROLLBACK */
 	/* }}} */
 
 	/* {{{ unused */
-		/* 0x05 */	MP_UINT,
-		/* 0x06 */	MP_UINT,
 		/* 0x07 */	MP_UINT,
 		/* 0x08 */	MP_UINT,
 		/* 0x09 */	MP_UINT,
@@ -86,8 +86,6 @@ const unsigned char iproto_key_type[IPROTO_KEY_MAX] =
 	/* 0x26 */	MP_MAP, /* IPROTO_VCLOCK */
 	/* 0x27 */	MP_STR, /* IPROTO_EXPR */
 	/* 0x28 */	MP_ARRAY, /* IPROTO_OPS */
-	/* 0x29 */	MP_UINT, /* IPROTO_BSYNC_COMMIT */
-	/* 0x30 */	MP_UINT, /* IPROTO_BSYNC_ROLLBACK */
 	/* }}} */
 };
 
@@ -123,11 +121,11 @@ const uint64_t iproto_body_key_map[IPROTO_UPSERT + 1] = {
 const char *iproto_key_strs[IPROTO_KEY_MAX] = {
 	"type",             /* 0x00 */
 	"sync",             /* 0x01 */
-	"server_id",          /* 0x02 */
+	"server_id",        /* 0x02 */
 	"lsn",              /* 0x03 */
 	"timestamp",        /* 0x04 */
-	"",                 /* 0x05 */
-	"",                 /* 0x06 */
+	"commit flag",      /* 0x05 */
+	"rollback flag",    /* 0x06 */
 	"",                 /* 0x07 */
 	"",                 /* 0x08 */
 	"",                 /* 0x09 */
@@ -162,7 +160,5 @@ const char *iproto_key_strs[IPROTO_KEY_MAX] = {
 	"vector clock",     /* 0x26 */
 	"expression",       /* 0x27 */
 	"operations",       /* 0x28 */
-	"commit flag",      /* 0x29 */
-	"rollback flag",    /* 0x30 */
 };
 
