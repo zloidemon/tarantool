@@ -166,6 +166,8 @@ struct fiber {
 
 enum { FIBER_CALL_STACK = 16 };
 
+struct cord_on_exit;
+
 /**
  * @brief An independent execution unit that can be managed by a separate OS
  * thread. Each cord consists of fibers to implement cooperative multitasking
@@ -183,6 +185,7 @@ struct cord {
          */
 	uint32_t max_fid;
 	pthread_t id;
+	struct cord_on_exit *on_exit;
 	/** A helper hash to map id -> fiber. */
 	struct mh_i32ptr_t *fiber_registry;
 	/** All fibers */
