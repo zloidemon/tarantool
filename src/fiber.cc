@@ -38,7 +38,6 @@
 #include "assoc.h"
 #include "memory.h"
 #include "trigger.h"
-#include <typeinfo>
 #include "third_party/pmatomic.h"
 
 /*
@@ -47,16 +46,17 @@
  * implement cord_cojoin.
  */
 struct cord_on_exit {
-	void (*callback) (void*);
+	void (*callback)(void*);
 	void *argument;
 };
 
 /*
- * The special value distinct from any valid pointer to cord_on_exit
- * structure AND NULL). This value is stored in cord()->on_exit by the
- * thread func prior to a thread termination.
+ * A special value distinct from any valid pointer to cord_on_exit
+ * structure AND NULL. This value is stored in cord()->on_exit by the
+ * thread function prior to thread termination.
  */
-#define CORD_ON_EXIT_WONT_RUN ((struct cord_on_exit*)1)
+static const struct cord_on_exit cord_on_exit_sentinel = { NULL, NULL };
+#define CORD_ON_EXIT_WONT_RUN (&cord_on_exit_sentinel)
 
 static struct cord main_cord;
 __thread struct cord *cord_ptr = NULL;
@@ -319,10 +319,24 @@ void
 fiber_sleep(ev_tstamp delay)
 {
 	/*
+	 * libev sleeps at least backend_mintime, which is 1 ms in
+	 * case of poll()/Linux, unless there are idle watchers.
+	 * This is a special hack to speed up fiber_sleep(0),
+	 * i.e. a sleep with a zero timeout, to ensure that there
+	 * is no 1 ms delay in case of zero sleep timeout.
+	 */
+	if (delay == 0) {
+		ev_idle_start(loop(), &cord()->idle_event);
+	}
+	/*
 	 * We don't use fiber_wakeup() here to ensure there is
 	 * no infinite wakeup loop in case of fiber_sleep(0).
 	 */
 	fiber_yield_timeout(delay);
+
+	if (delay == 0) {
+		ev_idle_stop(loop(), &cord()->idle_event);
+	}
 	fiber_testcancel();
 }
 
@@ -355,6 +369,12 @@ fiber_schedule_wakeup(ev_loop * /* loop */, ev_async *watcher, int revents)
 	struct cord *cord = cord();
 	fiber_schedule_list(&cord->ready);
 }
+
+static void
+fiber_schedule_idle(ev_loop * /* loop */, ev_idle * /* watcher */,
+		    int /* revents */)
+{}
+
 
 struct fiber *
 fiber_find(uint32_t fid)
@@ -591,6 +611,8 @@ cord_create(struct cord *cord, const char *name)
 
 	ev_async_init(&cord->wakeup_event, fiber_schedule_wakeup);
 	ev_async_start(cord->loop, &cord->wakeup_event);
+
+	ev_idle_init(&cord->idle_event, fiber_schedule_idle);
 	snprintf(cord->name, sizeof(cord->name), "%s", name);
 }
 
@@ -652,22 +674,22 @@ void *cord_thread_func(void *p)
 		res = NULL;
 	}
 	/*
-	 * cord()->on_exit initially holds a NULL value. This field is
+	 * cord()->on_exit initially holds NULL. This field is
 	 * change-once.
-	 * Either a handler installation suceeds (in cord_cojoin) or prior
-	 * to thread exit the thread func discovers that no handler was installed
-	 * so far and it stores CORD_ON_EXIT_WONT_RUN to prevent a future
-	 * handler installation (since a handler won't run anyway).
+	 * Either handler installation succeeds (in cord_cojoin())
+	 * or prior to thread exit the thread function discovers
+	 * that no handler was installed so far and it stores
+	 * CORD_ON_EXIT_WONT_RUN to prevent a future handler
+	 * installation (since a handler won't run anyway).
 	 */
-	struct cord_on_exit *handler = NULL; /* expected value */
-	bool rc = pm_atomic_compare_exchange_strong(&cord()->on_exit,
+	const struct cord_on_exit *handler = NULL; /* expected value */
+	bool changed;
+
+	changed = pm_atomic_compare_exchange_strong(&cord()->on_exit,
 	                                            &handler,
 	                                            CORD_ON_EXIT_WONT_RUN);
-	if (!rc) {
-		assert(handler);
-		assert(handler->callback);
+	if (!changed)
 		handler->callback(handler->argument);
-	}
 	return res;
 }
 
@@ -711,10 +733,16 @@ cord_join(struct cord *cord)
 	return res;
 }
 
-struct cord_cojoin_state
+/** The state of the waiter for a thread to complete. */
+struct cord_cojoin_ctx
 {
 	struct ev_loop *loop;
+	/** Waiting fiber. */
 	struct fiber *fiber;
+	/*
+	 * This event is signalled when the subject thread is
+	 * about to die.
+	 */
 	struct ev_async async;
 	bool task_complete;
 };
@@ -722,26 +750,21 @@ struct cord_cojoin_state
 static void
 cord_cojoin_on_exit(void *arg)
 {
-	struct cord_cojoin_state *b =
-		(struct cord_cojoin_state *)arg;
+	struct cord_cojoin_ctx *ctx = (struct cord_cojoin_ctx *)arg;
 
-	assert(b->loop);
-	ev_async_send(b->loop, &b->async);
+	ev_async_send(ctx->loop, &ctx->async);
 }
 
 static void
 cord_cojoin_wakeup(struct ev_loop *loop, struct ev_async *ev, int revents)
 {
-	assert(ev);
-	assert(ev->data);
 	(void)loop;
 	(void)revents;
 
-	struct cord_cojoin_state *b = (cord_cojoin_state *)ev->data;
+	struct cord_cojoin_ctx *ctx = (struct cord_cojoin_ctx *)ev->data;
 
-	assert(b->fiber);
-	b->task_complete = true;
-	fiber_wakeup(b->fiber);
+	ctx->task_complete = true;
+	fiber_wakeup(ctx->fiber);
 }
 
 int
@@ -749,47 +772,52 @@ cord_cojoin(struct cord *cord)
 {
 	assert(cord() != cord); /* Can't join self. */
 
-	struct cord_cojoin_state b;
-	b.loop = loop();
-	b.fiber = fiber();
-	b.task_complete = false;
+	struct cord_cojoin_ctx ctx;
+	ctx.loop = loop();
+	ctx.fiber = fiber();
+	ctx.task_complete = false;
 
-	ev_async_init(&b.async, cord_cojoin_wakeup);
-	b.async.data = &b;
-	ev_async_start(loop(), &b.async);
+	ev_async_init(&ctx.async, cord_cojoin_wakeup);
+	ctx.async.data = &ctx;
+	ev_async_start(loop(), &ctx.async);
 
-	struct cord_on_exit handler = { cord_cojoin_on_exit, &b };
+	struct cord_on_exit handler = { cord_cojoin_on_exit, &ctx };
 
 	/*
 	 * cord->on_exit initially holds a NULL value. This field is
 	 * change-once.
 	 */
-	struct cord_on_exit *prev_handler = NULL; /* expected value */
-	bool rc = pm_atomic_compare_exchange_strong(&cord->on_exit,
-	                                            &prev_handler, &handler);
+	const struct cord_on_exit *prev_handler = NULL; /* expected value */
+	bool changed = pm_atomic_compare_exchange_strong(&cord->on_exit,
+	                                                 &prev_handler,
+	                                                 &handler);
 	/*
 	 * A handler installation fails either if the thread did exit or
 	 * if someone is already joining this cord (BUG).
 	 */
-	if (!rc) {
+	if (!changed) {
 		/* Assume cord's thread already exited. */
 		assert(prev_handler == CORD_ON_EXIT_WONT_RUN);
 	} else {
 		/*
-		 * Wait until the thread exits. Prior to exit the thread invokes
-		 * cord_cojoin_on_exit, signaling ev_async, making the event loop
-		 * call cord_cojoin_wakeup, waking up this fiber again.
+		 * Wait until the thread exits. Prior to exit the
+		 * thread invokes cord_cojoin_on_exit, signaling
+		 * ev_async, making the event loop call
+		 * cord_cojoin_wakeup, waking up this fiber again.
 		 *
-		 * The fiber is non-cancellable during the wait to avoid
-		 * invalidating the state struct on stack.
+		 * The fiber is non-cancellable during the wait to
+		 * avoid invalidating of the cord_cojoin_ctx
+		 * object declared on stack.
 		 */
 		bool cancellable = fiber_set_cancellable(false);
 		fiber_yield();
-		assert(b.task_complete);
+		/* Spurious wakeup indicates a severe BUG, fail early. */
+		if (ctx.task_complete == 0)
+			panic("Wrong fiber woken");
 		fiber_set_cancellable(cancellable);
 	}
 
-	ev_async_stop(loop(), &b.async);
+	ev_async_stop(loop(), &ctx.async);
 	return cord_join(cord);
 }
 
