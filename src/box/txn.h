@@ -62,7 +62,7 @@ struct txn {
 	/** List of statements in a transaction. */
 	struct rlist stmts;
 	 /** Commit and rollback triggers */
-	struct rlist on_commit, on_rollback;
+	struct rlist on_commit, on_rollback, after_rollback;
 	/** Total number of statements in this txn. */
 	int n_stmts;
 	/** Commit signature (LSN sum) */

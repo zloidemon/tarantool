@@ -108,6 +108,7 @@ txn_begin(bool autocommit)
 	rlist_create(&txn->stmts);
 	rlist_create(&txn->on_commit);
 	rlist_create(&txn->on_rollback);
+	rlist_create(&txn->after_rollback);
 	txn->autocommit = autocommit;
 	fiber_set_txn(fiber(), txn);
 	return txn;
@@ -223,6 +224,7 @@ txn_rollback()
 	trigger_run(&txn->on_rollback, txn); /* must not throw. */
 	if (txn->engine)
 		txn->engine->rollback(txn);
+	trigger_run(&txn->after_rollback, txn); /* must not throw. */
 	TRASH(txn);
 	/** Free volatile txn memory. */
 	fiber_gc();
