@@ -1173,7 +1173,9 @@ txn_cleanup_bsync_queue(struct bsync_fifo *queue)
 	struct bsync_txn_info *info;
 	struct bsync_fifo buffer;
 	STAILQ_INIT(&buffer);
-	STAILQ_FOREACH(info, queue, fifo) {
+	while (!STAILQ_EMPTY(queue)) {
+		info = STAILQ_FIRST(queue);
+		STAILQ_REMOVE_HEAD(queue, fifo);
 		if (info->oper && info->oper->status == bsync_op_status_proxy) {
 			STAILQ_INSERT_TAIL(&buffer, info, fifo);
 			say_info("save in proxy_queue (%d:%ld), status=%d",
@@ -1603,11 +1605,11 @@ bsync_slave_wal(struct bsync_operation *oper)
 			LAST_ROW(oper->req)->lsn, oper->sign);
 	}
 	oper->txn_data->result = wal_res;
-	bsync_send_data(
-		&BSYNC_LEADER,
+	struct bsync_send_elem *elem =
 		bsync_alloc_send(oper->txn_data->result < 0 ?
-				bsync_mtype_reject : bsync_mtype_submit)
-	);
+				 bsync_mtype_reject : bsync_mtype_submit);
+	elem->arg = oper;
+	bsync_send_data(&BSYNC_LEADER, elem);
 	if (oper->txn_data->result >= 0)
 		return;
 	say_debug("rollback request %d:%ld(%ld)", LAST_ROW(oper->req)->server_id,
@@ -1646,6 +1648,7 @@ bsync_slave_finish(struct bsync_operation *oper, bool switch_2_txn)
 			bsync_status(oper, bsync_op_status_submit_yield);
 			rlist_add_tail_entry(&bsync_state.commit_queue, oper, list);
 			fiber_yield();
+			say_debug("wakeuped [%p]", fiber());
 			assert(!rlist_empty(&bsync_state.commit_queue));
 			next = rlist_shift_entry(&bsync_state.commit_queue,
 						 struct bsync_operation, list);
@@ -1672,8 +1675,10 @@ bsync_slave_finish(struct bsync_operation *oper, bool switch_2_txn)
 	if (switch_2_txn) {
 		SWITCH_TO_TXN(oper->txn_data, txn_process);
 	}
-	if (next)
-		fiber_call(next->owner);
+	if (next) {
+		say_debug("wakeup [%p]", next->owner);
+		fiber_wakeup(next->owner);
+	}
 }
 
 static void
@@ -1754,7 +1759,14 @@ bsync_proxy_slave(struct bsync_operation *oper)
 		LAST_ROW(oper->req)->lsn, oper->sign, oper->status);
 	bsync_slave_finish(oper, true);
 	fiber_yield();
-	assert(rlist_empty(&oper->list));
+	if (!rlist_empty(&oper->list)) {
+		// operation was already added to submit queue
+		assert(!rlist_empty(&bsync_state.submit_queue));
+		struct bsync_operation *op =
+			rlist_shift_entry(&bsync_state.submit_queue,
+					  struct bsync_operation, list);
+		assert(op == oper);
+	}
 }
 
 static void
@@ -2156,8 +2168,15 @@ bsync_proxy_leader(struct bsync_operation *oper, struct bsync_send_elem *send)
 		return;
 	}
 	uint8_t host_id = oper->host_id;
-	if (BSYNC_REMOTE.flags & bsync_host_rollback)
+	if (BSYNC_REMOTE.flags & bsync_host_rollback) {
+		say_debug("%d:%ld ignored for rolled back host",
+			  LAST_ROW(oper->req)->server_id,
+			  LAST_ROW(oper->req)->lsn);
 		return;
+	}
+	say_debug("%d:%ld rolled back, host %s marked as bad",
+		  LAST_ROW(oper->req)->server_id,
+		  LAST_ROW(oper->req)->lsn, BSYNC_REMOTE.name);
 	BSYNC_REMOTE.flags |= bsync_host_rollback;
 	/* drop all active operations from host */
 	tt_pthread_mutex_lock(&bsync_state.mutex);
@@ -2211,6 +2230,8 @@ bsync_proxy_processor()
 	BSYNC_SEND_2_BSYNC
 	fiber_yield();
 	if (oper->status == bsync_op_status_fail) {
+		say_debug("failed %d:%ld from %d", LAST_ROW(oper->req)->server_id,
+			  LAST_ROW(oper->req)->lsn, fiber()->caller->fid);
 		return;
 	}
 	bsync_status(oper, bsync_op_status_init);
@@ -2298,12 +2319,15 @@ bsync_do_submit(uint8_t host_id, struct bsync_send_elem *info)
 static void
 bsync_submit(uint8_t host_id, const char **ipos, const char *iend)
 {
+	uint64_t sign = mp_decode_uint(ipos);
 	assert(*ipos == iend);
 	assert(!rlist_empty(&BSYNC_REMOTE.op_queue));
 	--BSYNC_REMOTE.op_queue_size;
-	bsync_do_submit(host_id,
+	struct bsync_send_elem *info =
 		rlist_shift_entry(&BSYNC_REMOTE.op_queue,
-			struct bsync_send_elem, list));
+				  struct bsync_send_elem, list);
+	assert(((struct bsync_operation*)info->arg)->sign == sign);
+	bsync_do_submit(host_id, info);
 }
 
 static void
@@ -2321,12 +2345,15 @@ bsync_do_reject(uint8_t host_id, struct bsync_send_elem *info)
 static void
 bsync_reject(uint8_t host_id, const char **ipos, const char *iend)
 {
-	*ipos = iend;
+	uint64_t sign = mp_decode_uint(ipos);
+	assert(*ipos == iend);
 	assert(!rlist_empty(&BSYNC_REMOTE.op_queue));
 	--BSYNC_REMOTE.op_queue_size;
-	bsync_do_reject(host_id,
+	struct bsync_send_elem *info =
 		rlist_shift_entry(&BSYNC_REMOTE.op_queue,
-			struct bsync_send_elem, list));
+				  struct bsync_send_elem, list);
+	assert(((struct bsync_operation*)info->arg)->sign == sign);
+	bsync_do_reject(host_id, info);
 }
 
 static void
@@ -3863,7 +3890,7 @@ encode_sys_request(uint8_t host_id, struct bsync_send_elem *elem,
 		pos = mp_encode_uint(pos, BSYNC_LOCAL.commit_sign);
 		break;
 	case bsync_mtype_rollback:
-		size += mp_sizeof_uint((uint64_t)elem->arg);
+		pos = mp_encode_uint(pos, (uint64_t)elem->arg);
 		/* no break */
 	default:
 		break;
@@ -3894,8 +3921,8 @@ encode_request(uint8_t host_id, struct bsync_send_elem *elem,
 	if (elem->code != bsync_mtype_proxy_request
 		&& elem->code != bsync_mtype_proxy_reject
 		&& elem->code != bsync_mtype_proxy_join
-		&& elem->code != bsync_mtype_submit
-		&& (elem->code != bsync_mtype_body || (BSYNC_REMOTE.body_cur + 1) == oper->req->n_rows))
+		&& (elem->code != bsync_mtype_body ||
+			(BSYNC_REMOTE.body_cur + 1) == oper->req->n_rows))
 	{
 		bsize += mp_sizeof_uint(oper->sign);
 	}
@@ -3925,8 +3952,7 @@ encode_request(uint8_t host_id, struct bsync_send_elem *elem,
 	pos = mp_encode_uint(pos, elem->code);
 	if (elem->code != bsync_mtype_proxy_request
 		&& elem->code != bsync_mtype_proxy_reject
-		&& elem->code != bsync_mtype_proxy_join
-		&& elem->code != bsync_mtype_submit)
+		&& elem->code != bsync_mtype_proxy_join)
 	{
 		if (elem->code == bsync_mtype_body && BSYNC_REMOTE.body_cur > 0)
 			return iovcnt;
@@ -3984,13 +4010,16 @@ bsync_send(struct ev_io *coio, uint8_t host_id)
 					 bsync_mtype_name[elem->code],
 					 BSYNC_LOCAL.commit_sign,
 					 BSYNC_REMOTE.commit_sign);
-			} else if (elem->code == bsync_mtype_proxy_request) {
+			} else if (elem->code == bsync_mtype_proxy_request ||
+				elem->code == bsync_mtype_submit ||
+				elem->code == bsync_mtype_reject)
+			{
 				struct bsync_operation *oper = ((bsync_operation *)elem->arg);
-				say_debug("send to %s message with type %s, lsn=%d:%ld",
+				say_debug("send to %s message with type %s, lsn is %d:%ld (%ld)",
 					BSYNC_REMOTE.name,
 					bsync_mtype_name[elem->code],
 					LAST_ROW(oper->req)->server_id,
-					LAST_ROW(oper->req)->lsn);
+					LAST_ROW(oper->req)->lsn, oper->sign);
 			} else if (elem->code < bsync_mtype_sysend &&
 				   elem->code != bsync_mtype_ping) {
 				say_info("send to %s message with type %s",
