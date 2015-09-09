@@ -152,14 +152,12 @@ enum bsync_operation_status {
 	bsync_op_status_init = 1,
 	bsync_op_status_wal = 2,
 	bsync_op_status_txn = 3,
-	bsync_op_status_txn_submit = 4,
-	bsync_op_status_submit = 5,
-	bsync_op_status_yield = 6,
-	bsync_op_status_fail = 7,
-	bsync_op_status_submit_yield = 8,
-	bsync_op_status_finish_yield = 9,
-	bsync_op_status_accept_yield = 10,
-	bsync_op_status_accept_yield_submit = 11,
+	bsync_op_status_submit = 4,
+	bsync_op_status_yield = 5,
+	bsync_op_status_fail = 6,
+	bsync_op_status_submit_yield = 7,
+	bsync_op_status_finish_yield = 8,
+	bsync_op_status_accept_yield = 9,
 };
 
 static const char* bsync_op_status_name[] = {
@@ -167,7 +165,6 @@ static const char* bsync_op_status_name[] = {
 	"init",
 	"wal",
 	"txn",
-	"txn_submit",
 	"submit",
 	"yield",
 	"fail",
@@ -190,8 +187,7 @@ static const char* bsync_op_status_name[] = {
 			  bsync_op_status_name[(oper)->status], \
 			  bsync_op_status_name[(s)]); \
 	} \
-	assert((oper)->status != bsync_op_status_accept_yield || \
-		(s) == bsync_op_status_accept_yield_submit); \
+	assert((oper)->status != bsync_op_status_accept_yield); \
 	(oper)->status = (s); \
 } while(0)
 
@@ -201,6 +197,7 @@ struct bsync_operation {
 	uint8_t status;
 	uint8_t accepted;
 	uint8_t rejected;
+	bool submit;
 
 	struct fiber *owner;
 	struct bsync_common *common;
@@ -1284,9 +1281,7 @@ try {
 				  info->oper->sign, info->oper->status);
 			goto repair_yield;
 		}
-		if (info->oper->status != bsync_op_status_txn &&
-			info->oper->status != bsync_op_status_txn_submit)
-		{
+		if (info->oper->status != bsync_op_status_txn) {
 			say_debug("ignore row %d:%ld (%ld) in rollback, status %d",
 				  LAST_ROW(info->req)->server_id,
 				  LAST_ROW(info->req)->lsn,
@@ -1336,9 +1331,7 @@ try {
 	}
 	info->owner = fiber();
 	info->sign = vclock_sum(&txn_state.vclock);
-	assert(info->oper == NULL || info->oper->status == bsync_op_status_txn ||
-		info->oper->status == bsync_op_status_submit ||
-		info->oper->status == bsync_op_status_txn_submit);
+	assert(info->oper == NULL || info->oper->status == bsync_op_status_txn);
 repair_switch:
 	SWITCH_TO_BSYNC(bsync_process);
 
@@ -1374,11 +1367,10 @@ repair_yield:
 		if (s == info)
 			break;
 		s->result = -1;
-		say_info("reject row %d:%ld",
-			LAST_ROW(s->req)->server_id,
+		say_info("reject row %d:%ld", LAST_ROW(s->req)->server_id,
 			LAST_ROW(s->req)->lsn);
 		assert(s->oper == NULL || s->oper->status != bsync_op_status_submit);
-		if (s->oper && s->oper->status == bsync_op_status_txn_submit) {
+		if (s->oper && s->oper->submit && s->oper->status == bsync_op_status_txn) {
 			s->repeat = true;
 			rlist_add_entry(&bsync_state.submit_queue, s->oper, list);
 		}
@@ -1654,7 +1646,7 @@ bsync_slave_accept(struct bsync_operation *oper, struct bsync_send_elem *elem)
 		fiber_yield();
 		if (oper->status == bsync_op_status_fail)
 			return;
-		if (oper->status == bsync_op_status_accept_yield_submit)
+		if (oper->submit)
 			oper->status = bsync_op_status_submit;
 		else
 			oper->status = status;
@@ -1667,8 +1659,7 @@ bsync_slave_accept(struct bsync_operation *oper, struct bsync_send_elem *elem)
 		return;
 	next = rlist_first_entry(&bsync_state.accept_queue,
 				  struct bsync_operation, accept);
-	if (next->status != bsync_op_status_accept_yield &&
-		next->status != bsync_op_status_accept_yield_submit)
+	if (next->status != bsync_op_status_accept_yield)
 		return;
 	say_debug("call operation %d:%ld (%ld) from %d:%ld (%ld)",
 		  LAST_ROW(next->req)->server_id, LAST_ROW(next->req)->lsn,
@@ -1793,10 +1784,7 @@ bsync_proxy_slave(struct bsync_operation *oper)
 	struct bsync_send_elem *elem = bsync_slave_wal(oper);
 	if (oper->status == bsync_op_status_fail || oper->txn_data->result < 0)
 		return;
-	if (oper->status == bsync_op_status_submit)
-		bsync_status(oper, bsync_op_status_txn_submit);
-	else
-		bsync_status(oper, bsync_op_status_txn);
+	bsync_status(oper, bsync_op_status_txn);
 	say_debug("start to apply request %d:%ld (%ld) to TXN",
 		LAST_ROW(oper->req)->server_id,
 		LAST_ROW(oper->req)->lsn, oper->sign);
@@ -1810,11 +1798,13 @@ bsync_proxy_slave(struct bsync_operation *oper)
 	if (oper->status == bsync_op_status_fail)
 		return;
 	rlist_add_tail_entry(&bsync_state.txn_queue, oper, txn);
-	if (oper->status == bsync_op_status_txn) {
+	if (oper->submit)
+		bsync_status(oper, bsync_op_status_submit);
+	else {
+		assert (oper->status == bsync_op_status_txn);
 		bsync_status(oper, bsync_op_status_yield);
 		fiber_yield();
-	} else if (oper->status == bsync_op_status_txn_submit)
-		bsync_status(oper, bsync_op_status_submit);
+	}
 	say_info("%d:%ld(%ld), status=%d", LAST_ROW(oper->req)->server_id,
 		LAST_ROW(oper->req)->lsn, oper->sign, oper->status);
 	bsync_slave_finish(oper, true);
@@ -2173,9 +2163,10 @@ bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 		}
 	} else {
 		rlist_del_entry(oper, list);
+		oper->submit = true;
+		bsync_status(oper, bsync_op_status_txn);
 		if (proxy) {
 			SWITCH_TO_TXN(oper->txn_data, txn_process);
-			bsync_status(oper, bsync_op_status_txn_submit);
 			fiber_yield();
 		} else {
 			oper->txn_data->oper = NULL;
@@ -2508,15 +2499,10 @@ bsync_commit(uint64_t commit_sign)
 		bool yield = (oper->status == bsync_op_status_yield);
 		assert(oper->status != bsync_op_status_fail);
 		if (oper->status != bsync_op_status_fail) {
+			oper->submit = true;
 			switch(oper->status) {
 			case bsync_op_status_txn:
-				bsync_status(oper, bsync_op_status_txn_submit);
-				break;
 			case bsync_op_status_accept_yield:
-				bsync_status(oper, bsync_op_status_accept_yield_submit);
-				break;
-			case bsync_op_status_accept_yield_submit:
-			case bsync_op_status_txn_submit:
 				break;
 			default:
 				bsync_status(oper, bsync_op_status_submit);
@@ -3210,7 +3196,6 @@ bsync_process_loop(struct ev_loop */*loop*/, ev_async */*watcher*/, int /*event*
 		info = STAILQ_FIRST(&bsync_state.bsync_proxy_input);
 		if (info->oper) {
 			assert(info->oper->status == bsync_op_status_txn ||
-				info->oper->status == bsync_op_status_txn_submit ||
 				info->oper->status == bsync_op_status_yield ||
 				info->oper->status == bsync_op_status_proxy ||
 				info->oper->status == bsync_op_status_finish_yield);
