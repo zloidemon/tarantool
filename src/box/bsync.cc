@@ -430,13 +430,13 @@ enum bsync_message_type {
 	bsync_mtype_ready_switch = 8,
 	bsync_mtype_close = 9,
 	bsync_mtype_rollback = 10,
-	bsync_mtype_sysend = 11,
-	bsync_mtype_body = 12,
-	bsync_mtype_submit = 13,
-	bsync_mtype_reject = 14,
-	bsync_mtype_proxy_request = 15,
-	bsync_mtype_proxy_accept = 16,
-	bsync_mtype_proxy_reject = 17,
+	bsync_mtype_proxy_reject = 11,
+	bsync_mtype_sysend = 12,
+	bsync_mtype_body = 13,
+	bsync_mtype_submit = 14,
+	bsync_mtype_reject = 15,
+	bsync_mtype_proxy_request = 16,
+	bsync_mtype_proxy_accept = 17,
 	bsync_mtype_proxy_join = 18,
 	bsync_mtype_count = 19,
 	bsync_mtype_none = 20
@@ -478,13 +478,13 @@ static const char* bsync_mtype_name[] = {
 	"ready_switch",
 	"close",
 	"rollback",
+	"proxy_reject",
 	"INVALID",
 	"body",
 	"submit",
 	"reject",
 	"proxy_request",
 	"proxy_accept",
-	"proxy_reject",
 	"proxy_join",
 	"INVALID",
 	"INVALID"
@@ -678,6 +678,7 @@ bsync_parse_dup_key(struct bsync_common *data, struct key_def *key,
 static int
 bsync_find_incoming(int id, struct tt_uuid *uuid)
 {
+	say_debug("try to find incoming with id=%d and uuid=%s", id, tt_uuid_str(uuid));
 	int result = -1;
 	struct bsync_incoming *inc;
 	rlist_foreach_entry(inc, &txn_state.incoming_connections, list) {
@@ -686,8 +687,8 @@ bsync_find_incoming(int id, struct tt_uuid *uuid)
 		if (id >= 0)
 			inc->remote_id = id;
 		say_debug("found pair in incoming connections");
-		fiber_call(inc->f);
 		result = inc->remote_id;
+		fiber_call(inc->f);
 		goto finish;
 	}
 	if (id < 0) {
@@ -1397,6 +1398,14 @@ bsync_send_data(struct bsync_host_data *host, struct bsync_send_elem *elem)
 	if (host->state == bsync_host_disconnected || !host->fiber_out)
 		return;
 	assert(elem->code < bsync_mtype_count);
+	rlist_add_tail_entry(&host->send_queue, elem, list);
+	++host->send_queue_size;
+	if ((host->flags & bsync_host_active_write) == 0 &&
+		host->fiber_out != fiber())
+	{
+		fiber_call(host->fiber_out);
+		return;
+	}
 	if (elem->code == bsync_mtype_body ||
 		elem->code == bsync_mtype_proxy_accept)
 	{
@@ -1417,13 +1426,6 @@ bsync_send_data(struct bsync_host_data *host, struct bsync_send_elem *elem)
 	} else {
 		say_debug("add message %s to send queue %s",
 			bsync_mtype_name[elem->code], host->name);
-	}
-	rlist_add_tail_entry(&host->send_queue, elem, list);
-	++host->send_queue_size;
-	if ((host->flags & bsync_host_active_write) == 0 &&
-		host->fiber_out != fiber())
-	{
-		fiber_call(host->fiber_out);
 	}
 }
 
@@ -1539,7 +1541,9 @@ bsync_rollback_slave(struct bsync_operation *oper, bool retry_commit)
 	});
 	if (!retry_commit)
 		rlist_create(&bsync_state.submit_queue);
-	rlist_foreach_entry(op, &bsync_state.proxy_queue, list) {
+	while (!rlist_empty(&bsync_state.proxy_queue)) {
+		op = rlist_shift_entry(&bsync_state.proxy_queue,
+					struct bsync_operation, list);
 		say_debug("failed request %d:%ld(%ld), status is %d",
 			  LAST_ROW(op->req)->server_id,
 			  LAST_ROW(op->req)->lsn, op->sign, op->status);
@@ -1672,9 +1676,7 @@ static void
 bsync_slave_finish(struct bsync_operation *oper, bool switch_2_txn)
 {
 	struct bsync_operation *next = NULL;
-	say_debug("finish operation %d:%ld (%ld) status=%d",
-		  LAST_ROW(oper->req)->server_id, LAST_ROW(oper->req)->lsn,
-		  oper->sign, oper->status);
+	say_debug("finish operation, status=%d", oper->status);
 	if (oper->status == bsync_op_status_fail) {
 		oper->txn_data->result = -1;
 		if (!rlist_empty(&oper->txn))
@@ -1715,17 +1717,10 @@ bsync_slave_finish(struct bsync_operation *oper, bool switch_2_txn)
 			next = rlist_first_entry(&bsync_state.txn_queue,
 						 struct bsync_operation, txn);
 	}
-	if (next && next->status == bsync_op_status_submit_yield) {
-		say_debug("call operation %d:%ld (%ld) from %d:%ld (%ld)",
-			  LAST_ROW(next->req)->server_id, LAST_ROW(next->req)->lsn,
-			  next->sign, LAST_ROW(oper->req)->server_id,
-			  LAST_ROW(oper->req)->lsn, oper->sign);
-	} else
-		next = NULL;
 	if (switch_2_txn) {
 		SWITCH_TO_TXN(oper->txn_data, txn_process);
 	}
-	if (next)
+	if (next && next->status == bsync_op_status_submit_yield)
 		fiber_wakeup(next->owner);
 }
 
@@ -1757,6 +1752,7 @@ bsync_queue_slave(struct bsync_operation *oper)
 			LAST_ROW(oper->req)->lsn);
 		bsync_rollback_slave(oper, true);
 		oper->status = bsync_op_status_fail;
+		oper->req = NULL;
 		bsync_slave_finish(oper, false);
 		return;
 	}
@@ -2143,7 +2139,7 @@ bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 	}
 	--bsync_state.active_ops;
 	if (!rlist_empty(&bsync_state.wait_queue)) {
-		fiber_call(
+		fiber_wakeup(
 			rlist_shift_entry(&bsync_state.wait_queue,
 				bsync_operation, list)->owner
 		);
@@ -2208,22 +2204,22 @@ bsync_cleanup_queue(struct bsync_fifo *queue, uint8_t host_id)
 }
 
 static void
-bsync_proxy_leader(struct bsync_operation *oper, struct bsync_send_elem *send)
+bsync_proxy_leader(struct bsync_operation *oper)
 {
+	uint8_t host_id = oper->host_id;
 	say_debug("start to apply request %d:%ld to TXN",
 		  LAST_ROW(oper->req)->server_id, LAST_ROW(oper->req)->lsn);
 	bsync_status(oper, bsync_op_status_txn);
 	SWITCH_TO_TXN(oper->txn_data, txn_process);
 	fiber_yield();
-	oper->sign = oper->txn_data->sign;
 	if (oper->txn_data->result >= 0) {
+		oper->sign = oper->txn_data->sign;
 		assert(oper->status != bsync_op_status_fail);
 		oper->common->dup_key = oper->txn_data->common->dup_key;
 		oper->common->region = oper->txn_data->common->region;
 		bsync_queue_leader(oper, true);
 		return;
 	}
-	uint8_t host_id = oper->host_id;
 	if (BSYNC_REMOTE.flags & bsync_host_rollback) {
 		say_debug("%d:%ld ignored for rolled back host",
 			  LAST_ROW(oper->req)->server_id,
@@ -2242,11 +2238,10 @@ bsync_proxy_leader(struct bsync_operation *oper, struct bsync_send_elem *send)
 
 	tt_pthread_cond_signal(&bsync_state.cond);
 	tt_pthread_mutex_unlock(&bsync_state.mutex);
-	send->code = bsync_mtype_proxy_reject;
-	bsync_send_data(&BSYNC_REMOTE, send);
+	bsync_send_data(&BSYNC_REMOTE, bsync_alloc_send(bsync_mtype_proxy_reject));
 }
 
-static struct bsync_operation *
+static void
 bsync_proxy_processor()
 {
 	uint8_t host_id = bsync_state.proxy_host;
@@ -2269,6 +2264,7 @@ bsync_proxy_processor()
 			mempool_free(&BSYNC_REMOTE.proxy_pool, req->rows[i]);
 		}
 		oper->owner = NULL;
+		assert(rlist_empty(&oper->accept));
 	});
 	oper->txn_data = bsync_alloc_txn_info(req, true);
 	oper->common = oper->txn_data->common;
@@ -2277,6 +2273,7 @@ bsync_proxy_processor()
 	oper->req = oper->txn_data->req;
 	rlist_create(&oper->txn);
 	rlist_create(&oper->list);
+	rlist_create(&oper->accept);
 	say_debug("try to proxy %d:%ld", LAST_ROW(oper->req)->server_id,
 		  LAST_ROW(oper->req)->lsn);
 	oper->host_id = host_id;
@@ -2292,7 +2289,7 @@ bsync_proxy_processor()
 	if (oper->status == bsync_op_status_fail) {
 		say_debug("failed %d:%ld from %d", LAST_ROW(oper->req)->server_id,
 			  LAST_ROW(oper->req)->lsn, fiber()->caller->fid);
-		return oper;
+		return;
 	}
 	bsync_status(oper, bsync_op_status_init);
 	if (bsync_state.leader_id != bsync_state.local_id)
@@ -2300,14 +2297,11 @@ bsync_proxy_processor()
 	else {
 		if (oper->txn_data->result < 0) {
 			assert(BSYNC_REMOTE.flags & bsync_host_rollback);
-			return oper;
+			return;
 		}
-		struct bsync_send_elem *send = (struct bsync_send_elem *)
-			region_alloc0(&fiber()->gc, sizeof(bsync_send_elem));
-		send->arg = oper;
-		bsync_proxy_leader(oper, send);
+		bsync_proxy_leader(oper);
 	}
-	return oper;
+	return;
 }
 
 static void
@@ -2589,6 +2583,8 @@ error:
 		for (int h = 0; h < bsync_state.num_hosts; ++h)
 			bsync_op_end(h, info->common->dup_key[i], info->oper->host_id);
 	info->result = -1;
+	region_free(&info->common->region->pool);
+	rlist_add_entry(&bsync_state.region_free, info->common->region, list);
 	tt_pthread_mutex_lock(&bsync_state.mutex);
 	SWITCH_TO_BSYNC_UNSAFE(bsync_process);
 	tt_pthread_cond_wait(&bsync_state.cond, &bsync_state.mutex);
@@ -2743,11 +2739,7 @@ restart:
 	if (bsync_state.proxy_host < BSYNC_MAX_HOSTS) {
 		assert(bsync_state.state == bsync_state_ready ||
 			bsync_state.state == bsync_state_recovery);
-		oper = bsync_proxy_processor();
-		say_debug("finish proxy %d:%ld (%ld), status is %d",
-			  LAST_ROW(oper->req)->server_id,
-			  LAST_ROW(oper->req)->lsn, oper->sign, oper->status);
-		oper = NULL;
+		bsync_proxy_processor();
 		--bsync_state.bsync_fibers.active_proxy;
 		goto exit;
 	}
@@ -3439,10 +3431,14 @@ bsync_disconnected(uint8_t host_id)
 		say_warn("disconnecting slave %s", BSYNC_REMOTE.name);
 	// TODO : cleanup more correctly
 	struct bsync_send_elem *elem;
-	rlist_foreach_entry(elem, &BSYNC_REMOTE.follow_queue, list) {
+	while (!rlist_empty(&BSYNC_REMOTE.follow_queue)) {
+		elem = rlist_shift_entry(&BSYNC_REMOTE.follow_queue,
+					 struct bsync_send_elem, list);
 		bsync_do_reject(host_id, elem);
 	}
-	rlist_foreach_entry(elem, &BSYNC_REMOTE.op_queue, list) {
+	while (!rlist_empty(&BSYNC_REMOTE.op_queue)) {
+		elem = rlist_shift_entry(&BSYNC_REMOTE.op_queue,
+					 struct bsync_send_elem, list);
 		bsync_do_reject(host_id, elem);
 	}
 	while (!rlist_empty(&BSYNC_REMOTE.send_queue)) {
@@ -3683,13 +3679,13 @@ static bsync_handler_t bsync_handlers[] = {
 	bsync_ready_switch,
 	bsync_close,
 	bsync_rollback,
+	bsync_proxy_reject,
 	NULL,
 	bsync_body,
 	bsync_submit,
 	bsync_reject,
 	bsync_proxy_request,
 	bsync_proxy_accept,
-	bsync_proxy_reject,
 	bsync_proxy_join
 };
 
@@ -4006,9 +4002,6 @@ encode_request(uint8_t host_id, struct bsync_send_elem *elem,
 	if (elem->code == bsync_mtype_body || elem->code == bsync_mtype_proxy_request) {
 		iovcnt += xrow_header_encode(oper->req->rows[BSYNC_REMOTE.body_cur],
 						iov + 1, 0);
-		assert(memcmp(iov[iovcnt - 1].iov_base,
-			oper->req->rows[BSYNC_REMOTE.body_cur]->body[oper->req->rows[BSYNC_REMOTE.body_cur]->bodycnt - 1].iov_base,
-			iov[iovcnt - 1].iov_len) == 0);
 		if (++BSYNC_REMOTE.body_cur == oper->req->n_rows)
 			BSYNC_REMOTE.body_cur = 0;
 		else {
