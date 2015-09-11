@@ -4008,6 +4008,7 @@ encode_request(uint8_t host_id, struct bsync_send_elem *elem,
 	ssize_t fsize = bsize;
 	if (elem->code == bsync_mtype_body || elem->code == bsync_mtype_proxy_request) {
 		iovcnt += xrow_header_encode(oper->req->rows[BSYNC_REMOTE.body_cur],
+						iov + 1, 0);
 		if (++BSYNC_REMOTE.body_cur == oper->req->n_rows)
 			BSYNC_REMOTE.body_cur = 0;
 		else {
@@ -4296,16 +4297,6 @@ bsync_cfg_read()
 	bsync_state.max_host_queue = cfg_geti("replication.max_host_queue");
 }
 
-static void
-bsync_big_hack_affinity()
-{
-	/* TODO : REMOVE ME */
-	cpu_set_t cpuset;
-	CPU_ZERO(&cpuset);
-	CPU_SET(2, &cpuset);
-	pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-}
-
 void
 bsync_init(struct recovery_state *r)
 {
@@ -4392,7 +4383,6 @@ bsync_init(struct recovery_state *r)
 	for (int i = 0; i < r->remote_size; ++i) {
 		bsync_cfg_push_host(i, r->remote[i].source);
 	}
-	bsync_big_hack_affinity();
 	tt_pthread_mutex_lock(&bsync_state.mutex);
 	if (!cord_start(&bsync_state.cord, "bsync", bsync_thread, NULL)) {
 		tt_pthread_cond_wait(&bsync_state.cond, &bsync_state.mutex);
@@ -4457,7 +4447,6 @@ bsync_dump_statistic(va_list /* ap */)
 static void*
 bsync_thread(void*)
 {
-	bsync_big_hack_affinity();
 	tt_pthread_mutex_lock(&bsync_state.mutex);
 	iobuf_init();
 	mempool_create(&bsync_state.system_send_pool, &cord()->slabc,
