@@ -604,28 +604,6 @@ struct bsync_parse_data {
 	const char *key_end;
 };
 
-static void
-bsync_space_cb(void *d, uint8_t key, uint32_t v)
-{
-	if (key == IPROTO_SPACE_ID)
-		((struct bsync_parse_data *) d)->space_id = v;
-}
-
-static void
-bsync_tuple_cb(void *d, uint8_t key, const char *v, const char *v_end)
-{
-	if (key == IPROTO_KEY || key == IPROTO_FUNCTION_NAME ||
-		key == IPROTO_USER_NAME || key == IPROTO_EXPR)
-	{
-		((struct bsync_parse_data *) d)->key = v;
-		((struct bsync_parse_data *) d)->key_end = v_end;
-	}
-	if (key == IPROTO_TUPLE)
-		((struct bsync_parse_data *) d)->is_tuple = true;
-	((struct bsync_parse_data *) d)->data = v;
-	((struct bsync_parse_data *) d)->end = v_end;
-}
-
 static bool
 txn_in_remote_recovery()
 {
@@ -1999,7 +1977,9 @@ bsync_leader_rollback(struct bsync_operation *oper)
 	say_info("commit queue cleanuped");
 	rlist_create(&bsync_state.submit_queue);
 	struct bsync_operation *op;
-	rlist_foreach_entry(op, &bsync_state.election_ops, list) {
+	while (!rlist_empty(&bsync_state.election_ops)) {
+		op = rlist_shift_entry(&bsync_state.election_ops,
+					struct bsync_operation, list);
 		say_debug("failed request %d:%ld, status is %d",
 			  LAST_ROW(op->txn_data->req)->server_id,
 			  LAST_ROW(op->txn_data->req)->lsn, op->status);
@@ -2007,9 +1987,10 @@ bsync_leader_rollback(struct bsync_operation *oper)
 		bsync_status(op, bsync_op_status_fail);
 		fiber_call(op->owner);
 	}
-	rlist_create(&bsync_state.election_ops);
 	say_info("election queue cleanuped");
-	rlist_foreach_entry(op, &bsync_state.wal_queue, list) {
+	while (!rlist_empty(&bsync_state.wal_queue)) {
+		op = rlist_shift_entry(&bsync_state.wal_queue,
+					struct bsync_operation, list);
 		if (op->sign < oper->sign)
 			continue;
 		say_debug("failed request %d:%ld(%ld), status is %d",
@@ -2018,7 +1999,6 @@ bsync_leader_rollback(struct bsync_operation *oper)
 		op->txn_data->result = -1;
 		bsync_status(op, bsync_op_status_fail);
 	}
-	rlist_create(&bsync_state.wal_queue);
 	say_info("wal queue cleanuped");
 	bsync_state.wal_rollback_sign = oper->sign;
 	for (uint8_t host_id = 0; host_id < bsync_state.num_hosts; ++host_id) {
@@ -2187,10 +2167,11 @@ bsync_cleanup_queue(struct bsync_fifo *queue, uint8_t host_id)
 		info = STAILQ_FIRST(queue);
 		STAILQ_REMOVE_HEAD(queue, fifo);
 		if (info->oper && info->oper->host_id == host_id) {
-			say_info("drop %d:%ld from %s from txn queue, status is %d",
+			say_info("drop %d:%ld from %s from txn queue, status is %d %p",
 				 LAST_ROW(info->oper->req)->server_id,
 				 LAST_ROW(info->oper->req)->lsn,
-				 BSYNC_REMOTE.name, info->oper->status);
+				 BSYNC_REMOTE.name, info->oper->status,
+				 info->oper->req);
 			assert(info->oper->txn_data == info);
 			info->result = -1;
 			bsync_status(info->oper, bsync_op_status_fail);
@@ -2265,6 +2246,8 @@ bsync_proxy_processor()
 		}
 		oper->owner = NULL;
 		assert(rlist_empty(&oper->accept));
+		assert(rlist_empty(&oper->txn));
+		assert(rlist_empty(&oper->list));
 	});
 	oper->txn_data = bsync_alloc_txn_info(req, true);
 	oper->common = oper->txn_data->common;
@@ -2286,6 +2269,8 @@ bsync_proxy_processor()
 	}
 	BSYNC_SEND_2_BSYNC
 	fiber_yield();
+	say_debug("start to proxy %d:%ld", LAST_ROW(oper->req)->server_id,
+		  LAST_ROW(oper->req)->lsn);
 	if (oper->status == bsync_op_status_fail) {
 		say_debug("failed %d:%ld from %d", LAST_ROW(oper->req)->server_id,
 			  LAST_ROW(oper->req)->lsn, fiber()->caller->fid);
@@ -2301,7 +2286,8 @@ bsync_proxy_processor()
 		}
 		bsync_proxy_leader(oper);
 	}
-	return;
+	say_debug("finish proxy %d:%ld", LAST_ROW(oper->req)->server_id,
+		  LAST_ROW(oper->req)->lsn);
 }
 
 static void
@@ -2541,6 +2527,28 @@ txn_parse_request(struct bsync_txn_info *info, int i, struct request *req)
 	req->header = info->req->rows[i];
 }
 
+static void
+txn_space_cb(void *d, uint8_t key, uint32_t v)
+{
+	if (key == IPROTO_SPACE_ID)
+		((struct bsync_parse_data *) d)->space_id = v;
+}
+
+static void
+txn_tuple_cb(void *d, uint8_t key, const char *v, const char *v_end)
+{
+	if (key == IPROTO_KEY || key == IPROTO_FUNCTION_NAME ||
+		key == IPROTO_USER_NAME || key == IPROTO_EXPR)
+	{
+		((struct bsync_parse_data *) d)->key = v;
+		((struct bsync_parse_data *) d)->key_end = v_end;
+	}
+	if (key == IPROTO_TUPLE)
+		((struct bsync_parse_data *) d)->is_tuple = true;
+	((struct bsync_parse_data *) d)->data = v;
+	((struct bsync_parse_data *) d)->end = v_end;
+}
+
 static bool
 txn_verify_leader(struct bsync_txn_info *info)
 {
@@ -2552,8 +2560,8 @@ txn_verify_leader(struct bsync_txn_info *info)
 			sizeof(struct bsync_key *) * info->req->n_rows);
 	for (; i < info->req->n_rows; ++i) {
 		memset(&data, 0, sizeof(data));
-		request_header_decode(info->req->rows[i], bsync_space_cb,
-					bsync_tuple_cb, &data);
+		request_header_decode(info->req->rows[i], txn_space_cb,
+					txn_tuple_cb, &data);
 		struct tuple *tuple = NULL;
 		struct space *space = space_cache_find(data.space_id);
 		assert(space && space->index_count > 0 &&
@@ -2694,7 +2702,6 @@ restart:
 	if (do_switch && txn_state.state != txn_state_subscribe) {
 		SWITCH_TO_BSYNC(bsync_process);
 	}
-	info->owner = NULL;
 
 	assert(bsync_state.txn_fibers.active > 0);
 	--bsync_state.txn_fibers.active;
@@ -4001,7 +4008,6 @@ encode_request(uint8_t host_id, struct bsync_send_elem *elem,
 	ssize_t fsize = bsize;
 	if (elem->code == bsync_mtype_body || elem->code == bsync_mtype_proxy_request) {
 		iovcnt += xrow_header_encode(oper->req->rows[BSYNC_REMOTE.body_cur],
-						iov + 1, 0);
 		if (++BSYNC_REMOTE.body_cur == oper->req->n_rows)
 			BSYNC_REMOTE.body_cur = 0;
 		else {
