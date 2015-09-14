@@ -525,8 +525,19 @@ static const char* bsync_mtype_name[] = {
 		ev_async_send(txn_loop, &txn_process_event); \
 } while(0)
 
+static const char *
+dump_bin_body(const void *data, size_t len)
+{
+	static __thread char buffer[1024];
+	char *pos = buffer;
+	for (size_t i = 0; i < len; ++i) {
+		pos += sprintf(pos, "%02x", ((const uint8_t *)data)[i]);
+	}
+	return &buffer[0];
+}
+
 static bool
-bsync_op_begin(struct bsync_key *key, uint32_t server_id)
+bsync_op_begin(struct bsync_key *key, uint32_t hid)
 {
 	if (!local_state->remote[txn_state.leader_id].localhost)
 		return true;
@@ -543,7 +554,7 @@ bsync_op_begin(struct bsync_key *key, uint32_t server_id)
 			continue;
 		struct mh_bsync_node_t *node =
 			mh_bsync_node(BSYNC_REMOTE.active_ops, keys[host_id]);
-		if (server_id != local_state->server_id && node->val.remote_id != server_id)
+		if (hid != txn_state.local_id && node->val.remote_id != hid)
 			return false;
 	}
 	for (uint8_t host_id = 0; host_id < bsync_state.num_hosts; ++host_id) {
@@ -552,32 +563,38 @@ bsync_op_begin(struct bsync_key *key, uint32_t server_id)
 		if (keys[host_id] != mh_end(BSYNC_REMOTE.active_ops)) {
 			struct mh_bsync_node_t *node =
 				mh_bsync_node(BSYNC_REMOTE.active_ops, keys[host_id]);
-			if (server_id == 0) {
+			if (hid == txn_state.local_id) {
 				++node->val.local_ops;
 			} else {
-				node->val.remote_id = server_id;
+				node->val.remote_id = hid;
 				++node->val.remote_ops;
 			}
 			node->key.data = key->data;
+			say_debug("begin operation %s, for %d id=%d, local_ops=%d, remote_ops=%d",
+				dump_bin_body(key->data, key->size), host_id,
+				node->val.remote_id, node->val.local_ops, node->val.remote_ops);
 		} else {
 			struct mh_bsync_node_t node;
 			node.key = *key;
-			if (server_id == 0) {
+			if (hid == txn_state.local_id) {
 				node.val.local_ops = 1;
 				node.val.remote_ops = 0;
 			} else {
 				node.val.local_ops = 0;
 				node.val.remote_ops = 1;
 			}
-			node.val.remote_id = server_id;
+			node.val.remote_id = hid;
 			mh_bsync_put(BSYNC_REMOTE.active_ops, &node, NULL, NULL);
+			say_debug("begin operation %s, for %d id=%d, local_ops=%d, remote_ops=%d",
+				dump_bin_body(key->data, key->size), host_id,
+				node.val.remote_id, node.val.local_ops, node.val.remote_ops);
 		}
 	}
 	return true;
 }
 
 static void
-bsync_op_end(uint8_t host_id, struct bsync_key *key, uint32_t server_id)
+bsync_op_end(uint8_t host_id, struct bsync_key *key, uint32_t hid)
 {
 	if (!local_state->remote[txn_state.leader_id].localhost)
 		return;
@@ -585,12 +602,14 @@ bsync_op_end(uint8_t host_id, struct bsync_key *key, uint32_t server_id)
 	mh_int_t k = mh_bsync_find(BSYNC_REMOTE.active_ops, *key, NULL);
 	if (k == mh_end(BSYNC_REMOTE.active_ops))
 		return;
-
 	struct mh_bsync_node_t *node = mh_bsync_node(BSYNC_REMOTE.active_ops, k);
-	if (server_id != 0)
+	if (hid != txn_state.local_id)
 		--node->val.remote_ops;
 	else
 		--node->val.local_ops;
+	say_debug("end operation %s, for %d id=%d, local_ops=%d, remote_ops=%d",
+		dump_bin_body(key->data, key->size), host_id,
+		node->val.remote_id, node->val.local_ops, node->val.remote_ops);
 	if ((node->val.local_ops + node->val.remote_ops) == 0)
 		mh_bsync_del(BSYNC_REMOTE.active_ops, k, NULL);
 }
@@ -1294,7 +1313,7 @@ try {
 					stmt->old_tuple, i);
 			}
 			bool begin_result = bsync_op_begin(info->common->dup_key[i],
-							   stmt->row->server_id);
+							   txn_state.local_id);
 			(void) begin_result;
 			assert(begin_result);
 			++i;
