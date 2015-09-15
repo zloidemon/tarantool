@@ -44,6 +44,13 @@ const char *wal_mode_STRS[] = { "none", "write", "fsync", NULL };
  * WAL writer - maintain a Write Ahead Log for every change
  * in the data state.
  */
+struct wal_commit_point {
+	uint32_t server_id;
+	uint64_t lsn;
+
+	struct rlist list;
+};
+
 struct wal_writer
 {
 	struct cord cord;
@@ -57,10 +64,8 @@ struct wal_writer
 	ev_loop *txn_loop;
 	struct vclock vclock;
 
-	uint64_t commit_lsn[MAX_UNCOMMITED_REQ];
-	uint32_t commit_server_id[MAX_UNCOMMITED_REQ];
-	uint32_t commit_begin;
-	uint32_t commit_end;
+	struct mempool commit_pool;
+	struct rlist commit_queue;
 };
 
 static void
@@ -155,10 +160,6 @@ wal_writer_init(struct recovery_state *r, int rows_per_wal)
 	/* Create and fill writer->cluster hash */
 	vclock_create(&writer->vclock);
 	vclock_copy(&writer->vclock, &r->vclock);
-	memset(writer->commit_lsn, 0, sizeof(writer->commit_lsn));
-	memset(writer->commit_server_id, 0, sizeof(writer->commit_server_id));
-	writer->commit_begin = 0;
-	writer->commit_end = 0;
 }
 
 /** Destroy a WAL writer structure. */
@@ -293,15 +294,12 @@ static void
 wal_write_commit_sign(struct wal_writer *writer, uint64_t sign)
 {
 	while (vclock_sum(&writer->vclock) < sign) {
-		vclock_follow(&writer->vclock,
-			writer->commit_server_id[writer->commit_begin],
-			writer->commit_lsn[writer->commit_begin]);
-		writer->commit_lsn[writer->commit_begin] = 0;
-		if (++writer->commit_begin == MAX_UNCOMMITED_REQ)
-			writer->commit_begin = 0;
-		if (vclock_sum(&writer->vclock) < sign) {
-			assert(writer->commit_begin != writer->commit_end);
-		}
+		assert(!rlist_empty(&writer->commit_queue));
+		struct wal_commit_point *p =
+			rlist_shift_entry(&writer->commit_queue,
+					  struct wal_commit_point, list);
+		vclock_follow(&writer->vclock, p->server_id, p->lsn);
+		mempool_free(&writer->commit_pool, p);
 	}
 }
 
@@ -311,40 +309,32 @@ wal_write_rollback_sign(struct wal_writer *writer, uint64_t sign)
 	struct vclock vclock_local;
 	vclock_copy(&vclock_local, &writer->vclock);
 	while (vclock_sum(&vclock_local) < sign) {
-		vclock_follow(&vclock_local,
-			writer->commit_server_id[writer->commit_begin],
-			writer->commit_lsn[writer->commit_begin]);
-		writer->commit_lsn[writer->commit_begin] = 0;
-		if (++writer->commit_begin == MAX_UNCOMMITED_REQ)
-			writer->commit_begin = 0;
-		if (vclock_sum(&vclock_local) < sign) {
-			assert(writer->commit_begin != writer->commit_end);
-		}
+		assert(!rlist_empty(&writer->commit_queue));
+		struct wal_commit_point *p =
+			rlist_shift_entry(&writer->commit_queue,
+					  struct wal_commit_point, list);
+		vclock_follow(&vclock_local, p->server_id, p->lsn);
+		mempool_free(&writer->commit_pool, p);
 	}
-}
-
-static uint32_t
-wal_inc_commit_end(struct wal_writer *writer)
-{
-	if (writer->commit_end++ == MAX_UNCOMMITED_REQ)
-		writer->commit_end = 1;
-	uint32_t result = writer->commit_end - 1;
-	assert(result < MAX_UNCOMMITED_REQ);
-	assert(writer->commit_lsn[result] == 0);
-	return result;
 }
 
 static void
 wal_commit_request(struct wal_request *req, struct wal_writer *writer)
 {
-	uint32_t commit_i = MAX_UNCOMMITED_REQ;
+	struct wal_commit_point *point = (struct wal_commit_point *)
+		mempool_alloc0(&writer->commit_pool);
 	for (int i = 0; i < req->n_rows; ++i) {
 		struct xrow_header *row = req->rows[i];
 		if (row->lsn || row->server_id) {
-			if (commit_i == MAX_UNCOMMITED_REQ)
-				commit_i = wal_inc_commit_end(writer);
-			writer->commit_lsn[commit_i] = row->lsn;
-			writer->commit_server_id[commit_i] = row->server_id;
+			point->lsn = row->lsn;
+			point->server_id = row->server_id;
+		}
+		if ((row->commit_sn || row->rollback_sn) &&
+			point->lsn && point->server_id)
+		{
+			rlist_add_tail_entry(&writer->commit_queue, point, list);
+			point = (struct wal_commit_point *)
+				mempool_alloc0(&writer->commit_pool);
 		}
 		if (row->commit_sn && row->rollback_sn) {
 			if (row->rollback_sn > row->commit_sn) {
@@ -358,13 +348,11 @@ wal_commit_request(struct wal_request *req, struct wal_writer *writer)
 			wal_write_commit_sign(writer, row->commit_sn);
 		else if (row->rollback_sn)
 			wal_write_rollback_sign(writer, row->rollback_sn);
-		if ((row->commit_sn || row->rollback_sn) &&
-			(row->lsn || row->server_id) &&
-			i < (req->n_rows - 1))
-		{
-			commit_i = wal_inc_commit_end(writer);
-		}
 	}
+	if (point->lsn && point->server_id)
+		rlist_add_tail_entry(&writer->commit_queue, point, list);
+	else
+		mempool_free(&writer->commit_pool, point);
 }
 
 /**
@@ -547,6 +535,9 @@ wal_writer_f(va_list ap)
 
 	cpipe_create(&writer->wal_pipe);
 	cbus_join(&writer->tx_wal_bus, &writer->wal_pipe);
+	mempool_create(&writer->commit_pool, &cord()->slabc,
+			sizeof(struct wal_commit_point));
+	rlist_create(&writer->commit_queue);
 
 	struct cmsg_fifo commit = STAILQ_HEAD_INITIALIZER(commit);
 	struct cmsg_fifo rollback = STAILQ_HEAD_INITIALIZER(rollback);
