@@ -570,7 +570,8 @@ bsync_op_begin(struct bsync_key *key, uint32_t hid)
 			continue;
 		struct mh_bsync_node_t *node =
 			mh_bsync_node(BSYNC_REMOTE.active_ops, keys[host_id]);
-		if (hid != txn_state.local_id && node->val.remote_id != hid)
+		if (hid != txn_state.local_id && (node->val.remote_id != hid ||
+			node->val.local_ops != 0))
 			return false;
 	}
 	for (uint8_t host_id = 0; host_id < bsync_state.num_hosts; ++host_id) {
