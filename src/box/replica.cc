@@ -45,6 +45,7 @@
 #include "box/cluster.h"
 
 static const int RECONNECT_DELAY = 1.0;
+#define WRITEV_TIMEOUT 10.0
 
 static void
 remote_read_row(struct ev_io *coio, struct iobuf *iobuf,
@@ -80,7 +81,7 @@ remote_write_row(struct ev_io *coio, const struct xrow_header *row)
 {
 	struct iovec iov[XROW_IOVMAX];
 	int iovcnt = xrow_to_iovec(row, iov);
-	coio_writev(coio, iov, iovcnt, 0);
+	coio_writev_timeout(coio, iov, iovcnt, 0, WRITEV_TIMEOUT);
 }
 
 static void

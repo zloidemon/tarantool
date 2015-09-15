@@ -48,6 +48,8 @@
 #include "box.h"
 #include "bsync.h"
 
+#define WRITEV_TIMEOUT 10.0
+
 void
 relay_send_row(struct recovery_state *r, void *param,
 	       struct xrow_header *packet);
@@ -265,7 +267,7 @@ relay_send(Relay *relay, struct xrow_header *packet)
 	packet->sync = relay->sync;
 	struct iovec iov[XROW_IOVMAX];
 	int iovcnt = xrow_to_iovec(packet, iov);
-	coio_writev(&relay->io, iov, iovcnt, 0);
+	coio_writev_timeout(&relay->io, iov, iovcnt, 0, WRITEV_TIMEOUT);
 	ERROR_INJECT(ERRINJ_RELAY,
 	{
 		sleep(1000);
