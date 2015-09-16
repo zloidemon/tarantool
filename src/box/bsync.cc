@@ -1970,6 +1970,23 @@ bsync_leader_cleanup_connected(uint8_t host_id, struct bsync_operation *oper)
 }
 
 static void
+bsync_op_end(uint8_t host_id, struct bsync_operation *oper)
+{
+	struct bsync_txn_info *info = (struct bsync_txn_info *)
+		region_alloc0(&oper->common->region->pool,
+				sizeof(struct bsync_txn_info));
+	info->connection = host_id;
+	info->result = oper->host_id;
+	info->repeat = ((oper->accepted + oper->rejected) == bsync_state.num_hosts);
+	info->sign = oper->req->n_rows;
+	info->common = (struct bsync_common *) region_alloc(
+		&oper->common->region->pool, sizeof(bsync_common));
+	info->common->dup_key = oper->common->dup_key;
+	info->common->region = oper->common->region;
+	SWITCH_TO_TXN(info, txn_end_operation);
+}
+
+static void
 bsync_leader_rollback(struct bsync_operation *oper)
 {
 	say_info("start leader rollback from %d:%ld (%ld), num_connected is %d",
@@ -1999,6 +2016,10 @@ bsync_leader_rollback(struct bsync_operation *oper)
 			  LAST_ROW(op->txn_data->req)->server_id,
 			  LAST_ROW(op->txn_data->req)->lsn, op->status);
 		op->txn_data->result = -1;
+		for (int h = 0; h < bsync_state.num_hosts; ++h) {
+			++op->rejected;
+			bsync_op_end(h, op);
+		}
 		bsync_status(op, bsync_op_status_fail);
 		fiber_call(op->owner);
 	}
@@ -2042,23 +2063,6 @@ bsync_leader_rollback(struct bsync_operation *oper)
 	STAILQ_INSERT_TAIL(&bsync_state.bsync_proxy_input, oper->txn_data, fifo); \
 	if (was_empty) \
 		ev_async_send(loop(), &bsync_process_event); \
-}
-
-static void
-bsync_op_end(uint8_t host_id, struct bsync_operation *oper)
-{
-	struct bsync_txn_info *info = (struct bsync_txn_info *)
-		region_alloc0(&oper->common->region->pool,
-				sizeof(struct bsync_txn_info));
-	info->connection = host_id;
-	info->result = oper->host_id;
-	info->repeat = ((oper->accepted + oper->rejected) == bsync_state.num_hosts);
-	info->sign = oper->req->n_rows;
-	info->common = (struct bsync_common *) region_alloc(
-		&oper->common->region->pool, sizeof(bsync_common));
-	info->common->dup_key = oper->common->dup_key;
-	info->common->region = oper->common->region;
-	SWITCH_TO_TXN(info, txn_end_operation);
 }
 
 static void
