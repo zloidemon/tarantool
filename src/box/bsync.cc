@@ -326,12 +326,10 @@ static struct bsync_state_ {
 	struct mempool system_send_pool;
 	struct rlist region_free;
 	size_t region_free_size;
-	struct rlist region_gc;
 
 	/* TODO : temporary hack for support system operations on proxy side */
 	struct cord cord;
 	pthread_mutex_t mutex;
-	pthread_mutex_t active_ops_mutex;
 	pthread_cond_t cond;
 	struct bsync_txn_info sysmsg;
 
@@ -379,6 +377,7 @@ static struct bsync_region *
 bsync_new_region()
 {
 	assert(cord() != &bsync_state.cord);
+	assert(txn_state.leader_id == txn_state.local_id);
 	if (!rlist_empty(&bsync_state.region_free)) {
 		return rlist_shift_entry(&bsync_state.region_free,
 			struct bsync_region, list);
@@ -388,35 +387,6 @@ bsync_new_region()
 			mempool_alloc0(&bsync_state.region_pool);
 		region_create(&region->pool, &cord()->slabc);
 		return region;
-	}
-}
-
-static void
-bsync_free_region(struct bsync_common *data)
-{
-	if (!data->region)
-		return;
-	tt_pthread_mutex_lock(&bsync_state.mutex);
-	rlist_add_tail_entry(&bsync_state.region_gc, data->region, list);
-	tt_pthread_mutex_unlock(&bsync_state.mutex);
-	data->region = NULL;
-}
-
-static void
-bsync_dump_region()
-{
-	struct rlist region_gc;
-	rlist_create(&region_gc);
-	tt_pthread_mutex_lock(&bsync_state.mutex);
-	rlist_swap(&region_gc, &bsync_state.region_gc);
-	tt_pthread_mutex_unlock(&bsync_state.mutex);
-	if (rlist_empty(&region_gc))
-		return;
-	struct bsync_region *cur = NULL;
-	while (!rlist_empty(&region_gc)) {
-		cur = rlist_shift_entry(&region_gc, struct bsync_region, list);
-		region_free(&cur->pool);
-		rlist_add_entry(&bsync_state.region_free, cur, list);
 	}
 }
 
@@ -553,14 +523,13 @@ dump_bin_body(const void *data, size_t len)
 }
 
 static bool
-bsync_op_begin(struct bsync_key *key, uint32_t hid)
+txn_op_begin(struct bsync_key *key, uint32_t hid)
 {
 	if (!local_state->remote[txn_state.leader_id].localhost)
 		return true;
 	/*
 	 * TODO : special analyze for operations with spaces (remove/create)
 	 */
-	BSYNC_LOCK(bsync_state.active_ops_mutex);
 	mh_int_t keys[BSYNC_MAX_HOSTS];
 	for (uint8_t host_id = 0; host_id < bsync_state.num_hosts; ++host_id) {
 		if (host_id == txn_state.local_id)
@@ -611,11 +580,10 @@ bsync_op_begin(struct bsync_key *key, uint32_t hid)
 }
 
 static void
-bsync_op_end(uint8_t host_id, struct bsync_key *key, uint32_t hid)
+txn_op_end(uint8_t host_id, struct bsync_key *key, uint32_t hid)
 {
 	if (!local_state->remote[txn_state.leader_id].localhost)
 		return;
-	BSYNC_LOCK(bsync_state.active_ops_mutex);
 	mh_int_t k = mh_bsync_find(BSYNC_REMOTE.active_ops, *key, NULL);
 	if (k == mh_end(BSYNC_REMOTE.active_ops))
 		return;
@@ -629,6 +597,18 @@ bsync_op_end(uint8_t host_id, struct bsync_key *key, uint32_t hid)
 		node->val.remote_id, node->val.local_ops, node->val.remote_ops);
 	if ((node->val.local_ops + node->val.remote_ops) == 0)
 		mh_bsync_del(BSYNC_REMOTE.active_ops, k, NULL);
+}
+
+static void
+txn_end_operation(struct bsync_txn_info *info)
+{
+	STAILQ_REMOVE_HEAD(&bsync_state.txn_proxy_input, fifo);
+	for (int i = 0; i < info->sign; ++i)
+		txn_op_end(info->connection, info->common->dup_key[i], info->result);
+	if (!info->repeat)
+		return;
+	rlist_add_entry(&bsync_state.region_free, info->common->region, list);
+	region_free(&info->common->region->pool);
 }
 
 struct bsync_parse_data {
@@ -1014,6 +994,7 @@ txn_reconnect_all()
 static void
 txn_process_reconnnect(struct bsync_txn_info *info)
 {
+	mh_bsync_clear(bsync_index[info->connection].active_ops);
 	if (info->proxy) {
 		STAILQ_REMOVE_HEAD(&bsync_state.txn_proxy_input, fifo);
 		say_info("start to reconnect all");
@@ -1309,7 +1290,6 @@ try {
 		}
 		goto repair_switch;
 	}
-	bsync_dump_region();
 	if (LAST_ROW(req)->server_id == 0) {
 		info = bsync_alloc_txn_info(req, txn_state.local_id != txn_state.leader_id);
 		struct txn_stmt *stmt;
@@ -1332,8 +1312,8 @@ try {
 					stmt->space->index[0]->key_def,
 					stmt->old_tuple, i);
 			}
-			bool begin_result = bsync_op_begin(info->common->dup_key[i],
-							   txn_state.local_id);
+			bool begin_result = txn_op_begin(info->common->dup_key[i],
+							 txn_state.local_id);
 			(void) begin_result;
 			assert(begin_result);
 			++i;
@@ -1748,9 +1728,6 @@ bsync_slave_finish(struct bsync_operation *oper, bool switch_2_txn)
 static void
 bsync_queue_slave(struct bsync_operation *oper)
 {
-	auto guard = make_scoped_guard([oper]() {
-		bsync_free_region(oper->common);
-	});
 	struct bsync_send_elem *elem = (struct bsync_send_elem *)
 		region_alloc0(&fiber()->gc, sizeof(struct bsync_send_elem));
 	elem->code = bsync_mtype_proxy_request;
@@ -1797,7 +1774,6 @@ bsync_queue_slave(struct bsync_operation *oper)
 static void
 bsync_proxy_slave(struct bsync_operation *oper)
 {
-	auto guard = make_scoped_guard([oper]() { bsync_free_region(oper->common); });
 	struct bsync_send_elem *elem = bsync_slave_wal(oper);
 	if (oper->status == bsync_op_status_fail || oper->txn_data->result < 0)
 		return;
@@ -2069,6 +2045,23 @@ bsync_leader_rollback(struct bsync_operation *oper)
 }
 
 static void
+bsync_op_end(uint8_t host_id, struct bsync_operation *oper)
+{
+	struct bsync_txn_info *info = (struct bsync_txn_info *)
+		region_alloc0(&oper->common->region->pool,
+				sizeof(struct bsync_txn_info));
+	info->connection = host_id;
+	info->result = oper->host_id;
+	info->repeat = ((oper->accepted + oper->rejected) == bsync_state.num_hosts);
+	info->sign = oper->req->n_rows;
+	info->common = (struct bsync_common *) region_alloc(
+		&oper->common->region->pool, sizeof(bsync_common));
+	info->common->dup_key = oper->common->dup_key;
+	info->common->region = oper->common->region;
+	SWITCH_TO_TXN(info, txn_end_operation);
+}
+
+static void
 bsync_inc_rejected(uint8_t host_id, struct bsync_operation *oper, const char *reason)
 {
 	assert (host_id != bsync_state.local_id || bsync_state.local_id != bsync_state.leader_id);
@@ -2077,8 +2070,7 @@ bsync_inc_rejected(uint8_t host_id, struct bsync_operation *oper, const char *re
 		 LAST_ROW(oper->req)->server_id, LAST_ROW(oper->req)->lsn,
 		 oper->sign, BSYNC_REMOTE.name, reason, oper->status,
 		 oper->accepted, oper->rejected);
-	for (int i = 0; i < oper->req->n_rows; ++i)
-		bsync_op_end(host_id, oper->common->dup_key[i], oper->host_id);
+	bsync_op_end(host_id, oper);
 }
 
 static void
@@ -2104,7 +2096,7 @@ bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 		fiber_yield();
 		if (oper->status == bsync_op_status_fail) {
 			oper->txn_data->result = -1;
-			bsync_free_region(oper->common);
+			assert((oper->accepted + oper->rejected) == bsync_state.num_hosts);
 			SWITCH_TO_TXN(oper->txn_data, txn_process);
 			return;
 		}
@@ -2189,7 +2181,6 @@ bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 		}
 	}
 	bsync_wait_slow(oper);
-	bsync_free_region(oper->common);
 	say_debug("finish request %d:%ld", LAST_ROW(oper->req)->server_id,
 		  LAST_ROW(oper->req)->lsn);
 	assert((oper->accepted + oper->rejected) == bsync_state.num_hosts ||
@@ -2389,8 +2380,7 @@ bsync_do_submit(uint8_t host_id, struct bsync_send_elem *info)
 	say_debug("submit operation %d:%ld for host %s",
 		  LAST_ROW(oper->req)->server_id, LAST_ROW(oper->req)->lsn,
 		  BSYNC_REMOTE.name);
-	for (int i = 0; i < oper->req->n_rows; ++i)
-		bsync_op_end(host_id, oper->common->dup_key[i], oper->host_id);
+	bsync_op_end(host_id, oper);
 	if (oper->status == bsync_op_status_yield)
 		fiber_call(oper->owner);
 }
@@ -2618,7 +2608,7 @@ txn_verify_leader(struct bsync_txn_info *info)
 
 		bsync_parse_dup_key(info->common, space->index[0]->key_def, tuple, i);
 		TupleGuard guard(tuple);
-		if (!bsync_op_begin(info->common->dup_key[i], info->oper->host_id))
+		if (!txn_op_begin(info->common->dup_key[i], info->oper->host_id))
 			goto error;
 	}
 	return true;
@@ -2628,7 +2618,7 @@ error:
 		  LAST_ROW(info->req)->server_id, LAST_ROW(info->req)->lsn);
 	for (; i >= 0; --i)
 		for (int h = 0; h < bsync_state.num_hosts; ++h)
-			bsync_op_end(h, info->common->dup_key[i], info->oper->host_id);
+			txn_op_end(h, info->common->dup_key[i], info->oper->host_id);
 	info->result = -1;
 	region_free(&info->common->region->pool);
 	rlist_add_entry(&bsync_state.region_free, info->common->region, list);
@@ -2817,7 +2807,7 @@ restart:
 		rlist_add_tail_entry(&bsync_state.election_ops, oper, list);
 		fiber_yield_timeout(bsync_state.operation_timeout);
 		if (oper->status == bsync_op_status_fail) {
-			bsync_free_region(oper->common);
+			assert((oper->accepted + oper->rejected) == bsync_state.num_hosts);
 			--bsync_state.bsync_fibers.active_local;
 			goto exit;
 		}
@@ -2825,7 +2815,7 @@ restart:
 			rlist_del_entry(oper, list);
 			oper->req = oper->txn_data->req;
 			bsync_leader_rollback(oper);
-			bsync_free_region(oper->common);
+			assert((oper->accepted + oper->rejected) == bsync_state.num_hosts);
 			--bsync_state.bsync_fibers.active_local;
 			goto exit;
 		}
@@ -3485,10 +3475,6 @@ static void
 bsync_disconnect_slave(uint8_t host_id)
 {
 	say_warn("disconnecting slave %s", BSYNC_REMOTE.name);
-	{
-		BSYNC_LOCK(bsync_state.active_ops_mutex);
-		mh_bsync_clear(BSYNC_REMOTE.active_ops);
-	}
 	bsync_disconnect_cleanup(host_id);
 	bsync_check_consensus(host_id);
 	bsync_start_election();
@@ -4406,8 +4392,6 @@ bsync_init(struct recovery_state *r)
 	tt_pthread_mutexattr_settype(&errorcheck, PTHREAD_MUTEX_RECURSIVE);
 	/* Initialize queue lock mutex. */
 	(void) tt_pthread_mutex_init(&bsync_state.mutex, &errorcheck);
-	(void) tt_pthread_mutex_init(&bsync_state.active_ops_mutex,
-		&errorcheck);
 	(void) tt_pthread_mutexattr_destroy(&errorcheck);
 
 	(void) tt_pthread_cond_init(&bsync_state.cond, NULL);
@@ -4439,7 +4423,6 @@ bsync_init(struct recovery_state *r)
 	rlist_create(&bsync_state.commit_queue);
 	rlist_create(&bsync_state.accept_queue);
 	bsync_state.region_free_size = 0;
-	rlist_create(&bsync_state.region_gc);
 	rlist_create(&txn_state.incoming_connections);
 	rlist_create(&txn_state.wait_start);
 	if (recovery_has_data(r))
