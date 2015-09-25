@@ -31,13 +31,23 @@ cfg_filter(box.cfg)
     node_size: 134217728
     compression: none
   listen: <uri>
+  replication:
+    operation_timeout: 10
+    bsync: 0
+    max_host_queue: 1000
+    read_timeout: 3.5
+    submit_timeout: 0.1
+    source: []
+    election_timeout: 5
+    ping_timeout: 10
+    write_timeout: 3.5
   logger_nonblock: true
   coredump: false
   wal_mode: write
   panic_on_snap_error: true
   panic_on_wal_error: true
-  slab_alloc_arena: 0.1
   custom_proc_title: box
+  slab_alloc_arena: 0.1
   log_level: 5
   readahead: 16320
   wal_dir_rescan_delay: 2
