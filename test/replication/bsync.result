@@ -1,9 +1,15 @@
+-------------------------------------------------------------
+ Bootstrap
+-------------------------------------------------------------
 starting 1... ok
 starting 2... ok
 starting 3... ok
 waiting 1 to start... ok
 waiting 2 to start... ok
 waiting 3 to start... ok
+-------------------------------------------------------------
+ Modifications on clusters
+-------------------------------------------------------------
 box.space.test:insert{'key_1', 0}
 ---
 - ['key_1', 0]
@@ -33,6 +39,38 @@ box.space.test:select{}
 - - ['key_1', 0]
   - ['key_2', 0]
   - ['key_3', 0]
+...
+-------------------------------------------------------------
+ Kill slave
+-------------------------------------------------------------
+box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})
+---
+...
+box.space.test:get('cnt')
+---
+- ['cnt', 1]
+...
+box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})
+---
+...
+box.space.test:get('cnt')
+---
+- ['cnt', 2]
+...
+box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})
+---
+...
+box.space.test:get('cnt')
+---
+- ['cnt', 3]
+...
+box.space.test:get('cnt')
+---
+- ['cnt', 3]
+...
+box.space.test:get('cnt')
+---
+- ['cnt', 3]
 ...
 stopping 1... ok
 stopping 2... ok

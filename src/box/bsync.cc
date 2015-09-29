@@ -445,6 +445,16 @@ enum bsync_machine_state {
 	bsync_state_shutdown = 6
 };
 
+static const char* bsync_machine_state_name[] = {
+	"election",
+	"initial",
+	"promise",
+	"accept",
+	"recovery",
+	"ready",
+	"shutdown"
+};
+
 enum txn_machine_state {
 	txn_state_join = 0,
 	txn_state_snapshot = 1,
@@ -452,6 +462,15 @@ enum txn_machine_state {
 	txn_state_recovery = 3,
 	txn_state_ready = 4,
 	txn_state_rollback = 5
+};
+
+static const char* txn_machine_state_name[] = {
+	"join",
+	"snapshot",
+	"subscribe",
+	"recovery",
+	"ready",
+	"rollback",
 };
 
 enum bsync_iproto_flags {
@@ -4573,8 +4592,18 @@ lbox_info_bsync(struct lua_State *L)
 	lua_pushinteger(L, txn_state.local_id);
 	lua_setfield(L, -2, "local_id");
 
-	lua_pushinteger(L, txn_state.leader_id);
+	if (txn_state.leader_id != BSYNC_MAX_HOSTS) {
+		lua_pushinteger(L, txn_state.leader_id);
+	} else {
+		luaL_pushnull(L);
+	}
 	lua_setfield(L, -2, "leader_id");
+
+	lua_pushstring(L, txn_machine_state_name[txn_state.state]);
+	lua_setfield(L, -2, "txn_status");
+
+	lua_pushstring(L, bsync_machine_state_name[bsync_state.state]);
+	lua_setfield(L, -2, "status");
 
 	lua_createtable(L, 0, vclock_size(&txn_state.vclock));
 	/* Request compact output flow */
