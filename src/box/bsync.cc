@@ -52,6 +52,13 @@
 #include "box/bsync_hash.h"
 #include "box/iproto_constants.h"
 
+extern "C" {
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+} /* extern "C" */
+#include "lua/utils.h"
+
 #define BSYNC_MAX_HOSTS VCLOCK_MAX
 #define BSYNC_PAIR_TIMEOUT 30
 
@@ -4556,4 +4563,30 @@ bsync_writer_stop(struct recovery_state *r)
 		}
 	}
 	ev_async_stop(txn_loop, &txn_process_event);
+}
+
+int
+lbox_info_bsync(struct lua_State *L)
+{
+	lua_newtable(L);
+
+	lua_pushinteger(L, txn_state.local_id);
+	lua_setfield(L, -2, "local_id");
+
+	lua_pushinteger(L, txn_state.leader_id);
+	lua_setfield(L, -2, "leader_id");
+
+	lua_createtable(L, 0, vclock_size(&txn_state.vclock));
+	/* Request compact output flow */
+	luaL_setmaphint(L, -1);
+	struct vclock_iterator it;
+	vclock_iterator_init(&it, &txn_state.vclock);
+	vclock_foreach(&it, server) {
+		lua_pushinteger(L, server.id);
+		luaL_pushuint64(L, server.lsn);
+		lua_settable(L, -3);
+	}
+	lua_setfield(L, -2, "vclock");
+
+	return 1;
 }

@@ -40,6 +40,7 @@ extern "C" {
 #include "box/replica.h"
 #include "box/recovery.h"
 #include "box/cluster.h"
+#include "box/bsync.h"
 #include "main.h"
 #include "box/box.h"
 #include "lua/utils.h"
@@ -163,6 +164,7 @@ lbox_info_dynamic_meta [] =
 {
 	{"vclock", lbox_info_vclock},
 	{"server", lbox_info_server},
+	{"bsync", lbox_info_bsync},
 	{"replication", lbox_info_replication},
 	{"status", lbox_info_status},
 	{"uptime", lbox_info_uptime},

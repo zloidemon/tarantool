@@ -72,6 +72,10 @@ void bsync_replica_fail();
 
 void bsync_commit_local(uint32_t server_id, uint64_t lsn);
 
+struct lua_State;
+int
+lbox_info_bsync(struct lua_State *L);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */
