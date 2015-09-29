@@ -540,12 +540,15 @@ static const char* bsync_mtype_name[] = {
 static const char *
 dump_bin_body(const void *data, size_t len)
 {
-	static __thread char buffer[1024];
-	char *pos = buffer;
+	static __thread char buffer[10][1024];
+	static __thread int counter;
+	if (counter == 10)
+		counter = 0;
+	char *pos = buffer[counter];
 	for (size_t i = 0; i < len; ++i) {
 		pos += sprintf(pos, "%02x", ((const uint8_t *)data)[i]);
 	}
-	return &buffer[0];
+	return &buffer[counter++][0];
 }
 
 static bool
@@ -1317,6 +1320,11 @@ try {
 		goto repair_switch;
 	}
 	if (LAST_ROW(req)->server_id == 0) {
+		if (req->rows[0]->bodycnt > 1) {
+			say_debug("bsync_write_row %d %d, %s %s", req->n_rows, req->rows[0]->bodycnt,
+				dump_bin_body(req->rows[0]->body[0].iov_base, req->rows[0]->body[0].iov_len),
+				dump_bin_body(req->rows[0]->body[1].iov_base, req->rows[0]->body[1].iov_len));
+		}
 		info = bsync_alloc_txn_info(req, txn_state.local_id != txn_state.leader_id);
 		struct txn_stmt *stmt;
 		int i = 0;
@@ -2611,6 +2619,11 @@ txn_tuple_cb(void *d, uint8_t key, const char *v, const char *v_end)
 static bool
 txn_verify_leader(struct bsync_txn_info *info)
 {
+	if (info->req->n_rows == 1) {
+		say_debug("txn_verify_leader %d %s", info->req->rows[0]->bodycnt,
+			dump_bin_body(info->req->rows[0]->body[0].iov_base,
+				info->req->rows[0]->body[0].iov_len));
+	}
 	struct bsync_parse_data data;
 	int i = 0;
 	info->common->region = bsync_new_region();
