@@ -640,15 +640,6 @@ txn_end_operation(struct bsync_txn_info *info)
 	region_free(&info->common->region->pool);
 }
 
-struct bsync_parse_data {
-	uint32_t space_id;
-	bool is_tuple;
-	const char *data;
-	const char *end;
-	const char *key;
-	const char *key_end;
-};
-
 static bool
 txn_in_remote_recovery()
 {
@@ -2594,58 +2585,46 @@ txn_parse_request(struct bsync_txn_info *info, int i, struct request *req)
 	req->header = info->req->rows[i];
 }
 
-static void
-txn_space_cb(void *d, uint8_t key, uint32_t v)
-{
-	if (key == IPROTO_SPACE_ID)
-		((struct bsync_parse_data *) d)->space_id = v;
-}
-
-static void
-txn_tuple_cb(void *d, uint8_t key, const char *v, const char *v_end)
-{
-	if (key == IPROTO_KEY || key == IPROTO_FUNCTION_NAME ||
-		key == IPROTO_USER_NAME || key == IPROTO_EXPR)
-	{
-		((struct bsync_parse_data *) d)->key = v;
-		((struct bsync_parse_data *) d)->key_end = v_end;
-	}
-	if (key == IPROTO_TUPLE)
-		((struct bsync_parse_data *) d)->is_tuple = true;
-	((struct bsync_parse_data *) d)->data = v;
-	((struct bsync_parse_data *) d)->end = v_end;
-}
-
 static bool
 txn_verify_leader(struct bsync_txn_info *info)
 {
-	if (info->req->n_rows == 1) {
-		say_debug("txn_verify_leader %d %s", info->req->rows[0]->bodycnt,
-			dump_bin_body(info->req->rows[0]->body[0].iov_base,
-				info->req->rows[0]->body[0].iov_len));
-	}
-	struct bsync_parse_data data;
 	int i = 0;
 	info->common->region = bsync_new_region();
 	info->common->dup_key = (struct bsync_key **)
 		region_alloc(&info->common->region->pool,
 			sizeof(struct bsync_key *) * info->req->n_rows);
 	for (; i < info->req->n_rows; ++i) {
-		memset(&data, 0, sizeof(data));
-		request_header_decode(info->req->rows[i], txn_space_cb,
-					txn_tuple_cb, &data);
+		struct request request;
+		txn_parse_request(info, i, &request);
 		struct tuple *tuple = NULL;
-		struct space *space = space_cache_find(data.space_id);
-		assert(space && space->index_count > 0 &&
-			space->index[0]->key_def->iid == 0);
-		if (data.is_tuple) {
-			tuple = tuple_new(space->format, data.data, data.end);
+		struct space *space;
+		const char *key;
+		int part_count;
+		switch (request.type) {
+		case IPROTO_INSERT:
+		case IPROTO_REPLACE:
+		case IPROTO_UPSERT:
+			space = space_cache_find(request.space_id);
+			assert(space && space->index_count > 0 &&
+				space->index[0]->key_def->iid == 0);
+			tuple = tuple_new(space->format, request.tuple,
+					  request.tuple_end);
 			space_validate_tuple(space, tuple);
-		} else {
-			const char *key = data.key;
-			uint32_t part_count = mp_decode_array(&key);
+			/* TODO: upsert key is not validated */
+			break;
+		case IPROTO_UPDATE:
+		case IPROTO_DELETE:
+			space = space_cache_find(request.space_id);
+			assert(space && space->index_count > 0 &&
+				space->index[0]->key_def->iid == 0);
+			key = request.key;
+			part_count = mp_decode_array(&key);
 			tuple = space->index[0]->findByKey(key, part_count);
+			break;
+		default:
+			assert(0); /* invalid request */
 		}
+
 		if (!tuple)
 			goto error;
 

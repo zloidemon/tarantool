@@ -41,11 +41,31 @@ print '-------------------------------------------------------------'
 print ' Modifications on clusters'
 print '-------------------------------------------------------------'
 
+# INSERT
 for server in servers:
     server.admin("box.space.test:insert{'key_%d', 0}" % server.n)
-
 for server in servers:
     server.admin("box.space.test:select{}")
+
+# REPLACE
+for server in servers:
+    server.admin("box.space.test:replace{'key_%d', 1}" % server.n)
+for server in servers:
+    server.admin("box.space.test:select{}")
+
+# UPDATE
+for server in servers:
+    server.admin("box.space.test:update('key_%d', {{ '+', 2, 1 }})" % server.n)
+for server in servers:
+    server.admin("box.space.test:select{}")
+
+# DELETE
+for server in servers:
+    server.admin("box.space.test:delete{'key_%d'}" % server.n)
+for server in servers:
+    server.admin("box.space.test:select{}")
+
+# TODO: UPSERT tests
 
 print '-------------------------------------------------------------'
 print ' Kill slave'
@@ -82,9 +102,6 @@ killed_leader.stop()
 #wait_ready()
 #for server in servers:
 #    server.admin("box.space.test:get('cnt')")
-
-## Fails: blocks infinity
-#servers[0].admin("box.space.test:update('key_1', {{ '+', 2, 1}})")
 
 for server in servers:
     print 'stopping {}...'.format(server.n),

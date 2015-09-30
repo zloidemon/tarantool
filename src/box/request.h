@@ -32,15 +32,10 @@
  */
 #include <stdbool.h>
 #include "xrow.h"
-#include "trivia/util.h"
 
 struct txn;
 struct port;
 extern int stat_base;
-
-typedef void (*request_execute_f)(struct request *, struct port *);
-typedef void (*request_uint_f)(void *, uint8_t, uint32_t);
-typedef void (*request_char_f)(void *, uint8_t, const char *, const char *);
 
 struct request
 {
@@ -89,10 +84,6 @@ process_rw(struct request *request, struct port *port);
 
 void
 request_decode(struct request *request, const char *data, uint32_t len);
-
-void
-request_header_decode(struct xrow_header* xrow, request_uint_f space_f,
-		      request_char_f char_f, void *data_f);
 
 int
 request_encode(struct request *request, struct iovec *iov);

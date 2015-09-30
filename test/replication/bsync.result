@@ -40,6 +40,90 @@ box.space.test:select{}
   - ['key_2', 0]
   - ['key_3', 0]
 ...
+box.space.test:replace{'key_1', 1}
+---
+- ['key_1', 1]
+...
+box.space.test:replace{'key_2', 1}
+---
+- ['key_2', 1]
+...
+box.space.test:replace{'key_3', 1}
+---
+- ['key_3', 1]
+...
+box.space.test:select{}
+---
+- - ['key_1', 1]
+  - ['key_2', 1]
+  - ['key_3', 1]
+...
+box.space.test:select{}
+---
+- - ['key_1', 1]
+  - ['key_2', 1]
+  - ['key_3', 1]
+...
+box.space.test:select{}
+---
+- - ['key_1', 1]
+  - ['key_2', 1]
+  - ['key_3', 1]
+...
+box.space.test:update('key_1', {{ '+', 2, 1 }})
+---
+- ['key_1', 2]
+...
+box.space.test:update('key_2', {{ '+', 2, 1 }})
+---
+- ['key_2', 2]
+...
+box.space.test:update('key_3', {{ '+', 2, 1 }})
+---
+- ['key_3', 2]
+...
+box.space.test:select{}
+---
+- - ['key_1', 2]
+  - ['key_2', 2]
+  - ['key_3', 2]
+...
+box.space.test:select{}
+---
+- - ['key_1', 2]
+  - ['key_2', 2]
+  - ['key_3', 2]
+...
+box.space.test:select{}
+---
+- - ['key_1', 2]
+  - ['key_2', 2]
+  - ['key_3', 2]
+...
+box.space.test:delete{'key_1'}
+---
+- ['key_1', 2]
+...
+box.space.test:delete{'key_2'}
+---
+- ['key_2', 2]
+...
+box.space.test:delete{'key_3'}
+---
+- ['key_3', 2]
+...
+box.space.test:select{}
+---
+- []
+...
+box.space.test:select{}
+---
+- []
+...
+box.space.test:select{}
+---
+- []
+...
 -------------------------------------------------------------
  Kill slave
 -------------------------------------------------------------
