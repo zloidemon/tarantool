@@ -89,19 +89,17 @@ killed_slave.admin("box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})")
 for server in servers:
     server.admin("box.space.test:get('cnt')")
 
-
+print '-------------------------------------------------------------'
+print ' Kill master'
+print '-------------------------------------------------------------'
 
 killed_leader = find_leader()
-## Fails: Assertion `task->complete' failed.
 killed_leader.stop()
 #for server in servers:
 #    if server == killed_leader:
 #        continue
-#    server.admin("box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})")
-#killed_leader.start()
-#wait_ready()
-#for server in servers:
-#    server.admin("box.space.test:get('cnt')")
+#    server.admin("box.info.bsync")
+killed_leader.start()
 
 for server in servers:
     print 'stopping {}...'.format(server.n),

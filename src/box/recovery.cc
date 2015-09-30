@@ -523,7 +523,8 @@ recovery_finalize(struct recovery_state *r, enum wal_mode wal_mode,
 		 * file when trying to open a new xlog
 		 * for writing.
 		 */
-		vclock_inc(&r->vclock, r->server_id);
+		if (r->server_id != 0)
+			vclock_inc(&r->vclock, r->server_id);
 	}
 	r->wal_mode = wal_mode;
 	if (r->wal_mode == WAL_FSYNC)

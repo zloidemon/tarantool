@@ -954,10 +954,10 @@ txn_process_recovery(struct bsync_txn_info *info)
 			txn_state.snapshot_fiber);
 		if (txn_state.join[hi] && txn_state.snapshot_fiber != NULL)
 			return;
-		if (txn_state.iproto[hi])
-			fiber_call(local_state->remote[hi].writer);
-		if (txn_state.join[hi])
-			fiber_call(local_state->remote[hi].writer);
+		if ((txn_state.join[hi] || txn_state.iproto[hi]) &&
+		    local_state->remote[hi].writer->flags & FIBER_IS_CANCELLABLE) {
+			fiber_wakeup(local_state->remote[hi].writer);
+		}
 	} else {
 		char *vclock = vclock_to_string(&local_state->vclock);
 		say_info("start recovery from %s, vclock is %s",
@@ -3786,6 +3786,8 @@ encode_sys_request(uint8_t host_id, struct bsync_send_elem *elem,
 static void
 bsync_decode_extended_header(uint8_t host_id, const char **pos)
 {
+	if (mp_typeof(**pos) != MP_UINT)
+		tnt_raise(ClientError, ER_INVALID_MSGPACK, "invalid length");
 	uint32_t len = mp_decode_uint(pos);
 	const char *end = *pos + len;
 	if (!len)
