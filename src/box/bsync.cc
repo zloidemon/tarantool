@@ -845,11 +845,14 @@ bsync_process_subscribe(int fd, struct tt_uuid *uuid,
 	if (!local_state->bsync_remote)
 		return true;
 	int host_id = 0;
+	char *vclock = vclock_to_string(&state->vclock);
+	say_debug("try to recovery host %s", vclock);
+	free(vclock);
 	if ((host_id = bsync_find_incoming(-1, uuid)) == -1)
 		return false;
 	bsync_init_in(host_id, fd);
 	txn_state.id2index[state->server_id] = host_id;
-	char *vclock = vclock_to_string(&state->vclock);
+	vclock = vclock_to_string(&state->vclock);
 	say_info("set host_id %d to server_id %d. remote vclock is %s",
 		 host_id, state->server_id, vclock);
 	free(vclock);
@@ -1007,6 +1010,22 @@ txn_reconnect_all()
 		if (evio_has_fd(&local_state->remote[i].out))
 			evio_close(loop(), &local_state->remote[i].out);
 		local_state->remote[i].switched = false;
+	}
+	struct bsync_incoming *inc;
+	uint8_t already_called[BSYNC_MAX_HOSTS];
+	memset(&already_called, BSYNC_MAX_HOSTS, 0);
+	while (!rlist_empty(&txn_state.incoming_connections)) {
+		inc = rlist_first_entry(&txn_state.incoming_connections,
+					struct bsync_incoming, list);
+		if (inc->remote_id >= 0)
+			already_called[inc->remote_id] = 1;
+		fiber_call(inc->f);
+	}
+	for (int i = 0; i < local_state->remote_size; ++i) {
+		if (local_state->remote[i].localhost)
+			continue;
+		if (already_called[i])
+			continue;
 		fiber_call(local_state->remote[i].connecter);
 	}
 }
@@ -2934,6 +2953,7 @@ bsync_stop_io(uint8_t host_id, bool close, bool cleanup)
 {
 	if (BSYNC_REMOTE.state == bsync_host_disconnected)
 		return;
+	say_debug("stop connection to %s fully %d", BSYNC_REMOTE.name, close ? 1 : 0);
 	assert(bsync_state.num_connected > 0);
 	assert(bsync_state.local_id == BSYNC_MAX_HOSTS ||
 		bsync_state.num_connected > 1 ||
