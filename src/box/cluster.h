@@ -104,6 +104,30 @@ cserver_id_is_reserved(uint32_t id)
 }
 
 /**
+ * A remote server in cluster.
+ */
+struct replica {
+	uint32_t id;
+	/* Please use cluster_update_server() to change UUID */
+	tt_uuid uuid;
+	struct applier *upstream;
+	struct relay *downstream;
+};
+
+struct replica *
+cluster_get_server(uint32_t server_id);
+
+struct replica *
+cluster_server_first(void);
+
+struct replica *
+cluster_server_next(struct replica *replica);
+
+#define cluster_foreach_server(var) \
+	for (struct replica *var = cluster_server_first(); \
+	     var != NULL; var = cluster_server_next(var))
+
+/**
  * Register the universally unique identifier of a remote server and
  * a matching cluster-local identifier in the  cluster registry.
  * Called when a remote master joins the cluster.
@@ -113,6 +137,9 @@ cserver_id_is_reserved(uint32_t id)
 void
 cluster_set_server(const tt_uuid *server_uuid, uint32_t id);
 
+/**
+ * Remove the server from the cluster registry
+ */
 void
 cluster_del_server(uint32_t server_id);
 

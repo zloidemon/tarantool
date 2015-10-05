@@ -32,12 +32,21 @@
 #include "cluster.h"
 #include "recovery.h"
 #include "applier.h"
+#include "vclock.h" /* VCLOCK_MAX */
 
 /**
  * Globally unique identifier of this cluster.
  * A cluster is a set of connected appliers.
  */
 tt_uuid cluster_id;
+
+/*
+ * A set of replicas by server_id.
+ * The set is implememted as static array to avoid handling out of memory
+ * problems. Replication doesn't support more than VCLOCK_MAX anyway.
+ * Records with replicaset[server_id].id == 0 is empty (not set).
+ */
+static struct replica replicaset[VCLOCK_MAX];
 
 typedef rb_tree(struct applier) applierset_t;
 rb_proto(, applierset_, applierset_t, struct applier)
@@ -71,26 +80,60 @@ cluster_clock()
         return &recovery->vclock;
 }
 
+struct replica *
+cluster_get_server(uint32_t server_id)
+{
+	if (server_id >= VCLOCK_MAX || replicaset[server_id].id == 0)
+		return NULL;
+	return &replicaset[server_id];
+}
+
+static inline struct replica *
+replicaset_skip_empty(struct replica *replica)
+{
+	for (; replica < replicaset + VCLOCK_MAX; ++replica) {
+		if (replica->id != 0)
+			return replica;
+	}
+	return NULL;
+}
+
+struct replica *
+cluster_server_first(void)
+{
+	return replicaset_skip_empty(replicaset);
+}
+
+struct replica *
+cluster_server_next(struct replica *replica)
+{
+	return replicaset_skip_empty(replica + 1);
+}
+
 void
 cluster_set_server(const tt_uuid *server_uuid, uint32_t server_id)
 {
 	struct recovery *r = ::recovery;
+	say_warn("set_server: %u uuid=%s", server_id, tt_uuid_str(server_uuid));
+	say_warn("          : r->%u r->uuid=%s %s", r->server_id, tt_uuid_str(&r->server_uuid),
+			vclock_to_string(&r->vclock));
+
 	/** Checked in the before-commit trigger */
 	assert(!tt_uuid_is_nil(server_uuid));
 	assert(!cserver_id_is_reserved(server_id));
 
-	if (r->server_id == server_id) {
-		if (tt_uuid_is_equal(&r->server_uuid, server_uuid))
-			return;
-		say_warn("server UUID changed to %s",
-			 tt_uuid_str(server_uuid));
-		assert(vclock_has(&r->vclock, server_id));
-		memcpy(&r->server_uuid, server_uuid, sizeof(*server_uuid));
-		return;
+	/* Update replicaset */
+	struct replica *replica = &replicaset[server_id];
+	if (replica->id == 0) {
+		/* Add server to replicaset */
+		replica->id = server_id;
+
+		/* Add server to vclock */
+		vclock_add_server(&r->vclock, server_id);
 	}
 
-	/* Add server */
-	vclock_add_server(&r->vclock, server_id);
+	memcpy(&replica->uuid, server_uuid, sizeof(*server_uuid));
+
 	if (tt_uuid_is_equal(&r->server_uuid, server_uuid)) {
 		/* Assign local server id */
 		assert(r->server_id == 0);
@@ -103,12 +146,27 @@ cluster_set_server(const tt_uuid *server_uuid, uint32_t server_id)
 		 */
 		if (r->writer)
 			box_set_ro(false);
+	} else if (r->server_id == server_id) {
+		say_warn("server UUID changed to %s",
+			 tt_uuid_str(server_uuid));
+		assert(vclock_has(&r->vclock, server_id));
+		memcpy(&r->server_uuid, server_uuid, sizeof(*server_uuid));
 	}
+	say_warn("          : r->%u r->uuid=%s %s", r->server_id, tt_uuid_str(&r->server_uuid),
+			vclock_to_string(&r->vclock));
 }
 
 void
 cluster_del_server(uint32_t server_id)
 {
+	say_warn("del server: %u", server_id);
+
+	/* Remove server from replicaset */
+	struct replica *replica = cluster_get_server(server_id);
+	assert(replica != NULL);
+	replica->id = 0;
+
+	/* Remove server from vclock */
 	struct recovery *r = ::recovery;
 	vclock_del_server(&r->vclock, server_id);
 	if (r->server_id == server_id) {

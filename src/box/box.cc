@@ -367,8 +367,8 @@ boxk(enum iproto_type type, uint32_t space_id, const char *format, ...)
 	}
 	va_end(ap);
 	assert(data <= buf + sizeof(buf));
-	req.tuple = buf;
-	req.tuple_end = data;
+	req.key = req.tuple = buf;
+	req.key_end = req.tuple_end = data;
 	process_rw(&req, NULL);
 }
 
@@ -615,16 +615,26 @@ static void
 box_set_server_uuid()
 {
 	struct recovery *r = ::recovery;
-	tt_uuid_create(&r->server_uuid);
+
+	/* Remove old tuple for local server if it was in bootstrap.bin */
+	if (cluster_get_server(1) != NULL)
+		boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
 	assert(r->server_id == 0);
-	if (vclock_has(&r->vclock, 1))
-		vclock_del_server(&r->vclock, 1);
-	boxk(IPROTO_REPLACE, BOX_CLUSTER_ID, "%u%s",
+	assert(cluster_get_server(1) == NULL);
+	assert(!vclock_has(&r->vclock, 1));
+
+	/* Generate a new server UUID */
+	tt_uuid_create(&r->server_uuid);
+
+	/* Insert a new tuple for local server */
+	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
 	     1, tt_uuid_str(&r->server_uuid));
+	assert(cluster_get_server(1) == NULL);
+	assert(vclock_get(&r->vclock, 1) == 0);
+
 	/* Remove surrogate server */
 	vclock_del_server(&r->vclock, 0);
 	assert(r->server_id == 1);
-	assert(vclock_has(&r->vclock, 1));
 }
 
 /** Insert a new cluster into _schema */
