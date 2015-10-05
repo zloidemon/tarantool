@@ -182,14 +182,14 @@ static const char* bsync_op_status_name[] = {
 
 #define bsync_status(oper, s) do {\
 	if ((oper)->req) { \
-		say_debug("change status of %d:%ld (%ld) from %s to %s", \
-			  LAST_ROW((oper)->req)->server_id, \
+		say_debug("[%d] change status of %d:%ld (%ld) from %s to %s", \
+			  __LINE__, LAST_ROW((oper)->req)->server_id, \
 			  LAST_ROW((oper)->req)->lsn, (oper)->sign, \
 			  bsync_op_status_name[(oper)->status], \
 			  bsync_op_status_name[(s)]); \
 	} else { \
-		say_debug("change status of %d:%ld (%ld) from %s to %s", \
-			  LAST_ROW((oper)->txn_data->req)->server_id, \
+		say_debug("[%d] change status of %d:%ld (%ld) from %s to %s", \
+			  __LINE__, LAST_ROW((oper)->txn_data->req)->server_id, \
 			  LAST_ROW((oper)->txn_data->req)->lsn, (oper)->sign, \
 			  bsync_op_status_name[(oper)->status], \
 			  bsync_op_status_name[(s)]); \
@@ -1012,19 +1012,13 @@ txn_reconnect_all()
 		local_state->remote[i].switched = false;
 	}
 	struct bsync_incoming *inc;
-	uint8_t already_called[BSYNC_MAX_HOSTS];
-	memset(&already_called, BSYNC_MAX_HOSTS, 0);
 	while (!rlist_empty(&txn_state.incoming_connections)) {
 		inc = rlist_first_entry(&txn_state.incoming_connections,
 					struct bsync_incoming, list);
-		if (inc->remote_id >= 0)
-			already_called[inc->remote_id] = 1;
 		fiber_call(inc->f);
 	}
 	for (int i = 0; i < local_state->remote_size; ++i) {
 		if (local_state->remote[i].localhost)
-			continue;
-		if (already_called[i])
 			continue;
 		fiber_call(local_state->remote[i].connecter);
 	}
