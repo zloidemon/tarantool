@@ -165,6 +165,13 @@ new leader elected
 waiting servers to be ready...  x   x   x  ok
 a former leader did not cause re-election after restore
 -------------------------------------------------------------
+ Random kills
+-------------------------------------------------------------
+kill random server... ok
+waiting servers to be ready...  x   x  ok
+start killed server... ok
+waiting servers to be ready...  x   x   x  ok
+-------------------------------------------------------------
  Cleanup
 -------------------------------------------------------------
 stopping 1... ok

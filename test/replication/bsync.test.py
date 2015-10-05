@@ -126,6 +126,21 @@ if new_leader == new_leader2:
 
 
 print '-------------------------------------------------------------'
+print ' Random kills'
+print '-------------------------------------------------------------'
+
+for i in range(1):
+    print 'kill random server...',
+    killed_slave = random.choice(servers)
+    killed_slave.stop()
+    print 'ok'
+    wait_ready()
+    print 'start killed server...',
+    killed_slave.start(wait_load = False)
+    print 'ok'
+    wait_ready()
+
+print '-------------------------------------------------------------'
 print ' Cleanup'
 print '-------------------------------------------------------------'
 
