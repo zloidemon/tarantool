@@ -51,7 +51,8 @@ table.sort(t)
 ...
 t
 ---
-- - pid
+- - bsync
+  - pid
   - replication
   - server
   - status
