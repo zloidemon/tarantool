@@ -4,14 +4,14 @@ from lib.tarantool_server import TarantoolServer
 
 servers = []
 def wait_ready():
-    print 'waiting server to be ready...',
+    print 'waiting servers to be ready...',
     i = 0
     for server in servers:
         i = i + 1
         if server.status != 'started':
             continue
         server.admin("while box.info.bsync.status ~= 'ready' do require('fiber').sleep(0) end", silent = True)
-        print ' {} '.format(i),
+        print ' x ',
     print 'ok'
 
 def find_leader():
@@ -45,6 +45,7 @@ wait_ready()
 leader = find_leader()
 assert leader is not None, "found leader"
 
+
 print '-------------------------------------------------------------'
 print ' Modifications on clusters'
 print '-------------------------------------------------------------'
@@ -75,6 +76,7 @@ for server in servers:
 
 # TODO: UPSERT tests
 
+
 print '-------------------------------------------------------------'
 print ' Kill slave'
 print '-------------------------------------------------------------'
@@ -88,14 +90,19 @@ for server in servers:
         continue
     server.admin("box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})")
     server.admin("box.space.test:get('cnt')")
+new_leader = find_leader()
+if new_leader == leader:
+    print 'killed slave did not cause re-election'
 
 killed_slave.start()
-leader = find_leader()
-assert leader != killed_slave, "restarted slave is not leader"
+new_leader = find_leader()
+if new_leader != killed_slave:
+    print 'restarted slave is not leader'
 
 killed_slave.admin("box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})")
 for server in servers:
     server.admin("box.space.test:get('cnt')")
+
 
 print '-------------------------------------------------------------'
 print ' Kill master'
@@ -116,6 +123,11 @@ wait_ready()
 new_leader2 = find_leader()
 if new_leader == new_leader2:
     print 'a former leader did not cause re-election after restore'
+
+
+print '-------------------------------------------------------------'
+print ' Cleanup'
+print '-------------------------------------------------------------'
 
 for server in servers:
     print 'stopping {}...'.format(server.n),

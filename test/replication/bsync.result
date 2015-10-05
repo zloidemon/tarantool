@@ -4,7 +4,7 @@
 starting 1... ok
 starting 2... ok
 starting 3... ok
-waiting server to be ready...  1   2   3  ok
+waiting servers to be ready...  x   x   x  ok
 -------------------------------------------------------------
  Modifications on clusters
 -------------------------------------------------------------
@@ -139,6 +139,8 @@ box.space.test:get('cnt')
 ---
 - ['cnt', 2]
 ...
+killed slave did not cause re-election
+restarted slave is not leader
 box.space.test:upsert('cnt', {{'+', 2, 1}}, {'cnt', 1})
 ---
 ...
@@ -158,10 +160,13 @@ box.space.test:get('cnt')
  Kill master
 -------------------------------------------------------------
 killed leader
-waiting server to be ready...  1   2  ok
+waiting servers to be ready...  x   x  ok
 new leader elected
-waiting server to be ready...  1   2   3  ok
+waiting servers to be ready...  x   x   x  ok
 a former leader did not cause re-election after restore
+-------------------------------------------------------------
+ Cleanup
+-------------------------------------------------------------
 stopping 1... ok
 stopping 2... ok
 stopping 3... ok
