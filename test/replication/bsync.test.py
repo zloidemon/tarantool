@@ -4,15 +4,21 @@ from lib.tarantool_server import TarantoolServer
 
 servers = []
 def wait_ready():
+    print 'waiting server to be ready...',
+    i = 0
     for server in servers:
-        print 'waiting {} to start...'.format(server.n),
+        i = i + 1
+        if server.status != 'started':
+            continue
         server.admin("while box.info.bsync.status ~= 'ready' do require('fiber').sleep(0) end", silent = True)
-        print 'ok'
+        print ' {} '.format(i),
+    print 'ok'
 
 def find_leader():
     leader = None
     for server in servers:
-        server.local_id = server.get_param("bsync.local_id")
+        if server.status != 'started':
+            continue
         leader_id = server.get_param("bsync.leader_id")
         if server.local_id == leader_id:
             assert leader is None, "single leader"
@@ -30,8 +36,10 @@ for i in range(3):
     server.vardir = os.path.join(server.vardir, 'bsync{}'.format(i + 1))
     print 'starting {}...'.format(server.n),
     server.deploy(wait_load = False)
+    server.local_id = server.get_param("bsync.local_id")
     print 'ok'
     servers.append(server)
+
 
 wait_ready()
 leader = find_leader()
@@ -95,11 +103,19 @@ print '-------------------------------------------------------------'
 
 killed_leader = find_leader()
 killed_leader.stop()
-#for server in servers:
-#    if server == killed_leader:
-#        continue
-#    server.admin("box.info.bsync")
+print 'killed leader'
+wait_ready()
+
+new_leader = find_leader()
+if new_leader != killed_leader:
+    print('new leader elected')
+
 killed_leader.start()
+wait_ready()
+
+new_leader2 = find_leader()
+if new_leader == new_leader2:
+    print 'a former leader did not cause re-election after restore'
 
 for server in servers:
     print 'stopping {}...'.format(server.n),

@@ -4,9 +4,7 @@
 starting 1... ok
 starting 2... ok
 starting 3... ok
-waiting 1 to start... ok
-waiting 2 to start... ok
-waiting 3 to start... ok
+waiting server to be ready...  1   2   3  ok
 -------------------------------------------------------------
  Modifications on clusters
 -------------------------------------------------------------
@@ -159,6 +157,11 @@ box.space.test:get('cnt')
 -------------------------------------------------------------
  Kill master
 -------------------------------------------------------------
+killed leader
+waiting server to be ready...  1   2  ok
+new leader elected
+waiting server to be ready...  1   2   3  ok
+a former leader did not cause re-election after restore
 stopping 1... ok
 stopping 2... ok
 stopping 3... ok
