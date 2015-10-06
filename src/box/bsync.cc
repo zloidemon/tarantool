@@ -1614,7 +1614,7 @@ bsync_rollback_slave(struct bsync_operation *oper, bool retry_commit)
 static struct bsync_send_elem *
 bsync_slave_wal(struct bsync_operation *oper)
 {
-	say_debug("[%p] start to apply request  %d:%ld(%ld) to WAL", fiber(),
+	say_debug("start to apply request  %d:%ld(%ld) to WAL",
 		LAST_ROW(oper->req)->server_id, LAST_ROW(oper->req)->lsn, oper->sign);
 	bsync_status(oper, bsync_op_status_wal);
 	rlist_add_tail_entry(&bsync_state.wal_queue, oper, list);
@@ -3533,11 +3533,14 @@ bsync_disconnect_leader(uint8_t host_id)
 		}
 	}
 	bsync_disconnect_cleanup(host_id);
-	bsync_state.wal_commit_sign = 0;
 	bsync_state.wal_rollback_sign = vclock_sum(&bsync_state.vclock);
+	if (bsync_state.wal_commit_sign >= bsync_state.wal_rollback_sign) {
+		bsync_state.wal_commit_sign = bsync_state.wal_rollback_sign;
+		bsync_state.wal_rollback_sign = 0;
+	}
 	char *vclock = vclock_to_string(&bsync_state.vclock);
-	say_info("rollback all ops from sign %ld, vclock is %s",
-		 bsync_state.wal_rollback_sign, vclock);
+	say_info("sync all ops in WAL: rollback %ld, commit %ld, vclock is %s",
+		 bsync_state.wal_rollback_sign, bsync_state.wal_commit_sign, vclock);
 	free(vclock);
 	bsync_wal_system(true);
 	bsync_check_consensus(host_id);
