@@ -55,6 +55,8 @@ test/lib/
 test/unit/*.test
 test/unit/fiob
 test/var
+test/light_stress.log
+test/light3264_stress.log
 third_party/luajit/src/luajit
 third_party/luajit/lib/vmdef.lua
 third_party/luajit/src/buildvm

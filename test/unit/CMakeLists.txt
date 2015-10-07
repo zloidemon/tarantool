@@ -57,6 +57,12 @@ add_executable(matras.test matras.cc)
 target_link_libraries(matras.test small)
 add_executable(light.test light.cc)
 target_link_libraries(light.test small)
+add_executable(light_stress.test light_stress.cc)
+target_link_libraries(light_stress.test small)
+add_executable(light3264.test light3264.cc)
+target_link_libraries(light3264.test small)
+add_executable(light3264_stress.test light3264_stress.cc)
+target_link_libraries(light3264_stress.test small)
 add_executable(vclock.test vclock.cc unit.c
     ${CMAKE_SOURCE_DIR}/src/box/vclock.c
     ${CMAKE_SOURCE_DIR}/src/box/errcode.c
