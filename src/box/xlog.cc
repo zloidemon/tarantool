@@ -163,7 +163,7 @@ xdir_index_file(struct xdir *dir, int64_t signature)
 	struct xlog *wal;
 
 	try {
-		wal = xlog_open(dir, signature, false);
+		wal = xlog_open(dir, signature);
 		/*
 		 * All log files in a directory must satisfy Lamport's
 		 * eventual order: events in each log file must be
@@ -802,7 +802,7 @@ xlog_read_meta(struct xlog *l, int64_t signature)
 
 struct xlog *
 xlog_open_stream(struct xdir *dir, int64_t signature, FILE *file,
-		 const char *filename, bool snap)
+		 const char *filename)
 {
 	/*
 	 * Check fopen() result the caller first thing, to
@@ -832,16 +832,15 @@ xlog_open_stream(struct xdir *dir, int64_t signature, FILE *file,
 	xlog_read_meta(l, signature);
 
 	log_guard.is_active = false;
-	l->snap = snap;
 	return l;
 }
 
 struct xlog *
-xlog_open(struct xdir *dir, int64_t signature, bool snap)
+xlog_open(struct xdir *dir, int64_t signature)
 {
 	const char *filename = format_filename(dir, signature, NONE);
 	FILE *f = fopen(filename, "r");
-	return xlog_open_stream(dir, signature, f, filename, snap);
+	return xlog_open_stream(dir, signature, f, filename);
 }
 
 int

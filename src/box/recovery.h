@@ -30,15 +30,11 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <netinet/in.h>
-#include <sys/socket.h>
-
 #include "trivia/util.h"
 #include "third_party/tarantool_ev.h"
 #include "xlog.h"
 #include "vclock.h"
 #include "tt_uuid.h"
-#include "uri.h"
 #include "wal.h"
 #include "xrow.h"
 #include "small/region.h"
@@ -47,9 +43,9 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-struct recovery_state;
+struct recovery;
 
-typedef void (apply_row_f)(struct recovery_state *, void *,
+typedef void (apply_row_f)(struct recovery *, void *,
 			   struct xrow_header *packet);
 
 /** A "condition variable" that allows fibers to wait when a given
@@ -59,31 +55,6 @@ typedef void (apply_row_f)(struct recovery_state *, void *,
 struct wal_watcher;
 struct wal_writer;
 
-enum { REMOTE_SOURCE_MAXLEN = 1024 }; /* enough to fit URI with passwords */
-
-/** State of a replication connection to the master */
-struct remote {
-	struct fiber *reader;
-	struct fiber *writer;
-	struct fiber *connecter;
-	struct ev_io in;
-	struct ev_io out;
-	const char *status;
-	ev_tstamp lag, last_row_time;
-	tt_uuid server_uuid;
-	bool warning_said;
-	bool connected;
-	bool switched;
-	bool localhost;
-	char source[REMOTE_SOURCE_MAXLEN];
-	struct uri uri;
-	union {
-		struct sockaddr addr;
-		struct sockaddr_storage addrstorage;
-	};
-	socklen_t addr_len;
-};
-
 struct xrow_queue {
 	struct xrow_header queue[MAX_UNCOMMITED_REQ];
 	struct region queue_gc[MAX_UNCOMMITED_REQ];
@@ -92,7 +63,7 @@ struct xrow_queue {
 	size_t end;
 };
 
-struct recovery_state {
+struct recovery {
 	struct vclock vclock;
 	/** The WAL we're currently reading/writing from/to. */
 	struct xlog *current_wal;
@@ -105,9 +76,7 @@ struct recovery_state {
 	 * locally or send to the replica.
 	 */
 	struct fiber *watcher;
-	struct remote remote[VCLOCK_MAX];
 	bool bsync_remote;
-	size_t remote_size;
 	/**
 	 * apply_row is a module callback invoked during initial
 	 * recovery and when reading rows from the master.
@@ -119,75 +88,71 @@ struct recovery_state {
 	struct tt_uuid server_uuid;
 	uint32_t server_id;
 
-	bool finalize;
-	xrow_queue commit;
+	struct xrow_queue commit;
 };
 
-struct recovery_state *
+struct recovery *
 recovery_new(const char *snap_dirname, const char *wal_dirname,
 	     apply_row_f apply_row, void *apply_row_param);
 
 void
-recovery_delete(struct recovery_state *r);
+recovery_delete(struct recovery *r);
 
 /* to be called at exit */
 void
-recovery_exit(struct recovery_state *r);
+recovery_exit(struct recovery *r);
 
 void
-recovery_update_mode(struct recovery_state *r,
-		     enum wal_mode mode);
+recovery_update_mode(struct recovery *r, enum wal_mode mode);
 
 void
-recovery_update_io_rate_limit(struct recovery_state *r,
-			      double new_limit);
+recovery_update_io_rate_limit(struct recovery *r, double new_limit);
 
 void
-recovery_setup_panic(struct recovery_state *r, bool on_snap_error,
-		     bool on_wal_error);
+recovery_setup_panic(struct recovery *r, bool on_snap_error, bool on_wal_error);
 
 static inline bool
-recovery_has_data(struct recovery_state *r)
+recovery_has_data(struct recovery *r)
 {
 	return vclockset_first(&r->snap_dir.index) != NULL ||
 	       vclockset_first(&r->wal_dir.index) != NULL;
 }
 
 void
-recovery_bootstrap(struct recovery_state *r);
+recovery_bootstrap(struct recovery *r);
 
 void
-recover_xlog(struct recovery_state *r, struct xlog *l);
+recover_xlog(struct recovery *r, struct xlog *l);
 
 void
-recovery_follow_local(struct recovery_state *r, const char *name,
+recovery_follow_local(struct recovery *r, const char *name,
 		      ev_tstamp wal_dir_rescan_delay);
 
 void
-recovery_stop_local(struct recovery_state *r);
+recovery_stop_local(struct recovery *r);
 
 void
-recovery_finalize(struct recovery_state *r, enum wal_mode mode,
+recovery_finalize(struct recovery *r, enum wal_mode mode,
 		  int rows_per_wal);
 
 void
-recovery_fill_lsn(struct recovery_state *r, struct xrow_header *row);
+recovery_fill_lsn(struct recovery *r, struct xrow_header *row);
 
 void
-recovery_apply_row(struct recovery_state *r, struct xrow_header *packet);
+recovery_apply_row(struct recovery *r, struct xrow_header *packet);
 
 /**
  * Return LSN of the most recent snapshot or -1 if there is
  * no snapshot.
  */
 int64_t
-recovery_last_checkpoint(struct recovery_state *r);
+recovery_last_checkpoint(struct recovery *r);
 
 /**
  * Ensure we don't corrupt the current WAL file in the child.
  */
 void
-recovery_atfork(struct recovery_state *r);
+recovery_atfork(struct recovery *r);
 
 #if defined(__cplusplus)
 } /* extern "C" */

@@ -58,7 +58,6 @@ ipc_channel_create(struct ipc_channel *ch, unsigned size)
 	ch->beg = ch->count = 0;
 	ch->readonly = ch->closed = false;
 	ch->close = NULL;
-	ch->bcast = NULL;
 	rlist_create(&ch->readers);
 	rlist_create(&ch->writers);
 }
@@ -130,14 +129,6 @@ ipc_channel_get_timeout(struct ipc_channel *ch, ev_tstamp timeout)
 		fiber_yield_timeout(timeout);
 		rlist_del_entry(fiber(), state);
 
-		/* broadcast message wakes us up */
-		if (ch->bcast) {
-			fiber_wakeup(ch->bcast);
-			fiber_testcancel();
-			res = ch->bcast_msg;
-			goto exit;
-		}
-
 		fiber_testcancel();
 
 		timeout -= ev_now(loop()) - started;
@@ -172,12 +163,6 @@ exit:
 	return res;
 }
 
-void *
-ipc_channel_get(struct ipc_channel *ch)
-{
-	return ipc_channel_get_timeout(ch, TIMEOUT_INFINITY);
-}
-
 static void
 ipc_channel_close_waiter(struct ipc_channel *ch, struct fiber *f)
 {
@@ -208,8 +193,6 @@ ipc_channel_shutdown(struct ipc_channel *ch)
 		f = rlist_first_entry(&ch->writers, struct fiber, state);
 		ipc_channel_close_waiter(ch, f);
 	}
-	if (ch->bcast)
-		fiber_wakeup(ch->bcast);
 }
 
 void
@@ -217,13 +200,14 @@ ipc_channel_close(struct ipc_channel *ch)
 {
 	if (ch->closed)
 		return;
-	assert(ch->readonly);
+	if (!ch->readonly)
+		ipc_channel_shutdown(ch);
 	assert(ch->count == 0);
 	assert(rlist_empty(&ch->readers));
 	assert(rlist_empty(&ch->writers));
-	assert(ch->bcast == NULL);
 	ch->closed = true;
 }
+
 int
 ipc_channel_put_timeout(struct ipc_channel *ch, void *data,
 			ev_tstamp timeout)
@@ -289,59 +273,4 @@ exit:
 		errno = save_errno;
 	}
 	return res;
-}
-
-void
-ipc_channel_put(struct ipc_channel *ch, void *data)
-{
-	ipc_channel_put_timeout(ch, data, TIMEOUT_INFINITY);
-}
-
-int
-ipc_channel_broadcast(struct ipc_channel *ch, void *data)
-{
-	/* do nothing at closed channel */
-	if (ch->readonly)
-		return 0;
-
-	/* broadcast in broadcast: marasmus */
-	if (ch->bcast)
-		return 0;
-
-	/* there is no reader on channel */
-	if (rlist_empty(&ch->readers)) {
-		ipc_channel_put(ch, data);
-		return 1;
-	}
-
-	unsigned readers = 0;
-	struct fiber *f;
-	rlist_foreach_entry(f, &ch->readers, state) {
-		readers++;
-	}
-
-	unsigned cnt = 0;
-	while (!rlist_empty(&ch->readers)) {
-		if (ch->readonly)
-			break;
-		f = rlist_first_entry(&ch->readers, struct fiber, state);
-
-		ch->bcast_msg = data;
-		ch->bcast = fiber();
-		fiber_wakeup(f);
-		fiber_yield();
-		ch->bcast = NULL;
-		rlist_del_entry(fiber(), state);
-		fiber_testcancel();
-		/* if any other reader was added don't wake it up */
-		if (++cnt >= readers)
-			break;
-	}
-
-	if (ch->readonly && ch->close) {
-		fiber_wakeup(ch->close);
-		ch->close = NULL;
-	}
-
-	return cnt;
 }

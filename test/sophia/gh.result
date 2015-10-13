@@ -1,4 +1,4 @@
--- gh-283: Sophia: hang after three creates and drops
+-- gh-283: hang after three creates and drops
 s = box.schema.space.create('space0', {engine='sophia'})
 ---
 ...
@@ -7,14 +7,10 @@ i = s:create_index('space0', {type = 'tree', parts = {1, 'STR'}})
 ...
 s:insert{'a', 'b', 'c'}
 ---
-- ['a', 'b', 'c']
 ...
 s:drop()
 ---
 ...
-sophia_schedule()
----
-...
 s = box.schema.space.create('space0', {engine='sophia'})
 ---
 ...
@@ -23,7 +19,6 @@ i = s:create_index('space0', {type = 'tree', parts = {1, 'STR'}})
 ...
 s:insert{'a', 'b', 'c'}
 ---
-- ['a', 'b', 'c']
 ...
 t = s.index[0]:select({}, {iterator = box.index.ALL})
 ---
@@ -35,9 +30,6 @@ t
 s:drop()
 ---
 ...
-sophia_schedule()
----
-...
 s = box.schema.space.create('space0', {engine='sophia'})
 ---
 ...
@@ -46,7 +38,6 @@ i = s:create_index('space0', {type = 'tree', parts = {1, 'STR'}})
 ...
 s:insert{'a', 'b', 'c'}
 ---
-- ['a', 'b', 'c']
 ...
 t = s.index[0]:select({}, {iterator = box.index.ALL})
 ---
@@ -58,10 +49,7 @@ t
 s:drop()
 ---
 ...
-sophia_schedule()
----
-...
--- gh-280: Sophia: crash if insert without index
+-- gh-280: crash if insert without index
 s = box.schema.space.create('test', {engine='sophia'})
 ---
 ...
@@ -72,15 +60,12 @@ s:insert{'a'}
 s:drop()
 ---
 ...
-sophia_schedule()
----
-...
 -- gh-436: No error when creating temporary sophia space
 s = box.schema.space.create('tester',{engine='sophia', temporary=true})
 ---
 - error: 'Can''t modify space ''tester'': space does not support temporary flag'
 ...
--- gh-432: Sophia: ignored limit
+-- gh-432: ignored limit
 s = box.schema.space.create('tester',{engine='sophia'})
 ---
 ...
@@ -106,9 +91,6 @@ t
 - - [1]
 ...
 s:drop()
----
-...
-sophia_schedule()
 ---
 ...
 s = box.schema.space.create('tester', {engine='sophia'})
@@ -137,48 +119,91 @@ t
 s:drop()
 ---
 ...
-sophia_schedule()
+-- gh-681: support or produce error on space::alter
+s = box.schema.space.create('M', {engine='sophia'})
 ---
 ...
--- gh-680: Sophia: assertion on update
-s = box.schema.space.create('tester', {engine='sophia'})
+i = s:create_index('primary',{})
 ---
 ...
-i = s:create_index('primary',{type = 'tree', parts = {2, 'STR'}})
+s:insert{5}
 ---
 ...
-s:insert{1,'X'}
+s.index.primary:alter({parts={1,'NUM'}})
 ---
-- [1, 'X']
-...
-s:update({'X'}, {{'=', 2, 'Y'}})
----
-- error: Attempt to modify a tuple field which is part of index 'primary' in space
-    'tester'
-...
-s:select{'X'}
----
-- - [1, 'X']
-...
-s:select{'Y'}
----
-- []
-...
-s:update({'X'}, {{'=', 3, 'Z'}})
----
-- [1, 'X', 'Z']
-...
-s:select{'X'}
----
-- - [1, 'X', 'Z']
-...
-s:select{'Y'}
----
-- []
+- error: alter is not supported for a Sophia index
 ...
 s:drop()
 ---
 ...
-sophia_schedule()
+-- gh-1008: assertion if insert of wrong type
+s = box.schema.space.create('t', {engine='sophia'})
+---
+...
+i = s:create_index('primary',{parts={1, 'STR'}})
+---
+...
+box.space.t:insert{1,'A'}
+---
+- error: 'Supplied key type of part 0 does not match index part type: expected STR'
+...
+s:drop()
+---
+...
+-- gh-1009: search for empty string fails
+s = box.schema.space.create('t', {engine='sophia'})
+---
+...
+i = s:create_index('primary',{parts={1, 'STR'}})
+---
+...
+s:insert{''}
+---
+...
+#i:select{''}
+---
+- 1
+...
+i:get{''}
+---
+- ['']
+...
+s:drop()
+---
+...
+-- gh-1015: assertion if nine indexed fields
+s = box.schema.create_space('t',{engine='sophia'})
+---
+...
+i = s:create_index('primary',{parts={1,'str',2,'str',3,'str',4,'str',5,'str',6,'str',7,'str',8,'str',9,'str'}})
+---
+- error: 'Can''t create or modify index ''primary'' in space ''t'': Sophia TREE index
+    too many key-parts (8 max)'
+...
+s:insert{'1','2','3','4','5','6','7','8','9'}
+---
+- error: 'No index #0 is defined in space ''t'''
+...
+s:drop()
+---
+...
+-- gh-1016: behaviour of multi-part indexes
+s = box.schema.create_space('t',{engine='sophia'})
+---
+...
+i = s:create_index('primary',{parts={1,'str',2,'str',3,'str'}})
+---
+...
+s:insert{'1','2','3'}
+---
+...
+s:insert{'1','2','0'}
+---
+...
+i:select({'1','2',nil},{iterator='GT'})
+---
+- error: Sophia Index iterator does not support uncomplete keys
+...
+s:drop()
 ---
 ...

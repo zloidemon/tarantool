@@ -43,11 +43,13 @@
 #define EV_USE_POLL 1
 #define EV_USE_NANOSLEEP 1
 #define EV_USE_REALTIME 1
+#define EV_USE_MONOTONIC 1
 #define EV_PERIODIC_ENABLE 1
 #define EV_IDLE_ENABLE 1
 #define EV_STAT_ENABLE 1
 #define EV_FORK_ENABLE 1
 #define EV_CONFIG_H 0
+#define EV_USE_FLOOR 1
 #include "third_party/libev/ev.h"
 #else /* !defined(ENABLE_BUNDLED_LIBEV) */
 #include <ev.h>
@@ -58,6 +60,9 @@ extern "C" {
 #endif /* defined(__cplusplus) */
 
 extern const ev_tstamp TIMEOUT_INFINITY;
+
+typedef void (*ev_io_cb)(ev_loop *, ev_io *, int);
+typedef void (*ev_async_cb)(ev_loop *, ev_async *, int);
 
 #if defined(__cplusplus)
 } /* extern "C" */

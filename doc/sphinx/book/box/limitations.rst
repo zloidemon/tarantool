@@ -39,10 +39,10 @@ Length of an index name or space name or user name
     32 (``box.schema.NAME_MAX``).
 
 Limitations which are only applicable for the sophia storage engine
-    The maximum number of fields in an index is always 1, that is, multi-part
-    indexes are not supported. The maximum number of indexes in a space is
+    The maximum number of indexes in a space is
     always 1, that is, secondary indexes are not supported. Indexes must be
-    unique, that is, the options type=HASH or type=RTREE or type=BITSET are
+    type=TREE, that is, the options type=HASH or type=RTREE or type=BITSET are
     not supported. Indexes must be unique, that is, the option unique=false
-    is not supported. The ``alter()``, ``len()``, and ``count()`` functions
-    are not supported.
+    is not supported. The ``alter()`` and ``count()`` and
+    ``min()`` and ``max()`` and ``random()`` and ``auto_increment()`` functions
+    are not supported. Temporary spaces are not supported.

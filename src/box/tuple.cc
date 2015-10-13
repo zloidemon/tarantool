@@ -365,11 +365,15 @@ tuple_next(struct tuple_iterator *it)
 extern inline uint32_t
 tuple_next_u32(struct tuple_iterator *it);
 
-static const char *
+const char *
 tuple_field_to_cstr(const char *field, uint32_t len)
 {
-	static __thread char buf[256];
-	len = MIN(len, sizeof(buf) - 1);
+	enum { MAX_STR_BUFS = 3, MAX_BUF_LEN = 256 };
+	static __thread char bufs[MAX_STR_BUFS][MAX_BUF_LEN];
+	static __thread int i = 0;
+	char *buf = bufs[i];
+	i = (i + 1) % MAX_STR_BUFS;
+	len = MIN(len, MAX_BUF_LEN - 1);
 	memcpy(buf, field, len);
 	buf[len] = '\0';
 	return buf;
@@ -606,19 +610,10 @@ tuple_init(float tuple_arena_max_size, uint32_t objsize_min,
 	size_t prealloc = tuple_arena_max_size * 1024 * 1024 * 1024;
 	quota_init(&memtx_quota, prealloc);
 
-	int flags;
-	if (access("/proc/user_beancounters", F_OK) == 0) {
-		say_warn("disable shared arena since running under OpenVZ "
-		    "(https://bugzilla.openvz.org/show_bug.cgi?id=2805)");
-		flags = MAP_PRIVATE;
-	} else {
-		say_info("mapping %zu bytes for a shared arena...",
-			prealloc);
-		flags = MAP_SHARED;
-	}
+	say_info("mapping %zu bytes for tuple arena...", prealloc);
 
 	if (slab_arena_create(&memtx_arena, &memtx_quota,
-			      prealloc, slab_size, flags)) {
+			      prealloc, slab_size, MAP_PRIVATE)) {
 		if (ENOMEM == errno) {
 			panic("failed to preallocate %zu bytes: "
 			      "Cannot allocate memory, check option "

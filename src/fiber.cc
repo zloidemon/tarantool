@@ -156,7 +156,6 @@ fiber_wakeup(struct fiber *f)
  * in it. For cancellation to work, this exception type should be
  * re-raised whenever (if) it is caught.
  */
-
 void
 fiber_cancel(struct fiber *f)
 {
@@ -175,40 +174,10 @@ fiber_cancel(struct fiber *f)
 			fiber_wakeup(f);
 		fiber_yield();
 	}
-	/*
-	 * Check if we're ourselves cancelled.
-	 * This also implements cancel for the case when
-	 * f == fiber().
-	 */
-	fiber_testcancel();
 }
 
-bool
-fiber_is_cancelled()
-{
-	return fiber()->flags & FIBER_IS_CANCELLED;
-}
-
-/** Test if this fiber is in a cancellable state and was indeed
- * cancelled, and raise an exception (FiberCancelException) if
- * that's the case.
- */
-void
-fiber_testcancel(void)
-{
-	/*
-	 * Fiber can catch FiberCancelException using try..catch
-	 * block in C or pcall()/xpcall() in Lua. However,
-	 * FIBER_IS_CANCELLED flag is still set and the subject
-	 * fiber will be killed by subsequent unprotected call of
-	 * this function.
-	 */
-	if (fiber_is_cancelled())
-		tnt_raise(FiberCancelException);
-}
-
-
-/** Change the current cancellation state of a fiber. This is not
+/**
+ * Change the current cancellation state of a fiber. This is not
  * a cancellation point.
  */
 bool
@@ -246,12 +215,12 @@ fiber_join(struct fiber *fiber)
 
 	/* Move exception to the caller */
 	diag_move(&fiber->diag, &fiber()->diag);
-	Exception *e = diag_last_error(&fiber()->diag);
-	/** Raise exception again, unless it's FiberCancelException */
-	if (e != NULL && type_cast(FiberCancelException, e) == NULL)
-		e->raise();
-	fiber_testcancel();
+	Exception *e = (Exception *) diag_last_error(&fiber()->diag);
+	/** Don't bother with propagation of FiberCancelException */
+	if (e != NULL && type_cast(FiberCancelException, e) != NULL)
+		diag_clear(&fiber()->diag);
 }
+
 /**
  * @note: this is not a cancellation point (@sa fiber_testcancel())
  * but it is considered good practice to call testcancel()
@@ -337,7 +306,6 @@ fiber_sleep(ev_tstamp delay)
 	if (delay == 0) {
 		ev_idle_stop(loop(), &cord()->idle_event);
 	}
-	fiber_testcancel();
 }
 
 void
@@ -525,8 +493,11 @@ fiber_new(const char *name, void (*f) (va_list))
 	} else {
 		fiber = (struct fiber *) mempool_alloc0(&cord->fiber_pool);
 
-		tarantool_coro_create(&fiber->coro, &cord->slabc,
-				      fiber_loop, NULL);
+		if (tarantool_coro_create(&fiber->coro, &cord->slabc,
+					  fiber_loop, NULL)) {
+			tnt_raise(OutOfMemory, 65536,
+				  "runtime arena", "coro stack");
+		}
 
 		region_create(&fiber->gc, &cord->slabc);
 
@@ -583,9 +554,11 @@ fiber_destroy_all(struct cord *cord)
 		fiber_destroy(cord, f);
 }
 
-void
-cord_create(struct cord *cord, const char *name)
+static void
+cord_init(const char *name)
 {
+	struct cord *cord = cord();
+
 	cord->id = pthread_self();
 	cord->on_exit = NULL;
 	cord->loop = cord->id == main_thread_id ?
@@ -613,10 +586,10 @@ cord_create(struct cord *cord, const char *name)
 	ev_async_start(cord->loop, &cord->wakeup_event);
 
 	ev_idle_init(&cord->idle_event, fiber_schedule_idle);
-	snprintf(cord->name, sizeof(cord->name), "%s", name);
+	cord_set_name(name);
 }
 
-void
+static void
 cord_destroy(struct cord *cord)
 {
 	slab_cache_set_thread(&cord->slabc);
@@ -643,36 +616,25 @@ struct cord_thread_arg
 	pthread_cond_t start_cond;
 };
 
+/**
+ * Cord main thread function. It's not exception-safe, the
+ * body function must catch all exceptions instead.
+ */
 void *cord_thread_func(void *p)
 {
 	struct cord_thread_arg *ct_arg = (struct cord_thread_arg *) p;
 	cord() = ct_arg->cord;
 	slab_cache_set_thread(&cord()->slabc);
-	struct cord *cord = cord();
-	cord_create(cord, ct_arg->name);
+	cord_init(ct_arg->name);
 	/** Can't possibly be the main thread */
-	assert(cord->id != main_thread_id);
+	assert(cord()->id != main_thread_id);
 	tt_pthread_mutex_lock(&ct_arg->start_mutex);
 	void *(*f)(void *) = ct_arg->f;
 	void *arg = ct_arg->arg;
 	ct_arg->is_started = true;
 	tt_pthread_cond_signal(&ct_arg->start_cond);
 	tt_pthread_mutex_unlock(&ct_arg->start_mutex);
-	void *res;
-	try {
-		res = f(arg);
-		/*
-		 * Clear a possible leftover exception object
-		 * to not confuse the invoker of the thread.
-		 */
-		diag_clear(&cord->fiber->diag);
-	} catch (Exception *) {
-		/*
-		 * The exception is now available to the caller
-		 * via cord->diag.
-		 */
-		res = NULL;
-	}
+	void *res = f(arg);
 	/*
 	 * cord()->on_exit initially holds NULL. This field is
 	 * change-once.
@@ -718,16 +680,16 @@ cord_join(struct cord *cord)
 	assert(cord() != cord); /* Can't join self. */
 	void *retval = NULL;
 	int res = tt_pthread_join(cord->id, &retval);
-	if (res == 0 && !diag_is_empty(&cord->fiber->diag)) {
+	if (res == 0) {
 		/*
 		 * cord_thread_func guarantees that
 		 * cord->exception is only set if the subject cord
 		 * has terminated with an uncaught exception,
-		 * transfer it to the caller.
+		 * transfer it to the caller. If there is
+		 * no exception, this clears the caller's
+		 * diagnostics area.
 		 */
 		diag_move(&cord->fiber->diag, &fiber()->diag);
-		cord_destroy(cord);
-		diag_last_error(&fiber()->diag)->raise();
 	}
 	cord_destroy(cord);
 	return res;
@@ -839,8 +801,13 @@ cord_costart_thread_func(void *arg)
 {
 	struct costart_ctx ctx = *(struct costart_ctx *) arg;
 	free(arg);
+	struct fiber *f;
 
-	struct fiber *f = fiber_new("main", ctx.run);
+	try {
+		f = fiber_new("main", ctx.run);
+	} catch (...) {
+		return NULL;
+	}
 
 	struct trigger break_ev_loop = {
 		RLIST_LINK_INITIALIZER, break_ev_loop_f, NULL, NULL
@@ -855,10 +822,11 @@ cord_costart_thread_func(void *arg)
 		/* The fiber hasn't died right away at start. */
 		ev_run(loop(), 0);
 	}
+	/*
+	 * Preserve the exception with which the main fiber
+	 * terminated, if any.
+	 */
 	diag_move(&f->diag, &fiber()->diag);
-	Exception *e = diag_last_error(&fiber()->diag);
-	if (e != NULL && type_cast(FiberCancelException, e) == NULL)
-		e->raise();
 
 	return NULL;
 }
@@ -879,6 +847,16 @@ cord_costart(struct cord *cord, const char *name, fiber_func f, void *arg)
 	return 0;
 }
 
+void
+cord_set_name(const char *name)
+{
+	snprintf(cord()->name, sizeof cord()->name, "%s", name);
+	/* Main thread's name will replace process title in ps, skip it */
+	if (cord_is_main())
+		return;
+	tt_pthread_setname(name);
+}
+
 bool
 cord_is_main()
 {
@@ -890,13 +868,13 @@ fiber_init(void)
 {
 	main_thread_id = pthread_self();
 	cord() = &main_cord;
-	cord_create(cord(), "main");
+	cord_init("main");
 }
 
 void
 fiber_free(void)
 {
-	cord_destroy(cord());
+	cord_destroy(&main_cord);
 }
 
 int fiber_stat(fiber_stat_cb cb, void *cb_ctx)

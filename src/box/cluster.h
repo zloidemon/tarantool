@@ -79,6 +79,12 @@
  * and is implemented in @file vclock.h
  */
 
+void
+cluster_init(void);
+
+void
+cluster_free(void);
+
 /** {{{ Global cluster identifier API **/
 
 /** UUID of the cluster. */
@@ -98,6 +104,30 @@ cserver_id_is_reserved(uint32_t id)
 }
 
 /**
+ * A remote server in cluster.
+ */
+struct replica {
+	uint32_t id;
+	/* Please use cluster_update_server() to change UUID */
+	tt_uuid uuid;
+	struct applier *applier;
+	struct relay *relay;
+};
+
+struct replica *
+cluster_get_server(uint32_t server_id);
+
+struct replica *
+cluster_server_first(void);
+
+struct replica *
+cluster_server_next(struct replica *replica);
+
+#define cluster_foreach_server(var) \
+	for (struct replica *var = cluster_server_first(); \
+	     var != NULL; var = cluster_server_next(var))
+
+/**
  * Register the universally unique identifier of a remote server and
  * a matching cluster-local identifier in the  cluster registry.
  * Called when a remote master joins the cluster.
@@ -107,9 +137,34 @@ cserver_id_is_reserved(uint32_t id)
 void
 cluster_set_server(const tt_uuid *server_uuid, uint32_t id);
 
+/**
+ * Remove the server from the cluster registry
+ */
 void
 cluster_del_server(uint32_t server_id);
 
+/** }}} **/
+
+/** {{{ Cluster applier API **/
+
+void
+cluster_add_applier(struct applier *applier);
+
+void
+cluster_del_applier(struct applier *applier);
+
+struct applier *
+cluster_find_applier(const char *source);
+
+struct applier *
+cluster_applier_first(void);
+
+struct applier *
+cluster_applier_next(struct applier *applier);
+
+#define cluster_foreach_applier(var) \
+	for (struct applier *var = cluster_applier_first(); \
+	     var != NULL; var = cluster_applier_next(var))
 /** }}} **/
 
 #endif

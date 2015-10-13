@@ -53,7 +53,7 @@
 #include <crc32.h>
 #include "memory.h"
 #include <say.h>
-#include <stat.h>
+#include <rmean.h>
 #include <limits.h>
 #include "trivia/util.h"
 #include "tt_pthread.h"
@@ -65,6 +65,7 @@
 #include "iobuf.h"
 #include <third_party/gopt/gopt.h>
 #include "cfg.h"
+#include "version.h"
 #include <readline/history.h>
 
 static pid_t master_pid = getpid();
@@ -121,9 +122,8 @@ tarantool_version(void)
 uint32_t
 tarantool_version_id()
 {
-	return (((PACKAGE_VERSION_MAJOR << 8) |
-		 PACKAGE_VERSION_MINOR) << 8) |
-		PACKAGE_VERSION_PATCH;
+	return version_id(PACKAGE_VERSION_MAJOR, PACKAGE_VERSION_MINOR,
+			  PACKAGE_VERSION_PATCH);
 }
 
 static double start_time;
@@ -366,6 +366,12 @@ background()
 		goto error;
 
 	/*
+	 * tell libev we've just forked, this is necessary to re-initialize
+	 * kqueue on FreeBSD.
+	 */
+	ev_loop_fork(cord()->loop);
+
+	/*
 	 * reinit signals after fork, because fork() implicitly calls
 	 * signal_reset() via pthread_atfork() hook installed by signal_init().
 	 */
@@ -535,13 +541,12 @@ main(int argc, char **argv)
 	__libc_stack_end = (void*) &argv;
 #endif
 	start_time = ev_time();
-#ifndef __APPLE__
 	/* set locale to make iswXXXX function work */
 	if (setlocale(LC_CTYPE, "C.UTF-8") == NULL &&
 	    setlocale(LC_CTYPE, "en_US.UTF-8") == NULL &&
 	    setlocale(LC_CTYPE, "en_US.utf8") == NULL)
 		fprintf(stderr, "Failed to set locale to C.UTF-8\n");
-#endif
+
 	if (argc > 1 && access(argv[1], R_OK) != 0) {
 		if (argc == 2 && argv[1][0] != '-') {
 			/*

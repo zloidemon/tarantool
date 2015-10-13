@@ -98,6 +98,11 @@ coeio_want_poll_cb(void)
 	ev_async_send(coeio_manager.loop, &coeio_manager.coeio_async);
 }
 
+static void
+coeio_done_poll_cb(void)
+{
+}
+
 /**
  * Init coeio subsystem.
  *
@@ -106,7 +111,7 @@ coeio_want_poll_cb(void)
 void
 coeio_init(void)
 {
-	eio_init(coeio_want_poll_cb, NULL);
+	eio_init(coeio_want_poll_cb, coeio_done_poll_cb);
 	coeio_manager.loop = loop();
 
 	ev_idle_init(&coeio_manager.coeio_idle, coeio_idle_cb);
@@ -121,7 +126,7 @@ coeio_init(void)
 void
 coeio_reinit(void)
 {
-	eio_init(coeio_want_poll_cb, NULL);
+	eio_init(coeio_want_poll_cb, coeio_done_poll_cb);
 }
 
 static void
@@ -170,12 +175,12 @@ coio_task(struct coio_task *task, coio_task_cb func,
 	task->complete = 0;
 
 	eio_submit(&task->base);
-
-	if (fiber_yield_timeout(timeout) && !task->complete) {
-		/* timed out. */
+	fiber_yield_timeout(timeout);
+	if (!task->complete) {
+		/* timed out or cancelled. */
 		task->fiber = NULL;
-		errno = ETIMEDOUT;
-		return -1;
+		fiber_testcancel();
+		tnt_raise(TimedOut);
 	}
 
 	return task->base.result;
@@ -188,31 +193,6 @@ coio_on_call(eio_req *req)
 	req->result = task->call_cb(task->ap);
 }
 
-/**
- * Create new eio task with specified function and
- * arguments. Yield and wait until the task is complete
- * or a timeout occurs.
- *
- * This function doesn't throw exceptions to avoid double error
- * checking: in most cases it's also necessary to check the return
- * value of the called function and perform necessary actions. If
- * func sets errno, the errno is preserved across the call.
- *
- * @retval -1 and errno = ENOMEM if failed to create a task
- * @retval the function return (errno is preserved).
- *
- * @code
- *	static ssize_t openfile_cb(va_list ap)
- *	{
- *	         const char *filename = va_arg(ap);
- *	         int flags = va_arg(ap);
- *	         return open(filename, flags);
- *	}
- *
- *	 if (coio_call(openfile_cb, 0.10, "/tmp/file", 0) == -1)
- *		// handle errors.
- *	...
- */
 ssize_t
 coio_call(ssize_t (*func)(va_list ap), ...)
 {
@@ -336,11 +316,8 @@ coio_getaddrinfo(const char *host, const char *port,
 	/* do resolving */
 	/* coio_task() don't throw. */
 	if (coio_task(&task->base, getaddrinfo_cb, getaddrinfo_free_cb,
-		       timeout) == -1) {
-		/* timed out */
-		errno = ETIMEDOUT;
-		return rc;
-	}
+		       timeout) == -1)
+		tnt_raise(TimedOut);
 
 	rc = task->rc;
 	*res = task->result;

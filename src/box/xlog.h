@@ -45,6 +45,7 @@ struct XlogError: public Exception
 {
 	XlogError(const char *file, unsigned line,
 		  const char *format, ...);
+	virtual void raise() { throw this; }
 protected:
 	XlogError(const struct type *type, const char *file, unsigned line,
 		  const char *format, ...);
@@ -55,6 +56,7 @@ struct XlogGapError: public XlogError
 	XlogGapError(const char *file, unsigned line,
 		  const struct vclock *from,
 		  const struct vclock *to);
+	virtual void raise() { throw this; }
 };
 
 /* {{{ log dir */
@@ -210,8 +212,6 @@ struct xlog {
 	 * is vector clock *at the time the snapshot is taken*.
 	 */
 	struct vclock vclock;
-
-	bool snap;
 };
 
 /**
@@ -225,7 +225,7 @@ struct xlog {
  * Raises an exception in case of error.
  */
 struct xlog *
-xlog_open(struct xdir *dir, int64_t signature, bool snap);
+xlog_open(struct xdir *dir, int64_t signature);
 
 /**
  * Open an xlog from a pre-created stdio stream.
@@ -240,7 +240,7 @@ xlog_open(struct xdir *dir, int64_t signature, bool snap);
 
 struct xlog *
 xlog_open_stream(struct xdir *dir, int64_t signature,
-		 FILE *file, const char *filename, bool snap);
+		 FILE *file, const char *filename);
 
 /**
  * Create a new file and open it in write (append) mode.

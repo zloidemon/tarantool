@@ -41,6 +41,7 @@ extern "C" {
 #include <lauxlib.h>
 #include <lualib.h>
 #include <lj_cdata.h>
+#include <luajit.h>
 } /* extern "C" */
 
 
@@ -84,7 +85,6 @@ extern char strict_lua[],
 	uri_lua[],
 	bsdsocket_lua[],
 	console_lua[],
-	net_box_lua[],
 	help_lua[],
 	help_en_US_lua[],
 	tap_lua[],
@@ -96,7 +96,10 @@ extern char strict_lua[],
 	dis_x86_lua[],
 	dis_x64_lua[],
 	dump_lua[],
-	v_lua[];
+	csv_lua[],
+	v_lua[],
+	clock_lua[];
+
 #if LUAJIT_VERSION_NUM >= 20100 /* LuaJIT 2.1+ */
 extern char p_lua[], zone_lua[];
 #endif /* LuaJIT 2.1+ */
@@ -114,8 +117,9 @@ static const char *lua_modules[] = {
 	"log", log_lua,
 	"uri", uri_lua,
 	"fio", fio_lua,
+	"csv", csv_lua,
+	"clock", clock_lua,
 	"socket", bsdsocket_lua,
-	"net.box", net_box_lua,
 	"console", console_lua,
 	"tap", tap_lua,
 	"help.en_US", help_en_US_lua,
@@ -274,12 +278,12 @@ tarantool_lua_setpaths(struct lua_State *L)
 	lua_concat(L, lua_gettop(L) - top);
 	lua_setfield(L, top, "path");
 
-	lua_pushliteral(L, "./?.so;");
+	lua_pushliteral(L, "./?." TARANTOOL_LIBEXT ";");
 	if (home != NULL) {
 		lua_pushstring(L, home);
-		lua_pushliteral(L, "/.luarocks/lib/lua/5.1/?.so;");
+		lua_pushliteral(L, "/.luarocks/lib/lua/5.1/?." TARANTOOL_LIBEXT ";");
 		lua_pushstring(L, home);
-		lua_pushliteral(L, "/.luarocks/lib/lua/?.so;");
+		lua_pushliteral(L, "/.luarocks/lib/lua/?." TARANTOOL_LIBEXT ";");
 	}
 	lua_pushliteral(L, MODULE_LIBPATH ";");
 	lua_getfield(L, top, "cpath");
@@ -325,6 +329,11 @@ luaopen_tarantool(lua_State *L)
 	lua_pushstring(L, COMPILER_INFO);
 	lua_settable(L, -3);
 
+	/* build.mod_format */
+	lua_pushstring(L, "mod_format");
+	lua_pushstring(L, TARANTOOL_LIBEXT);
+	lua_settable(L, -3);
+
 	/* build.flags */
 	lua_pushstring(L, "flags");
 	lua_pushstring(L, TARANTOOL_C_FLAGS);
@@ -363,6 +372,8 @@ tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 	luaopen_yaml(L);
 	lua_pop(L, 1);
 	luaopen_json(L);
+	lua_pop(L, 1);
+	luaopen_msgpack(L);
 	lua_pop(L, 1);
 
 #if defined(HAVE_GNU_READLINE)
@@ -439,7 +450,7 @@ extern "C" const char *
 tarantool_error_message(void)
 {
 	/* called only from error handler */
-	Exception *e = diag_last_error(&fiber()->diag);
+	Exception *e = (Exception *) diag_last_error(&fiber()->diag);
 	assert(e != NULL);
 	return e->errmsg();
 }

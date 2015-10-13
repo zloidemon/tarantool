@@ -31,36 +31,15 @@
 #include "xrow.h"
 #include "msgpuck/msgpuck.h"
 #include "fiber.h"
-#include "tt_uuid.h"
 #include "vclock.h"
 #include "scramble.h"
 #include "third_party/base64.h"
 #include "iproto_constants.h"
-#include "box/session.h"
-#include "main.h"
+#include "version.h"
 
-const char *
-xrow_encode_greeting(const char *salt, const struct tt_uuid *local_uuid)
-{
-	static __thread char greeting[IPROTO_GREETING_SIZE + 1];
-	char base64buf[SESSION_SEED_SIZE * 4 / 3 + 5];
-	assert(UUID_STR_LEN == 36);
-	base64_encode(salt, SESSION_SEED_SIZE, base64buf, sizeof(base64buf));
-	snprintf(greeting, sizeof(greeting),
-		 "Tarantool %.16s %.36s\n%-63s\n",
-		 tarantool_version(), tt_uuid_str(local_uuid), base64buf);
-	return greeting;
-}
+enum { HEADER_LEN_MAX = 40, BODY_LEN_MAX = 128 };
 
-void
-xrow_decode_greeting(const char *pos, char *salt, struct tt_uuid *uuid)
-{
-	if (base64_decode(pos + 64, SCRAMBLE_BASE64_SIZE, salt,
-			  SCRAMBLE_SIZE) != SCRAMBLE_SIZE)
-		panic("invalid salt: %64s", pos + 64);
-	tt_uuid_from_strl(pos + 27, UUID_STR_LEN, uuid);
-}
-
+#if defined(BSYNC)
 const char *
 xrow_decode_scramble(const char **pos, uint32_t *scramble_len)
 {
@@ -75,6 +54,7 @@ xrow_decode_scramble(const char **pos, uint32_t *scramble_len)
 	mp_next(pos); /* Skip authentication mechanism. */
 	return mp_decode_str(pos, scramble_len);
 }
+#endif /* defined(BSYNC) */
 
 void
 xrow_copy(const struct xrow_header *src, struct xrow_header *dst)
@@ -87,8 +67,6 @@ xrow_copy(const struct xrow_header *src, struct xrow_header *dst)
 			dst->body[i].iov_len);
 	}
 }
-
-enum { HEADER_LEN_MAX = 40, BODY_LEN_MAX = 128 };
 
 void
 xrow_header_decode(struct xrow_header *header, const char **pos,
@@ -253,7 +231,7 @@ xrow_to_iovec(const struct xrow_header *row, struct iovec *out)
 }
 
 void
-xrow_encode_auth(struct xrow_header *packet, const void *salt,
+xrow_encode_auth(struct xrow_header *packet, const char *salt, size_t salt_len,
 		 const char *login, size_t login_len,
 		 const char *password, size_t password_len)
 {
@@ -268,6 +246,8 @@ xrow_encode_auth(struct xrow_header *packet, const void *salt,
 	d = mp_encode_uint(d, IPROTO_USER_NAME);
 	d = mp_encode_str(d, login, login_len);
 	if (password != NULL) { /* password can be omitted */
+		assert(salt_len >= SCRAMBLE_SIZE); /* greetingbuf_decode */
+		(void) salt_len;
 		char scramble[SCRAMBLE_SIZE];
 		scramble_prepare(scramble, salt, password, password_len);
 		d = mp_encode_uint(d, IPROTO_TUPLE);
@@ -286,9 +266,9 @@ xrow_encode_auth(struct xrow_header *packet, const void *salt,
 void
 xrow_decode_error(struct xrow_header *row)
 {
-	uint32_t code = (row->type & (IPROTO_TYPE_ERROR - 1));
+	uint32_t code = row->type & (IPROTO_TYPE_ERROR - 1);
 
-	char error[EXCEPTION_ERRMSG_MAX] = { 0 };
+	char error[DIAG_ERRMSG_MAX] = { 0 };
 	const char *pos;
 	uint32_t map_size;
 
@@ -403,6 +383,7 @@ xrow_decode_subscribe(struct xrow_header *row, struct tt_uuid *cluster_uuid,
 			mp_next(&d); /* value */
 		}
 	}
+
 	if (lsnmap == NULL)
 		return;
 
@@ -469,4 +450,94 @@ xrow_encode_vclock(struct xrow_header *row, const struct vclock *vclock)
 	row->body[0].iov_len = (data - buf);
 	row->bodycnt = 1;
 	row->type = IPROTO_OK;
+}
+
+void
+greeting_encode(char *greetingbuf, uint32_t version_id, const tt_uuid *uuid,
+		const char *salt, uint32_t salt_len)
+{
+	int h = IPROTO_GREETING_SIZE / 2;
+	int r = snprintf(greetingbuf, h + 1, "Tarantool %u.%u.%u (Binary) ",
+		version_id_major(version_id), version_id_minor(version_id),
+		version_id_patch(version_id));
+
+	assert(r + UUID_STR_LEN < h);
+	tt_uuid_to_string(uuid, greetingbuf + r);
+	r += UUID_STR_LEN;
+	memset(greetingbuf + r, ' ', h - r - 1);
+	greetingbuf[h - 1] = '\n';
+
+	assert(base64_bufsize(salt_len) + 1 < h);
+	r = base64_encode(salt, salt_len, greetingbuf + h, h - 1);
+	assert(r < h);
+	memset(greetingbuf + h + r, ' ', h - r - 1);
+	greetingbuf[IPROTO_GREETING_SIZE - 1] = '\n';
+}
+
+int
+greeting_decode(const char *greetingbuf, struct greeting *greeting)
+{
+	/* Check basic structure - magic string and \n delimiters */
+	if (memcmp(greetingbuf, "Tarantool ", strlen("Tarantool ")) != 0 ||
+	    greetingbuf[IPROTO_GREETING_SIZE / 2 - 1] != '\n' ||
+	    greetingbuf[IPROTO_GREETING_SIZE - 1] != '\n')
+		return -1;
+	memset(greeting, 0, sizeof(*greeting));
+	int h = IPROTO_GREETING_SIZE / 2;
+	const char *pos = greetingbuf + strlen("Tarantool ");
+	const char *end = greetingbuf + h;
+	for (; pos < end && *pos == ' '; ++pos); /* skip spaces */
+
+	/* Extract a version string - a string until ' ' */
+	char version[20];
+	const char *vend = (const char *) memchr(pos, ' ', end - pos);
+	if (vend == NULL || (vend - pos) >= sizeof(version))
+		return -1;
+	memcpy(version, pos, vend - pos);
+	version[vend - pos] = '\0';
+	pos = vend + 1;
+	for (; pos < end && *pos == ' '; ++pos); /* skip spaces */
+
+	/* Parse a version string - 1.6.6-83-gc6b2129 or 1.6.7 */
+	unsigned major, minor, patch;
+	if (sscanf(version, "%u.%u.%u", &major, &minor, &patch) != 3)
+		return -1;
+	greeting->version_id = version_id(major, minor, patch);
+
+	if (*pos == '(') {
+		/* Extract protocol name - a string between (parentheses) */
+		vend = (const char *) memchr(pos + 1, ')', end - pos);
+		if (!vend || (vend - pos - 1) > GREETING_PROTOCOL_LEN_MAX)
+			return -1;
+		memcpy(greeting->protocol, pos + 1, vend - pos - 1);
+		greeting->protocol[vend - pos - 1] = '\0';
+		pos = vend + 1;
+		/* Parse protocol name - Binary or  Lua console. */
+		if (strcmp(greeting->protocol, "Binary") != 0)
+			return 0;
+
+		if (greeting->version_id >= version_id(1, 6, 7)) {
+			if (*(pos++) != ' ')
+				return -1;
+			for (; pos < end && *pos == ' '; ++pos); /* spaces */
+			if (end - pos < UUID_STR_LEN)
+				return -1;
+			if (tt_uuid_from_strl(pos, UUID_STR_LEN, &greeting->uuid))
+				return -1;
+		}
+	} else if (greeting->version_id < version_id(1, 6, 7)) {
+		/* Tarantool < 1.6.7 doesn't add "(Binary)" to greeting */
+		strcpy(greeting->protocol, "Binary");
+	} else {
+		return -1; /* Sorry, don't want to parse this greeting */
+	}
+
+	/* Decode salt for binary protocol */
+	greeting->salt_len = base64_decode(greetingbuf + h, h - 1,
+					   greeting->salt,
+					   sizeof(greeting->salt));
+	if (greeting->salt_len < SCRAMBLE_SIZE || greeting->salt_len >= h)
+		return -1;
+
+	return 0;
 }

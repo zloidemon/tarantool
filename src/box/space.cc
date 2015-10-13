@@ -75,9 +75,21 @@ space_new(struct space_def *def, struct rlist *key_list)
 {
 	uint32_t index_id_max = 0;
 	uint32_t index_count = 0;
+	/**
+	 * UPSERT can't run in presence of unique
+	 * secondary keys, since they would be impossible
+	 * to check at recovery. MemTX recovers from
+	 * the binary log with no secondary keys, and does
+	 * not validate them, it assumes that the binary
+	 * log has no records which validate secondary
+	 * unique index constraint.
+	 */
+	bool has_unique_secondary_key = false;
 	struct key_def *key_def;
 	rlist_foreach_entry(key_def, key_list, link) {
 		index_count++;
+		if (key_def->iid > 0 && key_def->opts.is_unique == true)
+			has_unique_secondary_key = true;
 		index_id_max = MAX(index_id_max, key_def->iid);
 	}
 	size_t sz = sizeof(struct space) +
@@ -100,6 +112,7 @@ space_new(struct space_def *def, struct rlist *key_list)
 				      index_count * sizeof(Index *));
 	space->def = *def;
 	space->format = tuple_format_new(key_list);
+	space->has_unique_secondary_key = has_unique_secondary_key;
 	tuple_format_ref(space->format, 1);
 	space->index_id_max = index_id_max;
 	/* init space engine instance */
@@ -141,13 +154,26 @@ space_size(struct space *space)
 	return space_index(space, 0)->size();
 }
 
+static inline void
+space_validate_field_count(struct space *sp, uint32_t field_count)
+{
+	if (sp->def.field_count > 0 && sp->def.field_count != field_count)
+		tnt_raise(ClientError, ER_SPACE_FIELD_COUNT,
+		          field_count, space_name(sp), sp->def.field_count);
+}
+
+void
+space_validate_tuple_raw(struct space *sp, const char *data)
+{
+	uint32_t field_count = mp_decode_array(&data);
+	space_validate_field_count(sp, field_count);
+}
+
 void
 space_validate_tuple(struct space *sp, struct tuple *new_tuple)
 {
 	uint32_t field_count = tuple_field_count(new_tuple);
-	if (sp->def.field_count > 0 && sp->def.field_count != field_count)
-		tnt_raise(ClientError, ER_SPACE_FIELD_COUNT,
-			  field_count, space_name(sp), sp->def.field_count);
+	space_validate_field_count(sp, field_count);
 }
 
 void
@@ -195,6 +221,17 @@ space_stat(struct space *sp)
 	return &space_stat;
 }
 
+/**
+ * We do not allow changes of the primary key during
+ * update.
+ * The syntax of update operation allows the user to primary
+ * key of a tuple, which is prohibited, to avoid funny
+ * effects during replication. Some engines can
+ * track down this situation and abort the operation;
+ * such engines (memtx) don't use this function.
+ * Other engines can't do it, so they ask the server to
+ * verify that the primary key of the tuple has not changed.
+ */
 void
 space_check_update(struct space *space,
 		   struct tuple *old_tuple,

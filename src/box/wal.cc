@@ -144,22 +144,25 @@ tx_fetch_output(ev_loop * /* loop */, ev_async *watcher, int /* event */)
  * encapsulate the details just in case we may use
  * more writers in the future.
  */
-void
-wal_writer_init(struct recovery_state *r, int rows_per_wal)
+static void
+wal_writer_init(struct wal_writer *writer, struct vclock *vclock,
+		int rows_per_wal)
 {
-	assert(rows_per_wal > 1);
-	assert(r->writer == NULL);
-	assert(r->current_wal == NULL);
+	cbus_create(&writer->tx_wal_bus);
 
-	static struct wal_writer wal_writer;
+	cpipe_create(&writer->tx_pipe);
+	cpipe_set_fetch_cb(&writer->tx_pipe, tx_fetch_output, writer);
 
-	struct wal_writer *writer = &wal_writer;
-	r->writer = writer;
 	writer->rows_per_wal = rows_per_wal;
+
+	writer->batch = fio_batch_new();
+
+	if (writer->batch == NULL)
+		panic_syserror("fio_batch_alloc");
 
 	/* Create and fill writer->cluster hash */
 	vclock_create(&writer->vclock);
-	vclock_copy(&writer->vclock, &r->vclock);
+	vclock_copy(&writer->vclock, vclock);
 }
 
 /** Destroy a WAL writer structure. */
@@ -187,32 +190,36 @@ static void wal_writer_f(va_list ap);
  *         points to a newly created WAL writer.
  */
 int
-wal_writer_start(struct recovery_state *r)
+wal_writer_start(struct recovery *r, int rows_per_wal)
 {
+	assert(r->writer == NULL);
+	assert(r->current_wal == NULL);
+	assert(rows_per_wal > 1);
+
+	static struct wal_writer wal_writer;
+
+	struct wal_writer *writer = &wal_writer;
+	r->writer = writer;
+
+	/* I. Initialize the state. */
+	wal_writer_init(writer, &r->vclock, rows_per_wal);
+
 	/* II. Start the thread. */
 
-	cbus_create(&r->writer->tx_wal_bus);
-
-	cpipe_create(&r->writer->tx_pipe);
-	cpipe_set_fetch_cb(&r->writer->tx_pipe, tx_fetch_output, r->writer);
-	r->writer->batch = fio_batch_new();
-	if (r->writer->batch == NULL)
-		panic_syserror("fio_batch_alloc");
-
-	if (cord_costart(&r->writer->cord, "wal", wal_writer_f, r)) {
-		wal_writer_destroy(r->writer);
+	if (cord_costart(&writer->cord, "wal", wal_writer_f, r)) {
+		wal_writer_destroy(writer);
 		r->writer = NULL;
 		return -1;
 	}
-	cbus_join(&r->writer->tx_wal_bus, &r->writer->tx_pipe);
-	cpipe_set_flush_cb(&r->writer->wal_pipe, wal_flush_input,
-			   &r->writer->wal_pipe);
+	cbus_join(&writer->tx_wal_bus, &writer->tx_pipe);
+	cpipe_set_flush_cb(&writer->wal_pipe, wal_flush_input,
+			   &writer->wal_pipe);
 	return 0;
 }
 
 /** Stop and destroy the writer thread (at shutdown). */
 void
-wal_writer_stop(struct recovery_state *r)
+wal_writer_stop(struct recovery *r)
 {
 	struct wal_writer *writer = r->writer;
 
@@ -243,7 +250,7 @@ wal_writer_stop(struct recovery_state *r)
  * @return 0 in case of success, -1 on error.
  */
 static int
-wal_opt_rotate(struct xlog **wal, struct recovery_state *r,
+wal_opt_rotate(struct xlog **wal, struct recovery *r,
 	       struct vclock *vclock)
 {
 	struct xlog *l = *wal, *wal_to_close = NULL;
@@ -376,7 +383,7 @@ wal_writer_pop(struct wal_writer *writer)
 }
 
 static void
-wal_write_to_disk(struct recovery_state *r, struct wal_writer *writer,
+wal_write_to_disk(struct recovery *r, struct wal_writer *writer,
 		  struct cmsg_fifo *input, struct cmsg_fifo *commit,
 		  struct cmsg_fifo *rollback)
 {
@@ -446,8 +453,8 @@ wal_write_to_disk(struct recovery_state *r, struct wal_writer *writer,
 				 * flush added statements and rotate batch.
 				 */
 				assert(fio_batch_size(batch) > 0);
-				ssize_t nwr =
-					wal_fio_batch_write(batch, fileno(wal->f));
+				ssize_t nwr = wal_fio_batch_write(batch,
+					fileno(wal->f));
 				if (nwr < 0)
 					goto done; /* to break outer loop */
 
@@ -530,7 +537,7 @@ done:
 static void
 wal_writer_f(va_list ap)
 {
-	struct recovery_state *r = va_arg(ap, struct recovery_state *);
+	struct recovery *r = va_arg(ap, struct recovery *);
 	struct wal_writer *writer = r->writer;
 
 	cpipe_create(&writer->wal_pipe);
@@ -579,7 +586,7 @@ wal_writer_f(va_list ap)
  * to be written to disk and wait until this task is completed.
  */
 int64_t
-wal_write(struct recovery_state *r, struct wal_request *req)
+wal_write(struct recovery *r, struct wal_request *req)
 {
 	if (r->wal_mode == WAL_NONE)
 		return vclock_sum(&r->vclock);

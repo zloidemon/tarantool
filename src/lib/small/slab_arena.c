@@ -43,12 +43,13 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-void
+static void
 munmap_checked(void *addr, size_t size)
 {
 	if (munmap(addr, size)) {
 		char buf[64];
-		intptr_t ignore_it = (intptr_t)strerror_r(errno, buf, sizeof(buf));
+		intptr_t ignore_it = (intptr_t)strerror_r(errno, buf,
+							  sizeof(buf));
 		(void)ignore_it;
 		fprintf(stderr, "Error in munmap(%p, %zu): %s\n",
 			addr, size, buf);
@@ -77,7 +78,7 @@ mmap_checked(size_t size, size_t align, int flags)
 	munmap_checked(map, size);
 
 	/*
-	 * mmap twice the requested amount to be able to align
+	 * mmap enough amount to be able to align
 	 * the mapped address.  This can lead to virtual memory
 	 * fragmentation depending on the kernels allocation
 	 * strategy.
@@ -189,8 +190,13 @@ slab_map(struct slab_arena *arena)
 	if (used <= arena->prealloc)
 		return arena->arena + used - arena->slab_size;
 
-	return mmap_checked(arena->slab_size, arena->slab_size,
-			    arena->flags);
+	ptr = mmap_checked(arena->slab_size, arena->slab_size,
+			   arena->flags);
+	if (!ptr) {
+		__sync_sub_and_fetch(&arena->used, arena->slab_size);
+		quota_release(arena->quota, arena->slab_size);
+	}
+	return ptr;
 }
 
 void

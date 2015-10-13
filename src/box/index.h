@@ -33,15 +33,14 @@
 #include <stdbool.h>
 #include "trivia/util.h"
 
-#include "object.h"
 #include "key_def.h"
 
 /** \cond public */
 typedef struct tuple box_tuple_t;
+/** A space iterator */
 typedef struct iterator box_iterator_t;
 
 /**
- * @abstract Iterator type
  * Controls how to iterate over tuples in an index.
  * Different index types support different iterator types.
  * For example, one can start iteration from a particular value
@@ -79,14 +78,42 @@ enum iterator_type {
 	iterator_type_MAX     = ITER_NEIGHBOR + 1
 };
 
+/**
+ * Allocate and initialize iterator for space_id, index_id.
+ *
+ * A returned iterator must be destroyed by box_iterator_free().
+ *
+ * \param space_id space identifier.
+ * \param index_id index identifier.
+ * \param type \link iterator_type iterator type \endlink
+ * \param key encoded key in MsgPack Array format ([part1, part2, ...]).
+ * \param key_end the end of encoded \a key
+ * \retval NULL on error (check box_error_last())
+ * \retval iterator otherwise
+ * \sa box_iterator_next()
+ * \sa box_iterator_free()
+ */
 API_EXPORT box_iterator_t *
 box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
 		   const char *key, const char *key_end);
+/**
+ * Retrive the next item from the \a iterator.
+ *
+ * \param iterator an iterator returned by box_index_iterator().
+ * \param[out] result a tuple or NULL if there is no more data.
+ * \retval -1 on error (check box_error_last() for details)
+ * \retval 0 on success. The end of data is not an error.
+ */
 API_EXPORT int
-box_iterator_next(box_iterator_t *itr, box_tuple_t **result);
+box_iterator_next(box_iterator_t *iterator, box_tuple_t **result);
 
+/**
+ * Destroy and deallocate iterator.
+ *
+ * \param iterator an interator returned by box_index_iterator()
+ */
 API_EXPORT void
-box_iterator_free(box_iterator_t *itr);
+box_iterator_free(box_iterator_t *iterator);
 
 /** \endcond public */
 
@@ -95,7 +122,6 @@ extern const char *iterator_type_strs[];
 struct iterator {
 	struct tuple *(*next)(struct iterator *);
 	void (*free)(struct iterator *);
-	void (*close)(struct iterator *);
 	/* optional parameters used in lua */
 	int sc_version;
 	uint32_t space_id;
@@ -153,7 +179,7 @@ enum dup_replace_mode {
 	DUP_REPLACE
 };
 
-class Index: public Object {
+class Index {
 public:
 	/* Description of a possibly multipart key. */
 	struct key_def *key_def;
@@ -168,26 +194,12 @@ protected:
 	 */
 	Index(struct key_def *key_def);
 
-	/*
-	 * Pre-allocated iterator to speed up the main case of
-	 * box_process(). Should not be used elsewhere.
-	 */
-	mutable struct iterator *m_position;
 public:
 	virtual ~Index();
 
-	/**
-	 * Two-phase index creation: begin building, add tuples, finish.
-	 */
-	virtual void beginBuild();
-	/**
-	 * Optional hint, given to the index, about
-	 * the total size of the index. If given,
-	 * is given after beginBuild().
-	 */
-	virtual void reserve(uint32_t /* size_hint */);
-	virtual void buildNext(struct tuple *tuple);
-	virtual void endBuild();
+	Index(const Index &) = delete;
+	Index& operator=(const Index&) = delete;
+
 	virtual size_t size() const;
 	virtual struct tuple *min(const char *key, uint32_t part_count) const;
 	virtual struct tuple *max(const char *key, uint32_t part_count) const;
@@ -220,26 +232,13 @@ public:
 	 * for which createReadViewForIterator() was called.
 	 */
 	virtual void destroyReadViewForIterator(struct iterator *iterator);
-
-	inline struct iterator *position() const
-	{
-		if (m_position == NULL)
-			m_position = allocIterator();
-		return m_position;
-	}
 };
 
-struct IteratorGuard: public Object {
+struct IteratorGuard
+{
 	struct iterator *it;
-	IteratorGuard(struct iterator *it)
-		: it(it)
-	{}
-
-	~IteratorGuard()
-	{
-		if (it->close)
-			it->close(it);
-	}
+	IteratorGuard(struct iterator *it_arg) : it(it_arg) {}
+	~IteratorGuard() { it->free(it); }
 };
 
 /**
@@ -256,7 +255,8 @@ replace_check_dup(struct tuple *old_tuple, struct tuple *dup_tuple,
 			 * dup_replace_mode is DUP_REPLACE, and
 			 * a tuple with the same key is not found.
 			 */
-			return old_tuple ? ER_CANT_UPDATE_PRIMARY_KEY : ER_TUPLE_NOT_FOUND;
+			return old_tuple ?
+			       ER_CANT_UPDATE_PRIMARY_KEY : ER_TUPLE_NOT_FOUND;
 		}
 	} else { /* dup_tuple != NULL */
 		if (dup_tuple != old_tuple &&
@@ -272,7 +272,6 @@ replace_check_dup(struct tuple *old_tuple, struct tuple *dup_tuple,
 	}
 	return 0;
 }
-
 
 /** Get index ordinal number in space. */
 static inline uint32_t
@@ -294,34 +293,116 @@ index_is_primary(const Index *index)
 	return index_id(index) == 0;
 }
 
-/** Build this index based on the contents of another index. */
-void
-index_build(Index *index, Index *pk);
-
 /** \cond public */
 
-API_EXPORT size_t
+/**
+ * Return the number of element in the index.
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \retval -1 on error (check box_error_last())
+ * \retval >= 0 otherwise
+ */
+API_EXPORT ssize_t
 box_index_len(uint32_t space_id, uint32_t index_id);
 
-API_EXPORT size_t
+/**
+ * Return the number of bytes used in memory by the index.
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \retval -1 on error (check box_error_last())
+ * \retval >= 0 otherwise
+ */
+API_EXPORT ssize_t
 box_index_bsize(uint32_t space_id, uint32_t index_id);
 
+/**
+ * Return a random tuple from the index (useful for statistical analysis).
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \param rnd random seed
+ * \param[out] result a tuple or NULL if index is empty
+ * \retval -1 on error (check box_error_last())
+ * \retval 0 on success
+ * \sa \code box.space[space_id].index[index_id]:random(rnd) \endcode
+ */
 API_EXPORT int
 box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
 		box_tuple_t **result);
 
+/**
+ * Get a tuple from index by the key.
+ *
+ * Please note that this function works much more faster than
+ * box_select() or box_index_iterator() + box_iterator_next().
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \param key encoded key in MsgPack Array format ([part1, part2, ...]).
+ * \param key_end the end of encoded \a key
+ * \param[out] result a tuple or NULL if index is empty
+ * \retval -1 on error (check box_error_last())
+ * \retval 0 on success
+ * \pre key != NULL
+ * \sa \code box.space[space_id].index[index_id]:get(key) \endcode
+ */
 API_EXPORT int
 box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
 	      const char *key_end, box_tuple_t **result);
 
+/**
+ * Return a first (minimal) tuple matched the provided key.
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \param key encoded key in MsgPack Array format ([part1, part2, ...]).
+ * If NULL then equvivalent to an empty array.
+ * \param key_end the end of encoded \a key.
+ * Must be NULL if \a key is NULL.
+ * \param[out] result a tuple or NULL if index is empty
+ * \retval -1 on error (check box_error_last())
+ * \retval 0 on success
+ * \sa \code box.space[space_id].index[index_id]:min(key) \endcode
+ */
 API_EXPORT int
 box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
 	      const char *key_end, box_tuple_t **result);
 
+/**
+ * Return a last (maximal) tuple matched the provided key.
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \param key encoded key in MsgPack Array format ([part1, part2, ...]).
+ * If NULL then equvivalent to an empty array.
+ * \param key_end the end of encoded \a key.
+ * Must be NULL if \a key is NULL.
+ * \param[out] result a tuple or NULL if index is empty
+ * \retval -1 on error (check box_error_last())
+ * \retval 0 on success
+ * \sa \code box.space[space_id].index[index_id]:max(key) \endcode
+ */
 API_EXPORT int
 box_index_max(uint32_t space_id, uint32_t index_id, const char *key,
 	      const char *key_end, box_tuple_t **result);
 
+/**
+ * Count the number of tuple matched the provided key.
+ *
+ * \param space_id space identifier
+ * \param index_id index identifier
+ * \param type iterator type - enum \link iterator_type \endlink
+ * \param key encoded key in MsgPack Array format ([part1, part2, ...]).
+ * If NULL then equvivalent to an empty array.
+ * \param key_end the end of encoded \a key.
+ * Must be NULL if \a key is NULL.
+ * \retval -1 on error (check box_error_last())
+ * \retval >=0 on success
+ * \sa \code box.space[space_id].index[index_id]:count(key,
+ *     { iterator = type }) \endcode
+ */
 API_EXPORT ssize_t
 box_index_count(uint32_t space_id, uint32_t index_id, int type,
 		const char *key, const char *key_end);

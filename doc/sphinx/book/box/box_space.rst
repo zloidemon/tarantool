@@ -8,7 +8,7 @@ The ``box.space`` package has the data-manipulation functions ``select``,
 ``insert``, ``replace``, ``update``, ``delete``, ``get``, ``put``. It also has
 members, such as id, and whether or not a space is enabled. Package source code
 is available in file
-`src/box/lua/box.lua <https://github.com/tarantool/tarantool/blob/master/src/box/lua/schema.lua>`_.
+`src/box/lua/schema.lua <https://github.com/tarantool/tarantool/blob/master/src/box/lua/schema.lua>`_.
 
 A list of all ``box.space`` functions follows, then comes a list of all
 ``box.space`` members.
@@ -131,16 +131,16 @@ A list of all ``box.space`` functions follows, then comes a list of all
         | :codenormal:`tarantool>` :codebold:`s:select{1}`
         | :codenormal:`---`
         | :codenormal:`- - [1, 'A']`
-        | :codenormal:`- [1, 'B']`
-        | :codenormal:`- [1, 'C']`
+        | |nbsp| |nbsp| :codenormal:`- [1, 'B']`
+        | |nbsp| |nbsp| :codenormal:`- [1, 'C']`
         | :codenormal:`...`
         | :codenormal:`tarantool>` :codebold:`-- must equal 0 fields, so returns all tuples`
         | :codenormal:`tarantool>` :codebold:`s:select{}`
         | :codenormal:`---`
         | :codenormal:`- - [1, 'A']`
-        | :codenormal:`- [1, 'B']`
-        | :codenormal:`- [1, 'C']`
-        | :codenormal:`- [2, 'D']`
+        | |nbsp| |nbsp| :codenormal:`- [1, 'B']`
+        | |nbsp| |nbsp| :codenormal:`- [1, 'C']`
+        | |nbsp| |nbsp| :codenormal:`- [2, 'D']`
         | :codenormal:`...`
 
         For examples of complex ``select`` requests, where one can specify which index to
@@ -339,10 +339,10 @@ A list of all ``box.space`` functions follows, then comes a list of all
         |
         | :codenormal:`-- In the following update ...`
         | :codenormal:`--    The idea is to delete field[2], then subtract 3 from field[3], but ...`
-        | :codenormal:`--    after the delete, there is a renumbering -- so field[3] becomes field[2]`
+        | :codenormal:`--    after the delete, there is a renumbering, so field[3] becomes field[2]`
         | :codenormal:`--    before we subtract 3 from it, and that's why the seventh argument is 2 not 3.`
         | :codenormal:`--    Therefore, after the following update, field[1] = 999, field[2] = 0.`
-        | :codenormal:`box.space.tester:update({999}, {{'-- ', 2, 1}, {'-', 2, 3}})`
+        | :codenormal:`box.space.tester:update({999}, {{'#', 2, 1}, {'-', 2, 3}})`
         |
         | :codenormal:`-- In the following update ...`
         | :codenormal:`--    We're making a long string so that splice will work in the next example.`
@@ -446,10 +446,6 @@ A list of all ``box.space`` functions follows, then comes a list of all
 .. _space_object_len:
 
     space-object:len()
-
-        .. NOTE::
-
-            The ``len()`` function is only applicable for the memtx storage engine.
 
         :return: Number of tuples in the space.
 
@@ -563,6 +559,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
         Insert a new tuple using an auto-increment primary key. The space specified
         by space-name must have a NUM primary key index of type TREE. The
         primary-key field will be incremented before the insert.
+        This is only applicable for the memtx storage engine.
 
         :param space_object space-object:
         :param lua-table,box.tuple tuple: tuple's fields, other than the primary-key field.
@@ -626,14 +623,14 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
     | :codenormal:`console = require('console'); console.delimiter('!')`
     | :codenormal:`function example()`
-    |     :codenormal:`local ta = {}, i, line`
-    |     :codenormal:`for k, v in box.space._schema:pairs() do`
-    |         :codenormal:`i = 1`
-    |         :codenormal:`line = ''`
-    |         :codenormal:`while i <= #v do line = line .. v[i] .. ' ' i = i + 1 end`
-    |         :codenormal:`table.insert(ta, line)`
-    |     :codenormal:`end`
-    |     :codenormal:`return ta`
+    | |nbsp| |nbsp| :codenormal:`local ta = {}, i, line`
+    | |nbsp| |nbsp| :codenormal:`for k, v in box.space._schema:pairs() do`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`i = 1`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`line = ''`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`while i <= #v do line = line .. v[i] .. ' ' i = i + 1 end`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`table.insert(ta, line)`
+    | |nbsp| |nbsp| :codenormal:`end`
+    | |nbsp| |nbsp| :codenormal:`return ta`
     | :codenormal:`end!`
     | :codenormal:`console.delimiter('')!`
 
@@ -649,26 +646,27 @@ A list of all ``box.space`` functions follows, then comes a list of all
 .. data::     _space
 
     ``_space`` is a system tuple set. Its tuples contain these fields:
-    ``id, uid, space-name, engine, field_count, temporary``.
+    ``id, uid, space-name, engine, field_count, temporary, format``.
+    These fields are established by :ref:`box.schema.space.create <box.schema.space.create>`.
 
     EXAMPLE. The following function will display all simple fields
     in all tuples of ``_space``.
 
     | :codenormal:`console = require('console'); console.delimiter('!')`
     | :codenormal:`function example()`
-        | :codenormal:`local ta = {}, i, line`
-        | :codenormal:`for k, v in box.space._space:pairs() do`
-            | :codenormal:`i = 1`
-            | :codenormal:`line = ''`
-            | :codenormal:`while i <= #v do`
-                | :codenormal:`if type(v[i]) ~= 'table' then`
-                    | :codenormal:`line = line .. v[i] .. ' '`
-                | :codenormal:`end`
-                | :codenormal:`i = i + 1`
-            | :codenormal:`end`
-            | :codenormal:`table.insert(ta, line)`
-        | :codenormal:`end`
-        | :codenormal:`return ta`
+    | |nbsp| |nbsp| :codenormal:`local ta = {}, i, line`
+    | |nbsp| |nbsp| :codenormal:`for k, v in box.space._space:pairs() do`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`i = 1`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`line = ''`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`while i <= #v do`
+    | |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`if type(v[i]) ~= 'table' then`
+    | |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`line = line .. v[i] .. ' '`
+    | |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`end`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`i = i + 1`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`end`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`table.insert(ta, line)`
+    | |nbsp| |nbsp| |nbsp| |nbsp|:codenormal:`end`
+    | |nbsp| |nbsp| :codenormal:`return ta`
     | :codenormal:`end!`
     | :codenormal:`console.delimiter('')!`
 
@@ -688,6 +686,31 @@ A list of all ``box.space`` functions follows, then comes a list of all
     | :codenormal:`- '514 1 archive memtx 0  '`
     | :codenormal:`...`
 
+.. _boxspaceexample:
+
+    EXAMPLE. The following requests will create a space using
+    :code:`box.schema.space.create` with a :code:`format` clause.
+    Then it retrieves the _space tuple for the new space.
+    This illustrates the typical use of the :code:`format` clause,
+    it shows the recommended names and data types for the fields.
+
+    | :codenormal:`tarantool>` :codebold:`box.schema.space.create('TM',{format={[1]={["name"]="field#1"},[2]={["type"]="num"}}})`
+    | :codenormal:`---`
+    | :codenormal:`- index: []`
+    | |nbsp| |nbsp| :codenormal:`on_replace: 'function: 0x41c67338'`
+    | |nbsp| |nbsp| :codenormal:`temporary: false`
+    | |nbsp| |nbsp| :codenormal:`id: 522`
+    | |nbsp| |nbsp| :codenormal:`engine: memtx`
+    | |nbsp| |nbsp| :codenormal:`enabled: false`
+    | |nbsp| |nbsp| :codenormal:`name: TM`
+    | |nbsp| |nbsp| :codenormal:`field_count: 0`
+    | :codenormal:`- created`
+    | :codenormal:`...`
+    | :codenormal:`tarantool>` :codebold:`box.space._space:select(522)`
+    | :codenormal:`---`
+    | :codenormal:`- - [522, 1, 'TM', 'memtx', 0, '', [{'name': 'field#1'}, {'type': 'num'}]]`
+    | :codenormal:`...`
+
 .. data::     _index
 
     ``_index`` is a system tuple set. Its tuples contain these fields:
@@ -698,14 +721,14 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
     | :codenormal:`console = require('console'); console.delimiter('!')`
     | :codenormal:`function example()`
-    |     :codenormal:`local ta = {}, i, line`
-    |     :codenormal:`for k, v in box.space._index:pairs() do`
-    |         :codenormal:`i = 1`
-    |         :codenormal:`line = ''`
-    |             :codenormal:`while i <= #v do line = line .. v[i] .. ' ' i = i + 1 end`
-    |         :codenormal:`table.insert(ta, line)`
-    |     :codenormal:`end`
-    |     :codenormal:`return ta`
+    | |nbsp| |nbsp| :codenormal:`local ta = {}, i, line`
+    | |nbsp| |nbsp| :codenormal:`for k, v in box.space._index:pairs() do`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`i = 1`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`line = ''`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`while i <= #v do line = line .. v[i] .. ' ' i = i + 1 end`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`table.insert(ta, line)`
+    | |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`end`
+    | |nbsp| |nbsp| :codenormal:`return ta`
     | :codenormal:`end!`
     | :codenormal:`console.delimiter('')!`
 

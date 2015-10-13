@@ -32,6 +32,7 @@
  */
 #include "evio.h"
 #include "fiber.h"
+#include "trivia/util.h"
 
 /**
  * Co-operative I/O
@@ -66,7 +67,13 @@ coio_accept(struct ev_io *coio, struct sockaddr *addr, socklen_t addrlen,
 	    ev_tstamp timeout);
 
 void
-coio_init(struct ev_io *coio);
+coio_init(struct ev_io *coio, int fd);
+
+static inline void
+coio_close(ev_loop *loop, struct ev_io *coio)
+{
+	return evio_close(loop, coio);
+}
 
 ssize_t
 coio_read_ahead_timeout(struct ev_io *coio, void *buf, size_t sz, size_t bufsiz,
@@ -177,5 +184,28 @@ coio_stat_stat_timeout(ev_stat *stat, ev_tstamp delay);
 int
 coio_waitpid(pid_t pid);
 
+/** \cond public */
+
+enum {
+	/** READ event */
+	COIO_READ  = 0x1,
+	/** WRITE event */
+	COIO_WRITE = 0x2,
+};
+
+/**
+ * Wait until READ or WRITE event on socket (\a fd). Yields.
+ * \param fd - non-blocking socket file description
+ * \param events - requested events to wait.
+ * Combination of TNT_IO_READ | TNT_IO_WRITE bit flags.
+ * \param timeoout - timeout in seconds.
+ * \retval 0 - timeout
+ * \retval >0 - returned events. Combination of TNT_IO_READ | TNT_IO_WRITE
+ * bit flags.
+ */
+API_EXPORT int
+coio_wait(int fd, int event, double timeout);
+
+/** \endcond public */
 
 #endif /* TARANTOOL_COIO_H_INCLUDED */

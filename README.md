@@ -68,8 +68,8 @@ Additional build options can be set similarly:
 
 'make' creates 'tarantool' executable in directory src/.
 
-There is no 'make install' goal, but no installation
-is required either.
+There is 'make install' goal. One can also run Tarantool executable without
+installation.
 
 To start the server, try:
 
@@ -78,7 +78,7 @@ To start the server, try:
 This will start Tarantool in interactive mode.
 
 To run Tarantool regression tests (test/test-run.py),
-a few additional Python modules are ncessary:
+a few additional Python modules are necessary:
  * daemon
  * pyyaml
  * msgpack-python

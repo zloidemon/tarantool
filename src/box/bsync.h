@@ -39,13 +39,15 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-void bsync_init(struct recovery_state *r);
-void bsync_start(struct recovery_state *r, int rows_per_wal);
-int bsync_write(struct recovery_state *r, struct txn *txn, struct wal_request *req);
-void bsync_writer_stop(struct recovery_state *r);
+void bsync_init(struct recovery *r);
+void bsync_start(struct recovery *r, int rows_per_wal);
+int bsync_write(struct recovery *r, struct txn *txn, struct wal_request *req);
+void bsync_writer_stop(struct recovery *r);
 
 void bsync_push_connection(int remote_id);
 void bsync_push_localhost(int remote_id);
+
+void bsync_bootstrap(struct recovery *r);
 
 /*
  * Return id of server who will send snapshot
@@ -62,11 +64,11 @@ bool bsync_process_join(int fd, struct tt_uuid *uuid,
 			void (*on_join)(const struct tt_uuid *));
 
 bool bsync_process_subscribe(int fd, struct tt_uuid *uuid,
-			struct recovery_state *state);
+			struct recovery *state);
 
-bool bsync_follow(struct recovery_state *r);
+bool bsync_follow(struct recovery *r);
 
-void bsync_replication_fail(struct recovery_state *r);
+void bsync_replication_fail(struct recovery *r);
 
 void bsync_replica_fail();
 

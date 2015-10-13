@@ -34,10 +34,10 @@
 #include <stdint.h>
 #include "cbus.h"
 
-#define MAX_UNCOMMITED_REQ 1024
-
 struct fiber;
-struct recovery_state;
+struct recovery;
+
+#define MAX_UNCOMMITED_REQ 1024
 
 enum wal_mode { WAL_NONE = 0, WAL_WRITE, WAL_FSYNC, WAL_MODE_MAX };
 
@@ -57,15 +57,12 @@ struct wal_request: public cmsg {
 };
 
 int64_t
-wal_write(struct recovery_state *r, struct wal_request *req);
-
-void
-wal_writer_init(struct recovery_state *r, int rows_per_wal);
+wal_write(struct recovery *r, struct wal_request *req);
 
 int
-wal_writer_start(struct recovery_state *state);
+wal_writer_start(struct recovery *state, int rows_per_wal);
 
 void
-wal_writer_stop(struct recovery_state *r);
+wal_writer_stop(struct recovery *r);
 
 #endif /* TARANTOOL_WAL_WRITER_H_INCLUDED */

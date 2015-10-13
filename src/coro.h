@@ -34,18 +34,27 @@
 
 #include <third_party/coro/coro.h>
 
+#if defined(__cplusplus)
+extern "C" {
+#endif /* defined(__cplusplus) */
+
 struct tarantool_coro {
 	coro_context ctx;
 	void *stack;
 	size_t stack_size;
 };
 
-void
+struct slab_cache;
+
+int
 tarantool_coro_create(struct tarantool_coro *ctx,
 		      struct slab_cache *cache,
 		      void (*f) (void *), void *data);
 void
 tarantool_coro_destroy(struct tarantool_coro *ctx,
 		       struct slab_cache *cache);
+#if defined(__cplusplus)
+} /* extern "C" */
+#endif /* defined(__cplusplus) */
 
 #endif /* TARANTOOL_CORO_H_INCLUDED */

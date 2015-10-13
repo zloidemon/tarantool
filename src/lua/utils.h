@@ -54,6 +54,14 @@ extern "C" {
 
 struct lua_State;
 
+/**
+ * Single global lua_State shared by core and modules.
+ * Created with tarantool_lua_init().
+ * const char *msg = lua_tostring(L, -1);
+ * snprintf(m_errmsg, sizeof(m_errmsg), "%s", msg ? msg : "");
+ */
+extern struct lua_State *tarantool_L;
+
 /** \cond public */
 
 /**
@@ -106,7 +114,7 @@ luaL_ctypeid(struct lua_State *L, const char *ctypename);
 /**
 * @brief Declare symbols for FFI
 * @param L Lua State
-* @param what C definitions
+* @param ctypename C definitions, e.g "struct stat"
 * @sa ffi.cdef(def)
 * @retval 0 on success
 * @retval LUA_ERRRUN, LUA_ERRMEM, LUA_ERRERR otherwise
@@ -372,22 +380,79 @@ luaL_register_module(struct lua_State *L, const char *modname,
 /** \cond public */
 
 /**
- * push uint64_t to Lua stack
+ * Push uint64_t onto the stack
  *
  * @param L is a Lua State
  * @param val is a value to push
- *
  */
-LUA_API int
+LUA_API void
 luaL_pushuint64(struct lua_State *L, uint64_t val);
 
 /**
- * @copydoc luaL_pushnumber64
+ * Push int64_t onto the stack
+ *
+ * @param L is a Lua State
+ * @param val is a value to push
  */
-LUA_API int
+LUA_API void
 luaL_pushint64(struct lua_State *L, int64_t val);
 
+/**
+ * Checks whether the argument idx is a uint64 or a convertable string and
+ * returns this number.
+ * \throws error if the argument can't be converted.
+ */
+LUA_API uint64_t
+luaL_checkuint64(struct lua_State *L, int idx);
+
+/**
+ * Checks whether the argument idx is a int64 or a convertable string and
+ * returns this number.
+ * \throws error if the argument can't be converted.
+ */
+LUA_API int64_t
+luaL_checkint64(struct lua_State *L, int idx);
+
+/**
+ * Checks whether the argument idx is a uint64 or a convertable string and
+ * returns this number.
+ * \return the converted number or 0 of argument can't be converted.
+ */
+LUA_API uint64_t
+luaL_touint64(struct lua_State *L, int idx);
+
+/**
+ * Checks whether the argument idx is a int64 or a convertable string and
+ * returns this number.
+ * \return the converted number or 0 of argument can't be converted.
+ */
+LUA_API int64_t
+luaL_toint64(struct lua_State *L, int idx);
+
 /** \endcond public */
+
+/**
+ * A quick approximation if a Lua table is an array.
+ *
+ * JSON can only have strings as keys, so if the first
+ * table key is 1, it's definitely not a json map,
+ * and very likely an array.
+ */
+static inline bool
+luaL_isarray(struct lua_State *L, int idx)
+{
+	if (!lua_istable(L, idx))
+		return false;
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	lua_pushnil(L);
+	if (lua_next(L, idx) == 0) /* the table is empty */
+		return true;
+	bool index_starts_at_1 = lua_isnumber(L, -2) &&
+		lua_tonumber(L, -2) == 1;
+	lua_pop(L, 2);
+	return index_starts_at_1;
+}
 
 /**
  * Push Lua Table with __serialize = 'map' hint onto the stack.
@@ -452,6 +517,7 @@ class LuajitError: public Exception {
 public:
 	LuajitError(const char *file, unsigned line,
 		    struct lua_State *L);
+	virtual void raise() { throw this; }
 };
 
 static inline void
@@ -468,13 +534,6 @@ lbox_call(struct lua_State *L, int nargs, int nreturns)
 	}
 }
 
-/**
- * Single global lua_State shared by core and modules.
- * Created with tarantool_lua_init().
- * const char *msg = lua_tostring(L, -1);
- * snprintf(m_errmsg, sizeof(m_errmsg), "%s", msg ? msg : "");
- */
-extern struct lua_State *tarantool_L;
 
 /**
  * Make a reference to an object on top of the Lua stack and

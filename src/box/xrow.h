@@ -34,6 +34,8 @@
 #include <stddef.h>
 #include <sys/uio.h> /* struct iovec */
 
+#include "tt_uuid.h"
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -41,7 +43,7 @@ extern "C" {
 enum {
 	XROW_HEADER_IOVMAX = 1,
 	XROW_BODY_IOVMAX = 2,
-	XROW_IOVMAX = XROW_HEADER_IOVMAX + XROW_BODY_IOVMAX
+	XROW_IOVMAX = XROW_HEADER_IOVMAX + XROW_BODY_IOVMAX,
 };
 
 struct xrow_header {
@@ -57,14 +59,11 @@ struct xrow_header {
 	struct iovec body[XROW_BODY_IOVMAX];
 };
 
-const char *
-xrow_encode_greeting(const char *salt, const struct tt_uuid *local_uuid);
-
-void
-xrow_decode_greeting(const char *pos, char *salt, struct tt_uuid *uuid);
-
+#if defined(BSYNC)
+/* TODO(bsync): used by box_authenticate() */
 const char *
 xrow_decode_scramble(const char **pos, uint32_t *scramble_len);
+#endif /* defined(BSYNC) */
 
 void
 xrow_copy(const struct xrow_header *src, struct xrow_header *dst);
@@ -97,14 +96,15 @@ xrow_decode_error(struct xrow_header *row);
 /**
  * \brief Encode AUTH command
  * \param[out] row
- * \param greeting - IPROTO greeting
+ * \param salt - salt from IPROTO greeting
+ * \param salt_len length of \a salt
  * \param login - user login
  * \param login_len - length of \a login
  * \param password - user password
  * \param password_len - length of \a password
 */
 void
-xrow_encode_auth(struct xrow_header *row, const void *salt,
+xrow_encode_auth(struct xrow_header *row, const char *salt, size_t salt_len,
 		 const char *login, size_t login_len,
 		 const char *password, size_t password_len);
 
@@ -169,6 +169,53 @@ xrow_decode_vclock(struct xrow_header *row, struct vclock *vclock)
 {
 	return xrow_decode_subscribe(row, NULL, NULL, vclock);
 }
+
+enum {
+	/* Maximal length of protocol name in handshake */
+	GREETING_PROTOCOL_LEN_MAX = 32,
+	/* Maximal length of salt in handshake */
+	GREETING_SALT_LEN_MAX = 44,
+};
+
+struct greeting {
+	uint32_t version_id;
+	uint32_t salt_len;
+	char protocol[GREETING_PROTOCOL_LEN_MAX + 1];
+	struct tt_uuid uuid;
+	char salt[GREETING_SALT_LEN_MAX];
+};
+
+/**
+ * \brief Format a text greeting sent by the server during handshake.
+ * This function encodes greeting for binary protocol (adds "(Binary)"
+ * after version signature).
+ *
+ * \param[out] greetingbuf buffer to store result. Exactly
+ * IPROTO_GREETING_SIZE bytes will be written.
+ * \param version_id server version_id created by version_id()
+ * \param uuid server UUID
+ * \param salt random bytes that client should use to sign passwords.
+ * \param salt_len size of \a salt. Up to GREETING_SALT_LEN_MAX bytes.
+ *
+ * \sa greeting_decode()
+ */
+void
+greeting_encode(char *greetingbuf, uint32_t version_id, const tt_uuid *uuid,
+		const char *salt, uint32_t salt_len);
+
+/**
+ * \brief Parse a text greeting send by the server during handshake.
+ * This function supports both binary and console protocol.
+ *
+ * \param greetingbuf a text greeting
+ * \param[out] greeting parsed struct greeting.
+ * \retval 0 on success
+ * \retval -1 on failure due to mailformed greeting
+ *
+ * \sa greeting_encode()
+ */
+int
+greeting_decode(const char *greetingbuf, struct greeting *greeting);
 
 #if defined(__cplusplus)
 } /* extern "C" */

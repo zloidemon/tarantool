@@ -37,19 +37,17 @@
 #include <unistd.h>
 #include "tt_pthread.h"
 #include "third_party/tarantool_ev.h"
+#include "diag.h"
 #include "coro.h"
 #include "trivia/util.h"
 #include "third_party/queue.h"
 #include "small/mempool.h"
 #include "small/region.h"
+#include "salad/rlist.h"
 
 #if defined(__cplusplus)
-#include "exception.h"
-#else
-#define class struct
-class Exception;
+extern "C" {
 #endif /* defined(__cplusplus) */
-#include "salad/rlist.h"
 
 enum { FIBER_NAME_MAX = REGION_NAME_MAX };
 
@@ -81,25 +79,6 @@ enum {
 	FIBER_IS_DEAD		= 1 << 4,
 	FIBER_DEFAULT_FLAGS = FIBER_IS_CANCELLABLE
 };
-
-/**
- * This is thrown by fiber_* API calls when the fiber is
- * cancelled.
- */
-#if defined(__cplusplus)
-extern const struct type type_FiberCancelException;
-class FiberCancelException: public Exception {
-public:
-	FiberCancelException(const char *file, unsigned line)
-		: Exception(&type_FiberCancelException, file, line) {
-		/* Nothing */
-	}
-
-	virtual void log() const {
-		say_debug("FiberCancelException");
-	}
-};
-#endif /* defined(__cplusplus) */
 
 /**
  * \brief Pre-defined key for fiber local storage
@@ -228,10 +207,10 @@ extern __thread struct cord *cord_ptr;
 /**
  * Start a cord with the given thread function.
  * The return value of the function can be collected
- * with cord_join(). If the function terminates with
- * an exception, the return value is NULL, and cord_join()
- * moves the exception from the terminated cord to
- * the caller of cord_join().
+ * with cord_join(). The function *must catch* all
+ * exceptions and leave them in the diagnostics
+ * area, cord_join() moves the exception from the
+ * terminated cord to the caller of cord_join().
  */
 int
 cord_start(struct cord *cord, const char *name,
@@ -245,6 +224,23 @@ cord_start(struct cord *cord, const char *name,
  */
 int
 cord_costart(struct cord *cord, const char *name, fiber_func f, void *arg);
+
+/**
+ * Yield until \a cord has terminated.
+ *
+ * On success:
+ *
+ * If \a cord has terminated with an uncaught exception
+ * the exception is moved to the current fiber's diagnostics
+ * area, otherwise the current fiber's diagnostics area is
+ * cleared.
+ * @param cord cord
+ * @sa pthread_join()
+ *
+ * @return 0 on success, pthread_join return code on error
+ */
+int
+cord_cojoin(struct cord *cord);
 
 /**
  * Wait for \a cord to terminate. If \a cord has already
@@ -263,14 +259,8 @@ cord_costart(struct cord *cord, const char *name, fiber_func f, void *arg);
 int
 cord_join(struct cord *cord);
 
-static inline void
-cord_set_name(const char *name)
-{
-	snprintf(cord()->name, FIBER_NAME_MAX, "%s", name);
-}
-
 void
-cord_destroy(struct cord *cord);
+cord_set_name(const char *name);
 
 /** True if this cord represents the process main thread. */
 bool
@@ -334,13 +324,6 @@ void
 fiber_cancel(struct fiber *f);
 
 /**
- * Check if the current fiber has been cancelled.  Raises
- * tnt_FiberCancelException
- */
-void
-fiber_testcancel(void);
-
-/**
  * Make it possible or not possible to wakeup the current
  * fiber immediately when it's cancelled.
  *
@@ -381,8 +364,12 @@ fiber_set_key(struct fiber *fiber, enum fiber_key key, void *value)
 	fiber->fls[key] = value;
 }
 
-bool
-fiber_is_cancelled();
+static inline bool
+fiber_is_cancelled()
+{
+	return fiber()->flags & FIBER_IS_CANCELLED;
+}
+
 
 static inline bool
 fiber_is_dead(struct fiber *f)
@@ -413,10 +400,6 @@ typedef int (*fiber_stat_cb)(struct fiber *f, void *ctx);
 int
 fiber_stat(fiber_stat_cb cb, void *cb_ctx);
 
-#if defined(__cplusplus)
-extern "C" {
-#endif /* defined(__cplusplus) */
-
 /** Report libev time (cheap). */
 inline double
 fiber_time(void)
@@ -433,6 +416,52 @@ fiber_time64(void)
 
 #if defined(__cplusplus)
 } /* extern "C" */
+
+/**
+ * This is thrown by fiber_* API calls when the fiber is
+ * cancelled.
+ */
+extern const struct type type_FiberCancelException;
+class FiberCancelException: public Exception {
+public:
+	FiberCancelException(const char *file, unsigned line)
+		: Exception(&type_FiberCancelException, file, line) {
+		/* Nothing */
+	}
+
+	virtual void log() const {
+		say_debug("FiberCancelException");
+	}
+	virtual void raise() { throw this; }
+};
+
+/*
+ * Test if this fiber is in a cancellable state and was indeed
+ * cancelled, and raise an exception (FiberCancelException) if
+ * that's the case.
+ */
+static inline void
+fiber_testcancel(void)
+{
+	/*
+	 * Fiber can catch FiberCancelException using try..catch
+	 * block in C or pcall()/xpcall() in Lua. However,
+	 * FIBER_IS_CANCELLED flag is still set and the subject
+	 * fiber will be killed by subsequent unprotected call of
+	 * this function.
+	 */
+	if (fiber_is_cancelled())
+		tnt_raise(FiberCancelException);
+}
+
+static inline void
+fiber_testerror(void)
+{
+	Exception *e = (Exception *) diag_last_error(&fiber()->diag);
+	if (e)
+		e->raise();
+}
+
 #endif /* defined(__cplusplus) */
 
 #endif /* TARANTOOL_FIBER_H_INCLUDED */

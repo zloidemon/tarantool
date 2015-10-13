@@ -21,10 +21,11 @@ local json = require('json')
 -- see default_cfg below
 local default_sophia_cfg = {
     memory_limit = 0,
-    threads      = 5,
-    node_size    = 134217728,
-    page_size    = 131072,
-    compression  = "none"
+    threads         = 5,
+    node_size       = 134217728,
+    page_size       = 131072,
+    compression     = "none",
+    compression_key = 0
 }
 
 local default_replication_cfg = {
@@ -67,7 +68,7 @@ local default_cfg = {
     custom_proc_title   = nil,
     pid_file            = nil,
     background          = false,
-    username            = nil ,
+    username            = nil,
     coredump            = false,
 
     -- snapshot_daemon
@@ -79,11 +80,12 @@ local default_cfg = {
 
 -- see template_cfg below
 local sophia_template_cfg = {
-    memory_limit = 'number',
-    threads      = 'number',
-    node_size    = 'number',
-    page_size    = 'number',
-    compression  = 'string'
+    memory_limit    = 'number',
+    threads         = 'number',
+    node_size       = 'number',
+    page_size       = 'number',
+    compression     = 'string',
+    compression_key = 'number'
 }
 
 local replication_template_cfg = {
@@ -123,7 +125,7 @@ local template_cfg = {
     wal_dir_rescan_delay= 'number',
     panic_on_snap_error = 'boolean',
     panic_on_wal_error  = 'boolean',
-    replication_source  = 'string, number',
+    replication_source  = 'string, number, table',
     custom_proc_title   = 'string',
     pid_file            = 'string',
     background          = 'boolean',
@@ -314,3 +316,12 @@ box.cfg = load_cfg
 jit.off(load_cfg)
 jit.off(reload_cfg)
 jit.off(box.cfg)
+
+-- gh-810:
+-- hack luajit default cpath
+-- commented out because we fixed luajit to build properly, see
+-- https://github.com/luajit/luajit/issues/76
+-- local format = require('tarantool').build.mod_format
+-- package.cpath = package.cpath:gsub(
+--     '?.so', '?.' .. format
+-- ):gsub('loadall.so', 'loadall.' .. format)

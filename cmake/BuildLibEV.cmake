@@ -29,7 +29,9 @@ macro(libev_build)
         #
         # Enable Linux-specific event notification API (man inotify)
         set(ev_compile_flags "${ev_compile_flags} -DEV_USE_INOTIFY")
-    elseif (TARGET_OS_FREEBSD)
+        set(ev_compile_flags "${ev_compile_flags} -DEV_USE_EVENTFD")
+        set(ev_compile_flags "${ev_compile_flags} -DEV_USE_SIGNALFD")
+    elseif (TARGET_OS_FREEBSD OR TARGET_OS_DARWIN)
         #
         # On FreeBSD build libev loop on top of
         set(ev_compile_flags "${ev_compile_flags} -DEV_USE_KQUEUE")

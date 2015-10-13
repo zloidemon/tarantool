@@ -36,35 +36,52 @@
 struct xrow_header;
 
 /** State of a replication relay. */
-class Relay {
-public:
+struct relay {
 	/** The thread in which we relay data to the replica. */
 	struct cord cord;
 	/** Replica connection */
 	struct ev_io io;
 	/* Request sync */
 	uint64_t sync;
-	struct recovery_state *r;
+	struct recovery *r;
 	ev_tstamp wal_dir_rescan_delay;
-	Relay(int fd_arg, uint64_t sync_arg);
-	~Relay();
 };
 
-bool
-replication_join(int fd, struct xrow_header *packet,
-		 void (*on_join)(const struct tt_uuid *));
+/**
+ * Send an initial snapshot to the replica,
+ * register the replica UUID in _cluster
+ * space, end the row with OK packet.
+ *
+ * @param fd        client connection
+ * @param packet    incoming JOIN request
+ *                  packet
+ * @param server_id server_id of this server
+ *                  to send to the replica
+ * @param server_uuid server_uid of this server
+ * @param bsync     is bsync replication used
+ * @param on_join   the hook to invoke when
+ *                  the snapshot is sent
+ *                  to the replica - it
+ *                  registers the replica with
+ *                  the cluster.
+ */
+void
+relay_join(int fd, struct xrow_header *packet,
+	   uint32_t master_server_id, struct tt_uuid *master_server_uuid,
+	   bool bsync, void (*on_join)(const struct tt_uuid *));
 
 /**
  * Subscribe a replica to updates.
  *
- * @return None. On error, closes the socket.
+ * @return none.
  */
 void
-replication_subscribe(struct recovery_state *r, int fd,
-		struct xrow_header *packet, struct tt_uuid local);
+relay_subscribe(int fd, struct xrow_header *packet,
+		uint32_t master_server_id, struct tt_uuid *master_server_uuid,
+		struct vclock *master_vclock, bool bsync);
 
 void
-relay_send(Relay *relay, struct xrow_header *packet);
+relay_send(struct relay *relay, struct xrow_header *packet);
 
 #endif /* TARANTOOL_REPLICATION_RELAY_H_INCLUDED */
 

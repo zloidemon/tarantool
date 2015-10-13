@@ -156,10 +156,16 @@ struct errcode_record {
 	/*100 */_(ER_FUNCTION_LANGUAGE,		2, "Unsupported language '%s' specified for function '%s'") \
 	/*101 */_(ER_RTREE_RECT,		2, "RTree: %s must be an array with %u (point) or %u (rectangle/box) numeric coordinates") \
 	/*102 */_(ER_PROC_C,			2, "%s") \
-	/*103 */_(ER_BSYNC_REJECT,		2, "Operation was rejected by certification") \
-	/*104 */_(ER_BSYNC_ROLLBACK,		2, "Operation was rejected by quorum") \
-	/*105 */_(ER_SERVER_ID_IS_LOCAL,	2, "Try to join to itself") \
-	/*106 */_(ER_BSYNC_SLAVE_INVALID,       2, "Operation from leader isnt valid for slave")
+	/*103 */_(ER_UNKNOWN_RTREE_INDEX_DISTANCE_TYPE,	2, "Unknown RTREE index distance type %s") \
+	/*104 */_(ER_PROTOCOL,			2, "%s") \
+	/*105 */_(ER_UPSERT_UNIQUE_SECONDARY_KEY, 2, "Space %s has a unique secondary index and does not support UPSERT") \
+	/*106 */_(ER_WRONG_INDEX_RECORD,  2, "Wrong record in _index space: got {%s}, expected {%s}") \
+	/*107 */_(ER_WRONG_INDEX_PARTS, 2, "Wrong index parts (field %u): %s; expected field1 id (number), field1 type (string), ...") \
+	/*108 */_(ER_WRONG_INDEX_OPTIONS, 2, "Wrong index options (field %u): %s") \
+	/*109 */_(ER_BSYNC_REJECT,		2, "Operation was rejected by certification") \
+	/*110 */_(ER_BSYNC_ROLLBACK,		2, "Operation was rejected by quorum") \
+	/*111 */_(ER_SERVER_ID_IS_LOCAL,	2, "Try to join to itself") \
+	/*112 */_(ER_BSYNC_SLAVE_INVALID,       2, "Operation from leader isnt valid for slave")
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file

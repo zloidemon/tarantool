@@ -161,7 +161,12 @@ lbox_pushfiber(struct lua_State *L, struct fiber *f)
 static struct fiber *
 lbox_checkfiber(struct lua_State *L, int index)
 {
-	uint32_t fid = *(uint32_t *) luaL_checkudata(L, index, fiberlib_name);
+	uint32_t fid;
+	if (lua_type(L, index) == LUA_TNUMBER) {
+		fid = lua_tointeger(L, index);
+	} else {
+		fid = *(uint32_t *) luaL_checkudata(L, index, fiberlib_name);
+	}
 	struct fiber *f = fiber_find(fid);
 	if (f == NULL)
 		luaL_error(L, "the fiber is dead");
@@ -434,6 +439,7 @@ lbox_fiber_sleep(struct lua_State *L)
 		luaL_error(L, "fiber.sleep(delay): bad arguments");
 	double delay = lua_tonumber(L, 1);
 	fiber_sleep(delay);
+	fiber_testcancel();
 	return 0;
 }
 
@@ -441,6 +447,7 @@ static int
 lbox_fiber_yield(struct lua_State * /* L */)
 {
 	fiber_sleep(0);
+	fiber_testcancel();
 	return 0;
 }
 
@@ -474,6 +481,12 @@ lbox_fiber_cancel(struct lua_State *L)
 {
 	struct fiber *f = lbox_checkfiber(L, 1);
 	fiber_cancel(f);
+	/*
+	 * Check if we're ourselves cancelled.
+	 * This also implements cancel for the case when
+	 * f == fiber().
+	 */
+	fiber_testcancel();
 	return 0;
 }
 
@@ -488,6 +501,8 @@ lbox_fiber_kill(struct lua_State *L)
 	if (f == NULL)
 		luaL_error(L, "fiber.kill(): fiber not found");
 	fiber_cancel(f);
+	/* Check if we're ourselves cancelled. */
+	fiber_testcancel();
 	return 0;
 }
 
@@ -564,6 +579,7 @@ static const struct luaL_reg fiberlib[] = {
 	{"id", lbox_fiber_id},
 	{"find", lbox_fiber_find},
 	{"kill", lbox_fiber_kill},
+	{"wakeup", lbox_fiber_wakeup},
 	{"cancel", lbox_fiber_cancel},
 	{"testcancel", lbox_fiber_testcancel},
 	{"create", lbox_fiber_create},

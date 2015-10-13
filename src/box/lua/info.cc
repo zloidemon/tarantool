@@ -31,13 +31,15 @@
 
 #include "info.h"
 
+#include <ctype.h> /* tolower() */
+
 extern "C" {
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
 } /* extern "C" */
 
-#include "box/replica.h"
+#include "box/applier.h"
 #include "box/recovery.h"
 #include "box/cluster.h"
 #include "box/bsync.h"
@@ -49,24 +51,38 @@ extern "C" {
 static int
 lbox_info_replication(struct lua_State *L)
 {
-	struct recovery_state *r = recovery;
-
 	lua_newtable(L);
 
+	struct applier *applier = cluster_applier_first();
+	if (applier == NULL) {
+		lua_pushstring(L, "status");
+		lua_pushstring(L, "off");
+		lua_settable(L, -3);
+		return 1;
+	}
+
+	/* Get applier state in lower case */
+	static char status[16];
+	char *d = status;
+	const char *s = applier_state_strs[applier->state] + strlen("APPLIER_");
+	assert(strlen(s) < sizeof(status));
+	while ((*(d++) = tolower(*(s++))));
+
 	lua_pushstring(L, "status");
-	lua_pushstring(L, r->remote[0].status);
+	lua_pushstring(L, status);
 	lua_settable(L, -3);
 
-	if (r->remote[0].reader) {
+	if (applier->reader) {
 		lua_pushstring(L, "lag");
-		lua_pushnumber(L, r->remote[0].lag);
+		lua_pushnumber(L, applier->lag);
 		lua_settable(L, -3);
 
 		lua_pushstring(L, "idle");
-		lua_pushnumber(L, ev_now(loop()) - r->remote[0].last_row_time);
+		lua_pushnumber(L, ev_now(loop()) - applier->last_row_time);
 		lua_settable(L, -3);
 
-		Exception *e = diag_last_error(&r->remote[0].reader->diag);
+		Exception *e = (Exception *)
+			diag_last_error(&applier->reader->diag);
 		if (e != NULL) {
 			lua_pushstring(L, "message");
 			lua_pushstring(L, e->errmsg());
@@ -135,30 +151,6 @@ lbox_info_pid(struct lua_State *L)
 	return 1;
 }
 
-#if 0
-void sophia_info(void (*)(const char*, const char*, void*), void*);
-
-static void
-lbox_info_sophia_cb(const char *key, const char *value, void *arg)
-{
-	struct lua_State *L;
-	L = (struct lua_State*)arg;
-	if (value == NULL)
-		return;
-	lua_pushstring(L, key);
-	lua_pushstring(L, value);
-	lua_settable(L, -3);
-}
-
-static int
-lbox_info_sophia(struct lua_State *L)
-{
-	lua_newtable(L);
-	sophia_info(lbox_info_sophia_cb, (void*)L);
-	return 1;
-}
-#endif
-
 static const struct luaL_reg
 lbox_info_dynamic_meta [] =
 {
@@ -169,9 +161,6 @@ lbox_info_dynamic_meta [] =
 	{"status", lbox_info_status},
 	{"uptime", lbox_info_uptime},
 	{"pid", lbox_info_pid},
-#if 0
-	{"sophia", lbox_info_sophia},
-#endif
 	{NULL, NULL}
 };
 

@@ -60,8 +60,16 @@ target_link_libraries(light.test small)
 add_executable(vclock.test vclock.cc unit.c
     ${CMAKE_SOURCE_DIR}/src/box/vclock.c
     ${CMAKE_SOURCE_DIR}/src/box/errcode.c
-    ${CMAKE_SOURCE_DIR}/src/box/error.cc)
+    ${CMAKE_SOURCE_DIR}/src/box/error.cc
+    ${CMAKE_SOURCE_DIR}/src/rmean.c)
 target_link_libraries(vclock.test core small)
+add_executable(xrow.test xrow.cc unit.c
+    ${CMAKE_SOURCE_DIR}/src/box/xrow.cc
+    ${CMAKE_SOURCE_DIR}/src/box/vclock.c
+    ${CMAKE_SOURCE_DIR}/src/box/iproto_constants.c
+    ${CMAKE_SOURCE_DIR}/src/box/errcode.c
+    ${CMAKE_SOURCE_DIR}/src/box/error.cc)
+target_link_libraries(xrow.test server misc msgpuck)
 add_executable(quota.test quota.cc unit.c)
 target_link_libraries(quota.test pthread)
 
@@ -71,8 +79,11 @@ target_link_libraries(fiber.test core)
 add_executable(fiber_stress.test fiber_stress.cc)
 target_link_libraries(fiber_stress.test core)
 
-add_executable(ipc.test ipc.cc ${CMAKE_SOURCE_DIR}/src/ipc.cc)
+add_executable(ipc.test ipc.cc unit.c ${CMAKE_SOURCE_DIR}/src/ipc.cc)
 target_link_libraries(ipc.test core)
+
+add_executable(ipc_stress.test ipc_stress.cc ${CMAKE_SOURCE_DIR}/src/ipc.cc)
+target_link_libraries(ipc_stress.test core)
 
 add_executable(coio.test coio.cc unit.c
         ${CMAKE_SOURCE_DIR}/src/sio.cc
@@ -114,3 +125,10 @@ add_executable(reflection_c.test reflection_c.c unit.c
     ${CMAKE_SOURCE_DIR}/src/reflection.c)
 add_executable(reflection_cxx.test reflection_cxx.cc unit.c
     ${CMAKE_SOURCE_DIR}/src/reflection.c)
+add_executable(csv.test csv.c
+    ${CMAKE_SOURCE_DIR}/src/lib/csv/csv.c
+)
+
+add_executable(rmean.test rmean.cc unit.c
+        ${CMAKE_SOURCE_DIR}/src/rmean.c)
+target_link_libraries(rmean.test core)

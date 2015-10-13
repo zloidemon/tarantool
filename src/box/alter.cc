@@ -33,6 +33,7 @@
 #include "user_def.h"
 #include "user.h"
 #include "space.h"
+#include "memtx_index.h"
 #include "func.h"
 #include "txn.h"
 #include "tuple.h"
@@ -57,16 +58,17 @@ struct latch schema_lock = LATCH_INITIALIZER(schema_lock);
 #define ENGINE           3
 #define FIELD_COUNT      4
 #define FLAGS            5
+
 /** _index columns */
 #define INDEX_ID         1
 #define INDEX_TYPE       3
 #define INDEX_OPTS       4
 #define INDEX_PARTS      5
-/** old _index columns */
-/** TODO: remove in future versions */
+/** old 1.6.5- _index columns */
+/** TODO: remove in future versions, find all 1.6.5- */
 #define INDEX_165_IS_UNIQUE 4
 #define INDEX_165_PART_COUNT 5
-
+#define INDEX_165_PARTS 6
 
 /** _user columns */
 #define USER_TYPE        3
@@ -104,54 +106,247 @@ access_check_ddl(uint32_t owner_uid)
 	}
 }
 
-
-/** Fill key_opts structure from opts field in tuple of space _index */
-void
-key_opts_create_from_field(struct key_opts *opts, const char *field)
+/**
+ * Support function for key_def_new_from_tuple(..)
+ * Checks tuple (of _index space) and throws a nice error if it is invalid
+ * Checks only types of fields and their count!
+ * Additionally determines version of tuple structure
+ * is_166plus is set as true if tuple structure is 1.6.6+
+ * is_166plus is set as false if tuple structure is 1.6.5-
+ */
+static void
+key_def_check_tuple(const struct tuple *tuple, bool *is_166plus)
 {
-	key_opts_create(opts);
-	if (field == NULL)
-		return;
-	if (mp_typeof(*field) != MP_MAP) {
-		tnt_raise(ClientError, ER_FIELD_TYPE, INDEX_OPTS + INDEX_OFFSET,
-			  "map");
+	*is_166plus = true;
+	const mp_type common_template[] = {MP_UINT, MP_UINT, MP_STR, MP_STR};
+	const char *data = tuple->data;
+	uint32_t field_count = mp_decode_array(&data);
+	const char *field_start = data;
+	if (field_count < 6)
+		goto err;
+	for (size_t i = 0; i < lengthof(common_template); i++) {
+		enum mp_type type = mp_typeof(*data);
+		if (type != common_template[i])
+			goto err;
+		mp_next(&data);
 	}
-	uint32_t map_size = mp_decode_map(&field);
-	for (uint32_t i = 0; i < map_size; i++) {
-		const char *key;
-		uint32_t len;
-		if (mp_typeof(*field) != MP_STR) {
-			tnt_raise(ClientError,
-				  ER_FIELD_TYPE, INDEX_OPTS + INDEX_OFFSET,
-				  "string");
+	if (mp_typeof(*data) == MP_UINT) {
+		/* old 1.6.5- version */
+		/* TODO: removed it in newer versions, find all 1.6.5- */
+		*is_166plus = false;
+		mp_next(&data);
+		if (mp_typeof(*data) != MP_UINT)
+			goto err;
+		if (field_count % 2)
+			goto err;
+		mp_next(&data);
+		for (uint32_t i = 6; i < field_count; i += 2) {
+			if (mp_typeof(*data) != MP_UINT)
+				goto err;
+			mp_next(&data);
+			if (mp_typeof(*data) != MP_STR)
+				goto err;
+			mp_next(&data);
 		}
-		key = mp_decode_str(&field, &len);
-		if (len == strlen("unique") &&
-		    memcmp(key, "unique", len) == 0) {
+	} else {
+		if (field_count != 6)
+			goto err;
+		if (mp_typeof(*data) != MP_MAP)
+			goto err;
+		mp_next(&data);
+		if (mp_typeof(*data) != MP_ARRAY)
+			goto err;
+	}
+	return;
 
+err:
+	char got[DIAG_ERRMSG_MAX];
+	char *p = got, *e = got + sizeof(got);
+	data = field_start;
+	for (uint32_t i = 0; i < field_count && p < e; i++) {
+		enum mp_type type = mp_typeof(*data);
+		mp_next(&data);
+		const char *type_name;
+		switch (type) {
+		case MP_UINT:
+			type_name = "number";
+			break;
+		case MP_STR:
+			type_name = "string";
+			break;
+		case MP_ARRAY:
+			type_name = "array";
+			break;
+		case MP_MAP:
+			type_name = "map";
+			break;
+		default:
+			type_name = "unknown";
+			break;
+		}
+		p += snprintf(p, e - p, i ? ", %s" : "%s", type_name);
+	}
+	const char *expected;
+	if (is_166plus) {
+		expected = "space id (number), index id (number), "
+			"name (string), type (string), "
+			"options (map), parts (array)";
+	} else {
+		expected = "space id (number), index id (number), "
+			"name (string), type (string), "
+			"is_unique (number), part count (number) "
+			"part0 field no (number), "
+			"part0 field type (string), ...";
+	}
+	tnt_raise(ClientError, ER_WRONG_INDEX_RECORD, got, expected);
+}
 
-			if (mp_typeof(*field) != MP_BOOL) {
+/**
+ * Support function for key_def_new_from_tuple(..)
+ * 1.6.6+
+ * Decode distance type from message pached string to enum
+ * Does not check message type, MP_STRING expected
+ * Throws an error if the the value does not correspond to any enum value
+ */
+static enum rtree_index_distance_type
+key_opts_decode_distance(const char **field)
+{
+	uint32_t len;
+	const char *str = mp_decode_str(field, &len);
+	if (len == strlen("euclid") &&
+	    strncasecmp(str, "euclid", len) == 0) {
+		return RTREE_INDEX_DISTANCE_TYPE_EUCLID;
+	} else if (len == strlen("manhattan") &&
+		   strncasecmp(str, "manhattan", len) == 0) {
+		return RTREE_INDEX_DISTANCE_TYPE_MANHATTAN;
+	} else {
+		tnt_raise(ClientError,
+			  ER_WRONG_INDEX_OPTIONS,
+			  INDEX_OPTS,
+			  "distance must be either 'euclid' or 'manhattan'");
+	}
+	return RTREE_INDEX_DISTANCE_TYPE_EUCLID; /* unreachabe */
+}
+
+/**
+ * Support function for key_def_new_from_tuple(..)
+ * 1.6.6+
+ * Fill key_opts structure from opts field in tuple of space _index
+ * Throw an error is smth is wrong
+ */
+static void
+key_opts_create_from_field(struct key_opts *opts, const char *map)
+{
+	*opts = key_opts_default;
+	if (mp_typeof(*map) != MP_MAP)
+		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
+			  INDEX_OPTS, "expected a map with options");
+	uint32_t map_size = mp_decode_map(&map);
+	for (uint32_t i = 0; i < map_size; i++) {
+		if (mp_typeof(*map) != MP_STR) {
+			mp_next(&map); /* skip key */
+			mp_next(&map); /* skip value */
+		}
+		uint32_t key_len;
+		const char *key = mp_decode_str(&map, &key_len);
+		if (key_len == strlen("unique") &&
+		    strncasecmp(key, "unique", key_len) == 0) {
+			if (mp_typeof(*map) != MP_BOOL) {
 				tnt_raise(ClientError,
-					  ER_FIELD_TYPE,
-					  INDEX_OPTS + INDEX_OFFSET,
-					  "bool");
+					  ER_WRONG_INDEX_OPTIONS,
+					  INDEX_OPTS,
+					  "unique must be a boolean");
 			}
-			opts->is_unique = mp_decode_bool(&field);
-		} else if (len == strlen("dimension") &&
-			   memcmp(key, "dimension", len) == 0) {
-
-			if (mp_typeof(*field) != MP_UINT) {
+			opts->is_unique = mp_decode_bool(&map);
+		} else if (key_len == strlen("dimension") &&
+			   strncasecmp(key, "dimension", key_len) == 0) {
+			if (mp_typeof(*map) != MP_UINT) {
 				tnt_raise(ClientError,
-					  ER_FIELD_TYPE,
-					  INDEX_OPTS + INDEX_OFFSET,
-					  "unsigned");
+					  ER_WRONG_INDEX_OPTIONS,
+					  INDEX_OPTS,
+					  "dimension must be a number");
 			}
-			opts->dimension = mp_decode_uint(&field);
+			opts->dimension = (uint32_t) mp_decode_uint(&map);
+		} else if (key_len == strlen("distance") &&
+			   strncasecmp(key, "distance", key_len) == 0) {
+			if (mp_typeof(*map) != MP_STR)
+				tnt_raise(ClientError,
+					  ER_WRONG_INDEX_OPTIONS,
+					  INDEX_OPTS,
+					  "distance must be a string");
+			opts->distance = key_opts_decode_distance(&map);
 		} else {
-			mp_next(&field);
+			mp_next(&map); /* skip value */
 		}
 	}
 }
+
+/**
+ * Support function for key_def_new_from_tuple(..)
+ * 1.6.6+
+ * Decode parts array from tuple field and write'em to key_def structure.
+ * Throws a nice error about invalid types, but does not check ranges of
+ *  resulting values field_no and field_type
+ * Parts expected to be a sequence of <part_count> arrays like this:
+ *  [NUM, STR, ..][NUM, STR, ..]..,
+ */
+static void
+key_def_fill_parts(struct key_def *key_def, const char *parts,
+		   uint32_t part_count)
+{
+	char buf[BOX_NAME_MAX];
+	for (uint32_t i = 0; i < part_count; i++) {
+		if (mp_typeof(*parts) != MP_ARRAY)
+			tnt_raise(ClientError, ER_WRONG_INDEX_PARTS,
+				  INDEX_PARTS, "expected an array");
+		uint32_t item_count = mp_decode_array(&parts);
+		if (item_count < 1)
+			tnt_raise(ClientError, ER_WRONG_INDEX_PARTS,
+				  INDEX_PARTS, "expected a non-empty array");
+		if (item_count < 2)
+			tnt_raise(ClientError, ER_WRONG_INDEX_PARTS,
+				  INDEX_PARTS, "a field type is missing");
+		if (mp_typeof(*parts) != MP_UINT)
+			tnt_raise(ClientError, ER_WRONG_INDEX_PARTS,
+				  INDEX_PARTS, "field id must be an integer");
+		uint32_t field_no = (uint32_t) mp_decode_uint(&parts);
+		if (mp_typeof(*parts) != MP_STR)
+			tnt_raise(ClientError, ER_WRONG_INDEX_PARTS,
+				  INDEX_PARTS, "field type must be a string");
+		uint32_t len;
+		const char *str = mp_decode_str(&parts, &len);
+		for (uint32_t j = 2; j < item_count; j++)
+			mp_next(&parts);
+		snprintf(buf, sizeof(buf), "%.*s", len, str);
+		enum field_type field_type = STR2ENUM(field_type, buf);
+		key_def_set_part(key_def, i, field_no, field_type);
+	}
+}
+
+/**
+ * Support function for key_def_new_from_tuple(..)
+ * 1.6.5-
+ * TODO: Remove it in newer version, find all 1.6.5-
+ * Decode parts array from tuple fieldw and write'em to key_def structure.
+ * Does not check anything since tuple must be validated before
+ * Parts expected to be a sequence of <part_count> 2 * arrays values this:
+ *  NUM, STR, NUM, STR, ..,
+ */
+static void
+key_def_fill_parts_165(struct key_def *key_def, const char *parts,
+		       uint32_t part_count)
+{
+	char buf[BOX_NAME_MAX];
+	for (uint32_t i = 0; i < part_count; i++) {
+		uint32_t field_no = (uint32_t) mp_decode_uint(&parts);
+		uint32_t len;
+		const char *str = mp_decode_str(&parts, &len);
+		snprintf(buf, sizeof(buf), "%.*s", len, str);
+		enum field_type field_type = STR2ENUM(field_type, buf);
+		key_def_set_part(key_def, i, field_no, field_type);
+	}
+}
+
 
 /**
  * Create a key_def object from a record in _index
@@ -165,61 +360,45 @@ key_opts_create_from_field(struct key_opts *opts, const char *field)
  * - types of parts in the parts array are known to the system
  * - fieldno of each part in the parts array is within limits
  */
-struct key_def *
+static struct key_def *
 key_def_new_from_tuple(struct tuple *tuple)
 {
+	bool is_166plus;
+	key_def_check_tuple(tuple, &is_166plus);
+
 	struct key_def *key_def;
 	struct key_opts opts;
 	uint32_t id = tuple_field_u32(tuple, ID);
 	uint32_t index_id = tuple_field_u32(tuple, INDEX_ID);
-	const char *type_str = tuple_field_cstr(tuple, INDEX_TYPE);
-	enum index_type type = STR2ENUM(index_type, type_str);
+	enum index_type type = STR2ENUM(index_type,
+					tuple_field_cstr(tuple, INDEX_TYPE));
 	const char *name = tuple_field_cstr(tuple, NAME);
-	const char *opts_field = tuple_field(tuple, INDEX_OPTS);
-	const char *parts = tuple_field(tuple, INDEX_PARTS);
 	uint32_t part_count;
-	bool is_166plus = mp_typeof(*opts_field) == MP_MAP;
+	const char *parts;
 	if (is_166plus) {
 		/* 1.6.6+ _index space structure */
+		const char *opts_field = tuple_field(tuple, INDEX_OPTS);
 		key_opts_create_from_field(&opts, opts_field);
+		parts = tuple_field(tuple, INDEX_PARTS);
 		part_count = mp_decode_array(&parts);
 	} else {
-		/* 1.6.5 _index space structure */
-		key_opts_create(&opts);
+		/* 1.6.5- _index space structure */
+		/* TODO: remove it in newer versions, find all 1.6.5- */
+		opts = key_opts_default;
 		opts.is_unique = tuple_field_u32(tuple, INDEX_165_IS_UNIQUE);
 		part_count = tuple_field_u32(tuple, INDEX_165_PART_COUNT);
+		parts = tuple_field(tuple, INDEX_165_PARTS);
 	}
+
 	key_def = key_def_new(id, index_id, name, type, &opts, part_count);
 	auto scoped_guard = make_scoped_guard([=] { key_def_delete(key_def); });
 
 	if (is_166plus) {
 		/* 1.6.6+ */
-		for (uint32_t i = 0; i < part_count; i++) {
-			uint32_t part_array_len = mp_decode_array(&parts);
-			assert(part_array_len >= 2);
-			uint32_t fieldno = mp_decode_uint(&parts);
-			uint32_t len;
-			const char *field_type_str;
-			field_type_str = mp_decode_str(&parts, &len);
-			char buf[BOX_NAME_MAX];
-			snprintf(buf, sizeof(buf), "%.*s", len, field_type_str);
-			enum field_type field_type;
-			field_type = STR2ENUM(field_type, buf);
-			key_def_set_part(key_def, i, fieldno, field_type);
-		}
+		key_def_fill_parts(key_def, parts, part_count);
 	} else {
-		/* 1.6.5 */
-		struct tuple_iterator it;
-		tuple_rewind(&it, tuple);
-		/* Parts follow part count. */
-		(void) tuple_seek(&it, INDEX_165_PART_COUNT);
-		for (uint32_t i = 0; i < part_count; i++) {
-			uint32_t fieldno = tuple_next_u32(&it);
-			const char *field_type_str = tuple_next_cstr(&it);
-			enum field_type field_type;
-			field_type = STR2ENUM(field_type, field_type_str);
-			key_def_set_part(key_def, i, fieldno, field_type);
-		}
+		/* 1.6.5- TODO: remove it in newer versions, find all 1.6.5- */
+		key_def_fill_parts_165(key_def, parts, part_count);
 	}
 	key_def_check(key_def);
 	scoped_guard.is_active = false;
@@ -527,8 +706,7 @@ alter_space_do(struct txn *txn, struct alter_space *alter,
 	 * snapshot/xlog, but needs to continue staying "fully
 	 * built".
 	 */
-	alter->new_space->handler->replace =
-		alter->old_space->handler->replace;
+	alter->new_space->handler->onAlter(alter->old_space->handler);
 
 	memcpy(alter->new_space->access, alter->old_space->access,
 	       sizeof(alter->old_space->access));
@@ -751,6 +929,29 @@ public:
 };
 
 /**
+ * Support function for AddIndex::prepare
+ */
+static bool
+key_def_change_require_index_rebuid(struct key_def *old_key_def,
+				    struct key_def *new_key_def)
+{
+	if (old_key_def->type != new_key_def->type ||
+	    old_key_def->opts.is_unique != new_key_def->opts.is_unique ||
+	    key_part_cmp(old_key_def->parts,
+			 old_key_def->part_count,
+			 new_key_def->parts,
+			 new_key_def->part_count) != 0) {
+		return true;
+	}
+	if (old_key_def->type == RTREE) {
+		if (old_key_def->opts.dimension != new_key_def->opts.dimension
+		    || old_key_def->opts.distance != new_key_def->opts.distance)
+			return true;
+	}
+	return false;
+}
+
+/**
  * Optimize addition of a new index: try to either completely
  * remove it or at least avoid building from scratch.
  */
@@ -762,12 +963,8 @@ AddIndex::prepare(struct alter_space *alter)
 	DropIndex *drop = dynamic_cast<DropIndex *>(prev_op);
 
 	if (drop == NULL ||
-	    drop->old_key_def->type != new_key_def->type ||
-	    drop->old_key_def->opts.is_unique != new_key_def->opts.is_unique ||
-	    key_part_cmp(drop->old_key_def->parts,
-			 drop->old_key_def->part_count,
-			 new_key_def->parts,
-			 new_key_def->part_count) != 0) {
+	    key_def_change_require_index_rebuid(drop->old_key_def,
+					       new_key_def)) {
 		/*
 		 * The new index is too distinct from the old one,
 		 * have to rebuild.
@@ -890,9 +1087,9 @@ AddIndex::alter(struct alter_space *alter)
 	Index *new_index = index_find(alter->new_space, new_key_def->iid);
 
 	/* Now deal with any kind of add index during normal operation. */
-	struct iterator *it = pk->position();
+	struct iterator *it = pk->allocIterator();
+	IteratorGuard guard(it);
 	pk->initIterator(it, ITER_ALL, NULL, 0);
-	IteratorGuard it_guard(it);
 
 	/*
 	 * The index has to be built tuple by tuple, since
@@ -901,8 +1098,6 @@ AddIndex::alter(struct alter_space *alter)
 	 * added to the index (insufficient number of fields,
 	 * etc., the build is aborted.
 	 */
-	new_index->beginBuild();
-	new_index->endBuild();
 	/* Build the new index. */
 	struct tuple *tuple;
 	struct tuple_format *format = alter->new_space->format;
@@ -1184,16 +1379,16 @@ space_has_data(uint32_t id, uint32_t iid, uint32_t uid)
 	if (space == NULL)
 		return false;
 
-	Index *index = space_index(space, iid);
-	if (index == NULL)
+	if (space_index(space, iid) == NULL)
 		return false;
-	struct iterator *it = index->position();
+
+	MemtxIndex *index = index_find_system(space, iid);
 	char key[6];
 	assert(mp_sizeof_uint(BOX_SYSTEM_ID_MIN) <= sizeof(key));
 	mp_encode_uint(key, uid);
+	struct iterator *it = index->position();
 
 	index->initIterator(it, ITER_EQ, key, 1);
-	IteratorGuard it_guard(it);
 	if (it->next(it))
 		return true;
 	return false;

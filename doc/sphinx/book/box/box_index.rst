@@ -455,7 +455,7 @@ API is a direct binding to corresponding methods of index objects of type
                                     field-values, or a tuple containing only
                                     the field-values.
 
-        :return: the number of matching index keys. The ``index`` function
+        :return: the number of matching index keys. The ``count`` function
                 is only applicable for the memtx storage engine.
         :rtype:  number
 
@@ -663,7 +663,7 @@ is Rectangle#2", and "Rectangle#3 is entirely inside Rectangle#2".
 
 Now let us create a space and add an RTREE index.
 
-    | :codebold:`s = box.schema.create_space('rectangles')`
+    | :codebold:`s = box.schema.space.create('rectangles')`
     | :codebold:`i = s:create_index('primary',{type='HASH',parts={1,'NUM'}})`
     | :codebold:`r = s:create_index('spatial',{type='RTREE',unique=false,parts={2,'ARRAY'}})`
 

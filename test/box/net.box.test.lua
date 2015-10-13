@@ -170,6 +170,10 @@ cn.space.net_box_test_space:get(354)
 
 -- -- 1. no reconnect
 cn:_fatal('Test fatal error')
+-- We expect the connection to enter 'closed' state due to 'reconnect_after'
+-- option missing, however 'error'->'closed' transition happens in some
+-- unrelated fiber, scheduling quirks bite (again) (sigh)
+fiber.sleep(0)
 cn.state
 cn:ping()
 cn:call('test_foo')
@@ -225,8 +229,6 @@ res[1][1] == 1
 res[1][2] == string.rep('a', 50000)
 
 -- auth
-cn.proto.b64decode('gJLocxbO32VmfO8x04xRVxKfgwzmNVM2t6a1ME8XsD0=')
-cn.proto.b64decode('gJLoc!!!!!!!')
 
 cn = remote:new(LISTEN.host, LISTEN.service, { user = 'netbox', password = '123', wait_connected = true })
 cn:is_connected()
@@ -304,6 +306,9 @@ cn = remote.new(uri, { password = 'test' })
 cn:ping()
 cn:close()
 
+box.schema.user.revoke('netbox', 'read, write, execute', 'universe');
+box.schema.user.drop('netbox')
+
 -- #594: bad argument #1 to 'setmetatable' (table expected, got number)
 --# setopt delimiter ';'
 function gh594()
@@ -364,4 +369,35 @@ end;
 --# setopt delimiter ''
 
 file_log:close()
+
+-- gh-983 selecting a lot of data crashes the server or hangs the
+-- connection
+
+-- gh-983 test case: iproto connection selecting a lot of data
+_ = box.schema.space.create('test', { temporary = true })
+_ = box.space.test:create_index('primary', {type = 'TREE', parts = {1,'NUM'}})
+
+data1k = "aaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhhaaaabbbbccccddddeeeeffffgggghhhh"
+
+for i = 0,10000 do box.space.test:insert{i, data1k} end
+
+net = require('net.box')
+c = net:new(box.cfg.listen)
+r = c.space.test:select(nil, {limit=5000})
+box.space.test:drop()
+
+-- gh-970 gh-971 UPSERT over network
+_ = box.schema.space.create('test')
+_ = box.space.test:create_index('primary', {type = 'TREE', parts = {1,'NUM'}})
+_ = box.space.test:insert{1, 2, "string"}
+c = net:new(box.cfg.listen)
+c.space.test:select{}
+c.space.test:upsert({1}, {{'+', 2, 1}}, {10, 20, 'nothing'}) -- common update
+c.space.test:select{}
+c.space.test:upsert({2}, {{'+', 2, 1}}, {2, 4, 'something'}) -- insert
+c.space.test:select{}
+c.space.test:upsert({2}, {{'+', 3, 100500}}, {2, 4, 'nothing'}) -- wrong operation
+c.space.test:select{}
+box.space.test:drop()
+
 box.schema.user.revoke('guest', 'read,write,execute', 'universe')
