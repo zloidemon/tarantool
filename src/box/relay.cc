@@ -105,9 +105,12 @@ relay_join(int fd, struct xrow_header *packet,
 {
 	struct tt_uuid server_uuid = uuid_nil;
 	xrow_decode_join(packet, &server_uuid);
+
+	(void) master_server_uuid;
+#if defined(BSYNC)
 	if (tt_uuid_is_equal(&server_uuid, master_server_uuid))
 		tnt_raise(ClientError, ER_SERVER_ID_IS_LOCAL);
-
+#endif /* defined(BSYNC) */
 	if (bsync) {
 		if (!bsync_process_join(fd, &server_uuid, on_join))
 			return;

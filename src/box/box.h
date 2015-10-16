@@ -86,7 +86,7 @@ struct tt_uuid;
 void
 box_on_cluster_join(const struct tt_uuid *server_uuid);
 
-bool
+void
 box_process_join(int fd, struct xrow_header *header);
 
 void

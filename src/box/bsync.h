@@ -44,7 +44,7 @@ void bsync_start(struct recovery *r, int rows_per_wal);
 int bsync_write(struct recovery *r, struct txn *txn, struct wal_request *req);
 void bsync_writer_stop(struct recovery *r);
 
-void bsync_push_connection(int remote_id);
+bool bsync_push_connection(int remote_id);
 void bsync_push_localhost(int remote_id);
 
 void bsync_bootstrap(struct recovery *r);

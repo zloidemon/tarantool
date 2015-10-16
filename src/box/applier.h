@@ -66,7 +66,6 @@ extern const char *applier_state_strs[];
 struct applier {
 	struct fiber *reader;
 	struct fiber *writer;
-	struct fiber *connecter;
 	enum applier_state state;
 	ev_tstamp lag, last_row_time;
 	bool warning_said;
@@ -77,8 +76,9 @@ struct applier {
 	rb_node(struct applier) link; /* a set by source in cluster.cc */
 	struct uri uri;
 	uint32_t version_id; /* remote version */
-	bool connected;
-	bool switched;
+	uint32_t host_id; /* bsync */
+	bool connected; /* bsync */
+	bool switched; /* bsync */
 	bool localhost;
 	struct vclock vclock;
 	union {
@@ -88,7 +88,7 @@ struct applier {
 	socklen_t addr_len;
 	/** Save master fd to re-use a connection between JOIN and SUBSCRIBE */
 	struct ev_io io;
-	struct ev_io in;
+	struct ev_io in; /* bsync */
 	/** Input/output buffer for buffered IO */
 	struct iobuf *iobuf;
 };

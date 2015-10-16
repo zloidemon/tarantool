@@ -77,7 +77,7 @@ static void bsync_process_connect(struct bsync_txn_info *info);
 static void bsync_process_disconnect(struct bsync_txn_info *info);
 static void bsync_start_event(struct bsync_txn_info *info);
 static void bsync_process_follow(struct bsync_txn_info *info);
-//static void bsync_set_follow(struct bsync_txn_info *info);
+static void bsync_set_follow(struct bsync_txn_info *info);
 static void bsync_do_reject(uint8_t host_id, struct bsync_send_elem *info);
 
 static struct recovery *local_state;
@@ -86,6 +86,8 @@ static struct ev_loop* txn_loop;
 static struct ev_loop* bsync_loop;
 static struct ev_async txn_process_event;
 static struct ev_async bsync_process_event;
+
+static struct applier *bsync_replica[BSYNC_MAX_HOSTS];
 
 struct bsync_send_elem {/* for save in host queue */
 	bool system;
@@ -125,6 +127,7 @@ static struct bsync_txn_state_ {
 	pthread_mutex_t mutex[BSYNC_MAX_HOSTS];
 	pthread_cond_t cond[BSYNC_MAX_HOSTS];
 	struct fiber *snapshot_fiber;
+	struct fiber *bootstrap_fiber;
 
 	struct rlist incoming_connections;
 	struct rlist wait_start;
@@ -368,11 +371,12 @@ static struct bsync_state_ {
 #define LAST_ROW(REQ) (REQ)->rows[(REQ)->n_rows - 1]
 
 static inline struct applier *
-applier_by_id(uint32_t server_id)
+replica_by_host_id(uint32_t bsync_id)
 {
-	struct replica *replica = cluster_get_server(server_id);
-	assert(replica != NULL && replica->applier != NULL);
-	return replica->applier;
+	assert(bsync_id < BSYNC_MAX_HOSTS);
+	struct applier *replica = bsync_replica[bsync_id];
+	assert(replica != NULL);
+	return replica;
 }
 
 static struct fiber*
@@ -563,7 +567,7 @@ dump_bin_body(const void *data, size_t len)
 static bool
 txn_op_begin(struct bsync_key *key, uint32_t hid)
 {
-	struct applier *leader = applier_by_id(txn_state.leader_id);
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
 	if (!leader->localhost)
 		return true;
 	/*
@@ -621,7 +625,7 @@ txn_op_begin(struct bsync_key *key, uint32_t hid)
 static void
 txn_op_end(uint8_t host_id, struct bsync_key *key, uint32_t hid)
 {
-	struct applier *leader = applier_by_id(txn_state.leader_id);
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
 	if (!leader->localhost)
 		return;
 	mh_int_t k = mh_bsync_find(BSYNC_REMOTE.active_ops, *key, NULL);
@@ -672,7 +676,7 @@ static void
 bsync_parse_dup_key(struct bsync_common *data, struct key_def *key,
 		    struct tuple *tuple, int i)
 {
-	struct applier *leader = applier_by_id(txn_state.leader_id);
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
 	if (!leader->localhost) {
 		data->dup_key[i] = NULL;
 		return;
@@ -702,6 +706,34 @@ bsync_parse_dup_key(struct bsync_common *data, struct key_def *key,
 }
 
 #if defined(BSYNC)
+static uint32_t
+bsync_find_incoming(struct tt_uuid *uuid)
+{
+	say_debug("waiting for remote peer with uuid=%s", tt_uuid_str(uuid));
+	struct applier *peer = NULL;
+	while (peer == NULL) {
+		cluster_foreach_applier(applier) {
+			if (tt_uuid_is_equal(&applier->uuid, uuid)) {
+				peer = applier;
+				break;
+			}
+		}
+		fiber_sleep(0.5);
+	}
+	while (peer->state < APPLIER_CONNECTED) {
+		fiber_sleep(0.5);
+	}
+	say_info("established link with %s", uri_format(&peer->uri));
+
+	return peer->host_id;
+	/* TODO(bsync): strange code */
+	if (txn_state.leader_id < BSYNC_MAX_HOSTS &&
+		txn_state.local_id != txn_state.leader_id)
+		return peer->host_id;
+	return -1;
+}
+#endif /* defined(BSYNC) */
+
 static int
 bsync_find_incoming(int id, struct tt_uuid *uuid)
 {
@@ -713,21 +745,22 @@ bsync_find_incoming(int id, struct tt_uuid *uuid)
 			continue;
 		if (id >= 0)
 			inc->remote_id = id;
+		struct applier *remote = replica_by_host_id(inc->remote_id);
 		say_debug("found pair in incoming connections to %s",
-			  local_state->remote[inc->remote_id].source);
+			  remote->source);
 		result = inc->remote_id;
 		fiber_call(inc->f);
 		goto finish;
 	}
 	if (id < 0) {
-		for (int i = 0; i < local_state->remote_size; ++i) {
+		cluster_foreach_applier(applier) {
 			if (tt_uuid_is_equal(
-				&local_state->remote[i].server_uuid, uuid)
-				&& local_state->remote[i].switched)
+				&applier->uuid, uuid)
+				&& applier->switched)
 			{
 				say_debug("found pair in switched connections to %s",
-					  local_state->remote[i].source);
-				result = i;
+					  applier->source);
+				result = applier->host_id;
 				goto finish;
 			}
 		}
@@ -745,9 +778,9 @@ bsync_find_incoming(int id, struct tt_uuid *uuid)
 	}
 	rlist_del_entry(inc, list);
 	if (inc->remote_id >= 0) {
-		assert(!ev_is_active(&local_state->remote[inc->remote_id].out));
-		say_info("connected with %s",
-			local_state->remote[inc->remote_id].source);
+		struct applier *applier = replica_by_host_id(inc->remote_id);
+		assert(!ev_is_active(&applier->io));
+		say_info("connected with %s", applier->source);
 	}
 	result = inc->remote_id;
 finish:
@@ -757,25 +790,30 @@ finish:
 	return result;
 }
 
-void
+bool
 bsync_push_connection(int id)
 {
-	if (!local_state->bsync_remote)
-		return;
-	assert(!ev_is_active(&local_state->remote[id].out));
+	assert(local_state->bsync_remote);
+	struct applier *applier = replica_by_host_id(id);
+	assert(!ev_is_active(&applier->io));
 	if (txn_state.local_id == BSYNC_MAX_HOSTS) {
 		txn_state.wait_local[id] = true;
 		fiber_yield();
 	}
-	if (bsync_find_incoming(id, &local_state->remote[id].server_uuid) < 0)
+	if (bsync_find_incoming(id, &applier->uuid) < 0)
 		tnt_raise(ClientError, ER_NO_CONNECTION);
+	say_warn("before sleep in push connection");
+	fiber_yield();
+	say_warn("after sleep in push connection: my_id=%d, leader_id=%d",
+		 applier->host_id, txn_state.leader_id);
+	return applier->host_id == txn_state.leader_id;
 }
 
 void
 bsync_push_localhost(int id)
 {
-	if (!local_state->bsync_remote)
-		return;
+	say_warn("push localhost: %d", id);
+	assert(local_state->bsync_remote);
 	txn_state.local_id = id;
 	struct bsync_txn_info *info = &bsync_index[id].sysmsg;
 	if (txn_state.state < txn_state_subscribe)
@@ -783,20 +821,19 @@ bsync_push_localhost(int id)
 	else
 		info->sign = vclock_sum(&local_state->vclock);
 	SWITCH_TO_BSYNC(bsync_update_local);
-	for (int i = 0; i < local_state->remote_size; ++i) {
-		if (!txn_state.wait_local[i])
+	cluster_foreach_applier(applier) {
+		if (!txn_state.wait_local[applier->host_id])
 			continue;
-		fiber_call(local_state->remote[i].connecter);
-		txn_state.wait_local[i] = false;
+		/* TODO(bsync): connecter */
+		// fiber_call(local_state->remote[applier->host_id].connecter);
+		txn_state.wait_local[applier->host_id] = false;
 	}
 }
-
-#endif /* defined(BSYNC) */
 
 void
 bsync_init_in(uint8_t host_id, int fd)
 {
-	struct applier *applier = applier_by_id(host_id);
+	struct applier *applier = replica_by_host_id(host_id);
 	coio_init(&applier->in, fd);
 	applier->writer = fiber();
 }
@@ -810,7 +847,7 @@ bsync_switch_2_election(uint8_t host_id, struct recovery *state)
 	else
 		info->sign = -1;
 	txn_state.iproto[host_id] = true;
-	struct applier *applier = applier_by_id(host_id);
+	struct applier *applier = replica_by_host_id(host_id);
 	assert(applier->in.fd >= 0);
 	assert(applier->io.fd >= 0);
 	assert(!ev_is_active(&applier->in));
@@ -830,33 +867,23 @@ bsync_process_join(int fd, struct tt_uuid *uuid,
 	assert(local_state->bsync_remote);
 	say_warn("process_join: uuid=%s", tt_uuid_str(uuid));
 
-	struct applier *peer = NULL;
-	while (peer == NULL) {
-		say_info("waiting for remote peer");
-		cluster_foreach_applier(applier) {
-			if (tt_uuid_is_equal(&applier->uuid, uuid)) {
-				peer = applier;
-				break;
-			}
-		}
-		fiber_sleep(1);
-	}
-
-	say_warn("found remote peer");
-	peer->connected = true;
-	fiber_sleep(1000000);
-
-#if defined(BSYNC)
 	int host_id = 0;
 	if ((host_id = bsync_find_incoming(-1, uuid)) == -1)
-		return false;
-	applier_by_id(host_id)->switched = false;
+				return false;
+	replica_by_host_id(host_id)->switched = true;
 	assert(BSYNC_REMOTE.state == bsync_host_disconnected ||
 		BSYNC_REMOTE.state == bsync_host_follow);
 	bsync_init_in(host_id, fd);
 	txn_state.join[host_id] = true;
+
+	//struct applier *host = replica_by_host_id(host_id);
+	/* TODO(bsync): bug */
+	//ev_io_stop(loop(), &host->io);
+
 	bsync_switch_2_election(host_id, NULL);
-	if (applier_by_id(txn_state.leader_id)->localhost) {
+
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
+	if (leader->localhost) {
 		if (txn_state.state < txn_state_subscribe) {
 			on_join(uuid);
 			fiber_yield();
@@ -870,9 +897,9 @@ bsync_process_join(int fd, struct tt_uuid *uuid,
 		}
 		say_info("start sending snapshot to %s", tt_uuid_str(uuid));
 		return true;
-	} else
+	} else {
 		txn_state.join[host_id] = false;
-#endif /* defined(BSYNC) */
+	}
 	return false;
 }
 
@@ -887,7 +914,6 @@ bsync_process_subscribe(int fd, struct tt_uuid *uuid,
 
 	return false;
 
-#if defined(BSYNC)
 	int host_id = 0;
 	char *vclock = vclock_to_string(&state->vclock);
 	say_debug("try to recovery host %s", vclock);
@@ -901,8 +927,7 @@ bsync_process_subscribe(int fd, struct tt_uuid *uuid,
 		 host_id, state->server_id, vclock);
 	free(vclock);
 	bsync_switch_2_election(host_id, state);
-	return applier_by_id(txn_state.leader_id)->localhost;
-#endif /* defined(BSYNC) */
+	return replica_by_host_id(txn_state.leader_id)->localhost;
 }
 
 void
@@ -912,34 +937,57 @@ bsync_bootstrap(struct recovery *r)
 		applier_start(applier, r);
 	}
 
+	say_warn("before bsync_join()");
+	uint32_t host_id = bsync_join();
+	struct applier *remote = replica_by_host_id(host_id);
+	say_warn("after bsync_join(), leader is %d %s", host_id,
+		remote->source);
+	cluster_foreach_applier(applier) {
+		if (applier->reader != NULL) {
+			say_warn("bsync_bootstrap CALL: %s", applier->source);
+			fiber_call(applier->reader);
+		}
+		say_warn("bsync_bootstrap WAIT: %s", applier->source);
+		applier_wait(applier); /* throws on failure */
+	}
+
+	say_warn("BOOTSTRAP DONE!!");
+
+#if 0
 	while (true) {
 		int total = 0;
 		int connected = 0;
 		cluster_foreach_applier(applier) {
 			total++;
-			if (applier->connected)
+			if (applier->connected || applier->localhost)
 				connected++;
 		}
-		say_warn("connected %d of %d", connected, total);
+		say_debug("connected %d of %d", connected, total);
 		if (total == connected)
 			break;
 		fiber_sleep(2.0);
 	}
-	say_warn("all servers have been connected!");
-	(void) r;
+	say_info("all servers have been connected, starting bootstrap.");
+	cluster_foreach_applier(applier) {
+		if (applier->localhost)
+			continue;
+		fiber_wakeup(applier->writer);
+	}
+#endif
 }
 
 int
 bsync_join()
 {
-	if (!local_state->bsync_remote)
-		return 0;
+	assert(local_state->bsync_remote);
 	if (txn_state.leader_id < BSYNC_MAX_HOSTS) {
 		if (txn_state.leader_id == txn_state.local_id)
 		return txn_state.leader_id;
 	}
 	txn_state.recovery = true;
+	txn_state.bootstrap_fiber = fiber();
 	fiber_yield();
+	txn_state.bootstrap_fiber = NULL;
 	txn_state.recovery = false;
 	if (txn_state.snapshot_fiber) {
 		say_info("wait for finish snapshot generating");
@@ -986,42 +1034,47 @@ txn_leader(struct bsync_txn_info *info)
 {
 	STAILQ_REMOVE_HEAD(&bsync_state.txn_proxy_input, fifo);
 	txn_state.leader_id = info->connection;
-	say_info("set leader in TXN to %s, state is %d",
-		 applier_by_id(txn_state.leader_id)->source,
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
+	say_info("set leader in TXN to %s, state is %d", leader->source,
 		 txn_state.state);
 	if (txn_state.state > txn_state_snapshot &&
-		applier_by_id(info->connection)->localhost &&
-		applier_by_id(txn_state.leader_id)->reader != NULL)
+		replica_by_host_id(info->connection)->localhost &&
+		leader->reader != NULL)
 	{
-		fiber_call(applier_by_id(txn_state.leader_id)->reader);
+		say_warn("fiber call on %s", leader->source);
+		fiber_call(leader->reader);
 	}
 }
 
 static void
 txn_join(struct bsync_txn_info * /*info*/)
 {
+	say_warn("generate snapshot!");
 	STAILQ_REMOVE_HEAD(&bsync_state.txn_proxy_input, fifo);
 	txn_state.state = txn_state_snapshot;
 	txn_state.snapshot_fiber = fiber_new("generate_initial_snapshot",
 		(fiber_func) box_generate_initial_snapshot);
 	fiber_set_joinable(txn_state.snapshot_fiber, true);
 	fiber_call(txn_state.snapshot_fiber);
-	cluster_foreach_applier(applier) {
-		if (txn_state.join[applier->id])
-			fiber_call(applier->writer);
-	}
-	fiber_call(txn_state.snapshot_fiber);
-	fiber_call(applier_by_id(txn_state.leader_id)->reader);
+	//cluster_foreach_applier(applier) {
+	//	if (txn_state.join[applier->host_id])
+	//		fiber_call(applier->writer);
+	//}
+	//fiber_call(txn_state.snapshot_fiber);
+	///fiber_call(replica_by_host_id(txn_state.leader_id)->reader);
+	say_warn("generate snapshot done");
+	if (txn_state.bootstrap_fiber)
+		fiber_call(txn_state.bootstrap_fiber);
 }
 
 static void
 txn_process_recovery(struct bsync_txn_info *info)
 {
 	STAILQ_REMOVE_HEAD(&bsync_state.txn_proxy_input, fifo);
-	struct applier *leader = applier_by_id(txn_state.leader_id);
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
 	if (leader->localhost) {
 		uint8_t hi = info->connection;
-		struct applier *applier = applier_by_id(hi);
+		struct applier *applier = replica_by_host_id(hi);
 		applier->switched = true;
 		say_debug("bsync_process_recovery: host_id=%d, join=%d, iproto=%d, snapshot=%p",
 			hi, txn_state.join[hi] ? 1 : 0, txn_state.iproto[hi] ? 1 : 0,
@@ -1049,12 +1102,12 @@ static void
 txn_process_close(struct bsync_txn_info *info)
 {
 	STAILQ_REMOVE_HEAD(&bsync_state.txn_proxy_input, fifo);
-	struct applier *applier = applier_by_id(info->connection);
+	struct applier *applier = replica_by_host_id(info->connection);
 	evio_close(loop(), &applier->in);
 	evio_close(loop(), &applier->io);
 	applier->switched = false;
 	applier->connected = false;
-	if (applier_by_id(txn_state.leader_id)->localhost)
+	if (replica_by_host_id(txn_state.leader_id)->localhost)
 		return;
 	if (txn_state.iproto[info->connection])
 		fiber_call(applier->writer);
@@ -1114,11 +1167,12 @@ txn_process_reconnnect(struct bsync_txn_info *info)
 		vclock_copy(&bsync_state.vclock, &local_state->vclock);
 		txn_reconnect_all();
 	} else {
-		struct applier *applier = applier_by_id(info->connection);
+		struct applier *applier = replica_by_host_id(info->connection);
 		say_info("start to reconnect to %s", applier->source);
 		applier->switched = false;
 		txn_process_close(info);
-		fiber_call(applier->connecter);
+		/* TODO(bsync): connecter */
+		// fiber_call(applier->connecter);
 	}
 }
 
@@ -1133,7 +1187,7 @@ bsync_follow(struct recovery * r)
 	BSYNC_LOCK(txn_state.mutex[host_id]);
 	bsync_txn_info *info = &BSYNC_REMOTE.sysmsg;
 	info->sign = vclock_sum(&r->vclock);
-	say_debug("try to follow for %s", applier_by_id(host_id)->source);
+	say_debug("try to follow for %s", replica_by_host_id(host_id)->source);
 	SWITCH_TO_BSYNC(bsync_process_follow);
 	tt_pthread_cond_wait(&txn_state.cond[host_id],
 		&txn_state.mutex[host_id]);
@@ -1157,8 +1211,8 @@ txn_set_ready(struct bsync_txn_info *info)
 		fiber_call(f);
 	}
 	say_info("finish cleanup wait queue");
-	struct applier *leader = applier_by_id(txn_state.leader_id);
-	if (!applier_by_id(info->connection)->localhost &&
+	struct applier *leader = replica_by_host_id(txn_state.leader_id);
+	if (!replica_by_host_id(info->connection)->localhost &&
 	     leader->reader != NULL)
 	{
 		fiber_call(leader->reader);
@@ -3162,10 +3216,14 @@ bsync_start_connect(struct bsync_txn_info *info)
 	else
 		BSYNC_LOCAL.sign = BSYNC_LOCAL.commit_sign = info->sign;
 	say_debug("start connection to %s", BSYNC_REMOTE.name);
+	struct applier *applier = replica_by_host_id(host_id);
+	say_warn("out fd: %s", sio_socketname(applier->io.fd));
+	say_warn("in fd: %s", sio_socketname(applier->in.fd));
+
 	fiber_start(fiber_new(BSYNC_REMOTE.name, bsync_outgoing),
-			applier_by_id(host_id)->io.fd, host_id);
+			applier->io.fd, host_id);
 	fiber_start(fiber_new(BSYNC_REMOTE.name, bsync_accept_handler),
-			applier_by_id(host_id)->in.fd, host_id);
+			applier->in.fd, host_id);
 	if (BSYNC_REMOTE.state == bsync_host_disconnected)
 		++bsync_state.num_connected;
 	if (BSYNC_REMOTE.state != bsync_host_follow)
@@ -3228,14 +3286,16 @@ bsync_process_connect(struct bsync_txn_info *info)
 	bool local_leader = has_leader &&
 		bsync_state.leader_id == bsync_state.local_id;
 	assert(rlist_empty(&BSYNC_REMOTE.send_queue));
+	struct applier *applier = replica_by_host_id(host_id);
 	say_debug("push to bsync loop out_fd=%d, in_fd=%d, switch=%d",
-		applier_by_id(host_id)->io.fd,
-		applier_by_id(host_id)->in.fd,
+		applier->io.fd, applier->in.fd,
 		do_switch ? 1 : 0);
+
 	fiber_start(fiber_new(BSYNC_REMOTE.name, bsync_outgoing),
-			applier_by_id(host_id)->io.fd, host_id);
+			applier->io.fd, host_id);
 	fiber_start(fiber_new(BSYNC_REMOTE.name, bsync_accept_handler),
-			applier_by_id(host_id)->in.fd, host_id);
+			applier->in.fd, host_id);
+
 	if (has_leader && !local_leader && host_id != bsync_state.leader_id) {
 		fiber_start(fiber_new("bsync_stop_io", bsync_stop_io_fiber),
 			host_id);
@@ -3304,7 +3364,6 @@ bsync_process_disconnect(struct bsync_txn_info *info)
 	}
 }
 
-#if defined(BSYNC)
 static void
 bsync_set_follow(struct bsync_txn_info *info)
 {
@@ -3312,7 +3371,6 @@ bsync_set_follow(struct bsync_txn_info *info)
 	int host_id = info->connection;
 	bsync_host_state(bsync_host_follow);
 }
-#endif /* defined(BSYNC) */
 
 static void
 bsync_process_follow(struct bsync_txn_info *info)
@@ -4425,6 +4483,7 @@ bsync_outgoing(va_list ap)
 static void
 bsync_cfg_push_host(uint8_t host_id, const char *source)
 {
+	say_warn("push host: %d %s", host_id, source);
 	strncpy(BSYNC_REMOTE.name, source, 1024);
 	BSYNC_REMOTE.fiber_in = NULL;
 	BSYNC_REMOTE.fiber_out = NULL;
@@ -4576,9 +4635,14 @@ bsync_init(struct recovery *r)
 
 	/* II. Start the thread. */
 	bsync_cfg_read();
+	uint32_t host_id = 0;
 	cluster_foreach_applier(applier) {
-		bsync_cfg_push_host(applier->id, applier->source);
+		applier->host_id = host_id;
+		bsync_replica[host_id] = applier;
+		bsync_cfg_push_host(applier->host_id, applier->source);
+		++host_id;
 	}
+
 	bsync_big_hack_affinity();
 	tt_pthread_mutex_lock(&bsync_state.mutex);
 	if (!cord_start(&bsync_state.cord, "bsync", bsync_thread, NULL)) {
@@ -4601,7 +4665,7 @@ bsync_start(struct recovery *r, int rows_per_wal)
 	info->result = rows_per_wal;
 	SWITCH_TO_BSYNC(bsync_start_event);
 	if (txn_state.leader_id < BSYNC_MAX_HOSTS &&
-		!applier_by_id(txn_state.leader_id)->localhost)
+		!replica_by_host_id(txn_state.leader_id)->localhost)
 		return;
 
 #if defined(BSYNC)

@@ -41,6 +41,7 @@
 #include "box/cluster.h"
 #include "iproto_constants.h"
 #include "version.h"
+#include "bsync.h"
 
 static const int RECONNECT_DELAY = 1.0;
 #define WRITEV_TIMEOUT 10.0
@@ -96,7 +97,7 @@ applier_write_row(struct ev_io *coio, const struct xrow_header *row)
  * Connect to a remote host and authenticate the client.
  */
 void
-applier_connect(struct applier *applier)
+applier_connect(struct applier *applier, struct tt_uuid *server_uuid)
 {
 	struct ev_io *coio = &applier->io;
 	struct iobuf *iobuf = applier->iobuf;
@@ -132,6 +133,12 @@ applier_connect(struct applier *applier)
 
 	applier->version_id = greeting.version_id;
 	applier->uuid = greeting.uuid;
+	applier->localhost = tt_uuid_is_equal(&applier->uuid, server_uuid);
+	if (applier->localhost) {
+		say_info("remote uri %s points to myself, skipping",
+			 uri_format(&applier->uri));
+		return;
+	}
 
 	say_info("connected to %u.%u.%u at %s\r\n",
 		 version_id_major(greeting.version_id),
@@ -180,6 +187,16 @@ applier_join(struct applier *applier, struct recovery *r)
 	xrow_encode_join(&row, &r->server_uuid);
 	applier_write_row(coio, &row);
 	applier_set_state(applier, APPLIER_BOOTSTRAP);
+
+	if (r->bsync_remote) {
+		say_warn("JOIN");
+		if (bsync_push_connection(applier->host_id)) {
+			say_warn("JOIN: i'm leader");
+			return; /* i'm leader */
+		} else {
+			say_warn("JOIN: leader is %s", applier->source);
+		}
+	}
 
 	assert(vclock_has(&r->vclock, 0)); /* check for surrogate server_id */
 
@@ -324,7 +341,13 @@ applier_f(va_list ap)
 	/* Re-connect loop */
 	while (true) {
 		try {
-			applier_connect(applier);
+			applier_connect(applier, &r->server_uuid);
+			if (applier->localhost) {
+				if (r->bsync_remote)
+					bsync_push_localhost(applier->host_id);
+				return;
+			}
+	
 			/*
 			 * Execute JOIN if this is a bootstrap, and
 			 * there is no snapshot, and SUBSCRIBE
@@ -333,6 +356,7 @@ applier_f(va_list ap)
 			if (r->writer == NULL) {
 				applier_join(applier, r);
 			} else {
+				assert(0); // bsync
 				applier_subscribe(applier, r);
 				/*
 				 * subscribe() has an infinite
@@ -341,6 +365,7 @@ applier_f(va_list ap)
 				 */
 				assert(0);
 			}
+			say_warn("applier DONE");
 			ev_io_stop(loop(), &applier->io);
 			iobuf_reset(applier->iobuf);
 			/* Don't close the socket */

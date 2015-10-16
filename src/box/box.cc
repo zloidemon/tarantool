@@ -188,11 +188,20 @@ box_check_uri(const char *source, const char *option_name)
 static void
 box_check_replication_source(void)
 {
-	int count = cfg_getarr_size("replication_source");
+	int count = cfg_getarr_size("replication.source");
 	for (int i = 0; i < count; i++) {
-		const char *source = cfg_getarr_elem("replication_source", i);
-		box_check_uri(source, "replication_source");
+		const char *source = cfg_getarr_elem("replication.source", i);
+		box_check_uri(source, "replication.source");
 	}
+}
+
+static void
+box_check_replication_mode(void)
+{
+	const char *mode = cfg_gets("replication.mode");
+	if (mode && strcmp(mode, "async") && strcmp(mode, "bsync"))
+		tnt_raise(ClientError, ER_CFG, "replication.mode",
+			  "expected async/bsync");
 }
 
 static enum wal_mode
@@ -231,6 +240,7 @@ box_check_config()
 {
 	box_check_wal_mode(cfg_gets("wal_mode"));
 	box_check_uri(cfg_gets("listen"), "listen");
+	box_check_replication_mode();
 	box_check_replication_source();
 	box_check_readahead(cfg_geti("readahead"));
 	box_check_rows_per_wal(cfg_geti("rows_per_wal"));
@@ -249,9 +259,9 @@ box_sync_replication_source(void)
 	}
 
 	/* Add new replicas and set cfg_merge_flag for existing */
-	int count = cfg_getarr_size("replication_source");
+	int count = cfg_getarr_size("replication.source");
 	for (int i = 0; i < count; i++) {
-		const char *source = cfg_getarr_elem("replication_source", i);
+		const char *source = cfg_getarr_elem("replication.source", i);
 		/* Try to find applier with the same source in the registry */
 		struct applier *applier = cluster_find_applier(source);
 		if (applier == NULL) {
@@ -275,6 +285,22 @@ box_sync_replication_source(void)
 	}
 }
 
+static inline void
+box_start_appliers(void)
+{
+	/* Start all replicas from the cluster registry */
+	cluster_foreach_applier(applier) {
+		if (applier->reader == NULL) {
+			applier_start(applier, recovery);
+		} else if (applier->state == APPLIER_OFF ||
+			   applier->state == APPLIER_STOPPED) {
+			/* Re-start faulted replicas */
+			applier_stop(applier);
+			applier_start(applier, recovery);
+		}
+	}
+}
+
 extern "C" void
 box_set_replication_source(void)
 {
@@ -288,21 +314,12 @@ box_set_replication_source(void)
 	}
 
 	/* TODO(bsync): support for changing replication sources on the fly */
-	if (!::recovery->bsync_remote) {
-		box_sync_replication_source();
-	}
+	if (recovery->bsync_remote)
+		tnt_raise(ClientError, ER_UNSUPPORTED,
+			  "bsync", "dynamic replication.source");
 
-	/* Start all replicas from the cluster registry */
-	cluster_foreach_applier(applier) {
-		if (applier->reader == NULL) {
-			applier_start(applier, recovery);
-		} else if (applier->state == APPLIER_OFF ||
-			   applier->state == APPLIER_STOPPED) {
-			/* Re-start faulted replicas */
-			applier_stop(applier);
-			applier_start(applier, recovery);
-		}
-	}
+	box_sync_replication_source();
+	box_start_appliers();
 }
 
 extern "C" void
@@ -683,27 +700,21 @@ box_on_cluster_join(const tt_uuid *server_uuid)
 	     (unsigned) server_id, tt_uuid_str(server_uuid));
 }
 
-bool
+void
 box_process_join(int fd, struct xrow_header *header)
 {
-	/* Check permissions */
-	access_check_universe(PRIV_R);
-	access_check_space(space_cache_find(BOX_CLUSTER_ID), PRIV_W);
+	/* TODO(bsync): implement authentication */
+	if (!recovery->bsync_remote) {
+		/* Check permissions */
+		access_check_universe(PRIV_R);
+		access_check_space(space_cache_find(BOX_CLUSTER_ID), PRIV_W);
+	}
 
 	assert(header->type == IPROTO_JOIN);
 
 	/* Process JOIN request via a replication relay */
 	relay_join(fd, header, recovery->server_id, &recovery->server_uuid,
 		   recovery->bsync_remote, box_on_cluster_join);
-#if defined(BSYNC)
-	/* Process JOIN request via replication relay */
-	bool result = replication_join(fd, header, box_on_cluster_join);
-	if (recovery->bsync_remote)
-		return result;
-	else
-		return false;
-#endif /* defined(BSYNC) */
-	return true;
 }
 
 void
@@ -753,7 +764,7 @@ box_set_server_uuid(void)
 	/* Insert a new tuple for local server */
 	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
 	     1, tt_uuid_str(&r->server_uuid));
-	assert(cluster_get_server(1) == NULL);
+	assert(cluster_get_server(1) != NULL);
 	assert(vclock_get(&r->vclock, 1) == 0);
 
 	/* Remove surrogate server */
@@ -870,9 +881,12 @@ box_init(void)
 	recovery = recovery_new(cfg_gets("snap_dir"),
 				cfg_gets("wal_dir"),
 				recover_row, &recover_row_ctx);
+	const char *replication_mode = cfg_gets("replication.mode");
 	recovery_setup_panic(recovery,
 			     cfg_geti("panic_on_snap_error"),
 			     cfg_geti("panic_on_wal_error"));
+	recovery->bsync_remote = replication_mode != NULL &&
+		strcmp(replication_mode, "bsync") == 0;
 
 	/*
 	 * Initialize the cluster registry using replication_source,
@@ -880,7 +894,10 @@ box_init(void)
 	 */
 	box_sync_replication_source();
 
-	bsync_init(recovery);
+	if (recovery->bsync_remote) {
+		/* TODO(bsync): support dynamic cfg for sources */
+		bsync_init(recovery);
+	}
 
 	/* Use the first replica by URI as a bootstrap leader */
 	struct applier *applier = cluster_applier_first();
@@ -890,7 +907,7 @@ box_init(void)
 		int64_t checkpoint_id =
 			recovery_last_checkpoint(recovery);
 		engine_recover_to_checkpoint(checkpoint_id);
-	} else if (applier != NULL && !box_cfg_listen_eq(&applier->uri)) {
+	} else if (applier != NULL) {
 		/* Generate Server-UUID */
 		tt_uuid_create(&recovery->server_uuid);
 
@@ -899,13 +916,13 @@ box_init(void)
 
 		engine_begin_join();
 
-		/* Add a surrogate server id for snapshot rows */
-		vclock_add_server(&recovery->vclock, 0);
-
 		if (recovery->bsync_remote) {
 			box_set_listen();
 			bsync_bootstrap(recovery);
 		} else {
+			/* Add a surrogate server id for snapshot rows */
+			vclock_add_server(&recovery->vclock, 0);
+
 			/* Bootstrap from the first master */
 			applier_start(applier, recovery);
 			applier_wait(applier); /* throws on failure */
@@ -913,6 +930,7 @@ box_init(void)
 
 		int64_t checkpoint_id = vclock_sum(&recovery->vclock);
 		engine_checkpoint(checkpoint_id);
+		(void) box_cfg_listen_eq;
 	} else {
 		/* Initialize the first server of a new cluster */
 		recovery_bootstrap(recovery);
@@ -946,7 +964,7 @@ box_init(void)
 	rmean_cleanup(rmean_box);
 
 	/* Follow replica */
-	box_set_replication_source();
+	box_start_appliers();
 
 	/* Enter read-write mode. */
 	if (recovery->server_id > 0)
@@ -994,7 +1012,7 @@ box_generate_initial_snapshot(void *data __attribute__((unused)))
 	box_set_server_uuid();
 	box_call_initial();
 	box_set_ro(true);
-	fiber_yield();
+	//fiber_yield();
 	box_snapshot();
 	xdir_scan(&recovery->snap_dir);
 }

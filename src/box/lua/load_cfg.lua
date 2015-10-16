@@ -30,7 +30,7 @@ local default_sophia_cfg = {
 
 local default_replication_cfg = {
     source            = {},
-    bsync             = 0,
+    mode              = "async",
     max_host_queue    = 1000,
     read_timeout      = 3.5,
     write_timeout     = 3.5,
@@ -64,7 +64,6 @@ local default_cfg = {
     wal_dir_rescan_delay= 2,
     panic_on_snap_error = true,
     panic_on_wal_error  = true,
-    replication_source  = nil,
     custom_proc_title   = nil,
     pid_file            = nil,
     background          = false,
@@ -89,8 +88,8 @@ local sophia_template_cfg = {
 }
 
 local replication_template_cfg = {
-    source            = 'table',
-    bsync             = 'number',
+    source            = 'string, table',
+    mode              = 'string',
     max_host_queue    = 'number',
     read_timeout      = 'number',
     write_timeout     = 'number',
@@ -125,7 +124,6 @@ local template_cfg = {
     wal_dir_rescan_delay= 'number',
     panic_on_snap_error = 'boolean',
     panic_on_wal_error  = 'boolean',
-    replication_source  = 'string, number, table',
     custom_proc_title   = 'string',
     pid_file            = 'string',
     background          = 'boolean',
@@ -146,14 +144,13 @@ end
 -- options that require special handling
 local modify_cfg = {
     listen             = normalize_uri,
-    replication_source = normalize_uri,
 }
 
 -- dynamically settable options
 local dynamic_cfg = {
     wal_mode                = ffi.C.box_set_wal_mode,
     listen                  = ffi.C.box_set_listen,
-    replication_source      = ffi.C.box_set_replication_source,
+    ['replication.source']  = ffi.C.box_set_replication_source,
     log_level               = ffi.C.box_set_log_level,
     io_collect_interval     = ffi.C.box_set_io_collect_interval,
     readahead               = ffi.C.box_set_readahead,
@@ -170,7 +167,7 @@ local dynamic_cfg = {
 local dynamic_cfg_skip_at_load = {
     wal_mode                = true,
     listen                  = true,
-    replication_source      = true,
+    ['replication.source']  = true,
     wal_dir_rescan_delay    = true,
     panic_on_wal_error      = true,
 }
