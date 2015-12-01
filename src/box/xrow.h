@@ -131,6 +131,20 @@ xrow_header_encode(const struct xrow_header *header,
 int
 xrow_to_iovec(const struct xrow_header *row, struct iovec *out);
 
+/*
+ * Encode OK response.
+ */
+void
+xrow_encode_ok(struct xrow_header *row);
+
+/**
+ * \brief Encode ERROR response.
+ * \param[out] row
+ * \param error error
+ */
+void
+xrow_encode_error(struct xrow_header *row);
+
 /**
  * \brief Decode ERROR and re-throw it as ClientError exception
  * \param row

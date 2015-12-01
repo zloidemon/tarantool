@@ -32,6 +32,7 @@
  */
 #include "evio.h"
 #include "fiber.h"
+#include "iobuf.h"
 
 struct xrow_header;
 
@@ -41,6 +42,8 @@ struct relay {
 	struct cord cord;
 	/** Replica connection */
 	struct ev_io io;
+	/** Input/output buffer for buffered IO */
+	struct iobuf iobuf;
 	/* Request sync */
 	uint64_t sync;
 	struct recovery *r;

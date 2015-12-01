@@ -118,6 +118,9 @@ recovery_follow_local(struct recovery *r, const char *name,
 		      ev_tstamp wal_dir_rescan_delay);
 
 void
+recovery_join_local(struct recovery *r);
+
+void
 recovery_stop_local(struct recovery *r);
 
 void
@@ -127,7 +130,7 @@ recovery_finalize(struct recovery *r, enum wal_mode mode,
 void
 recovery_fill_lsn(struct recovery *r, struct xrow_header *row);
 
-void
+int
 recovery_apply_row(struct recovery *r, struct xrow_header *packet);
 
 /**

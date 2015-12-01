@@ -269,9 +269,11 @@ t;
   - 'box.error.NO_SUCH_INDEX : 35'
   - 'box.error.UNKNOWN_RTREE_INDEX_DISTANCE_TYPE : 103'
   - 'box.error.TUPLE_IS_TOO_LONG : 27'
+  - 'box.error.injection : table: <address>
   - 'box.error.UNKNOWN_SERVER : 62'
   - 'box.error.FUNCTION_EXISTS : 52'
-  - 'box.error.injection : table: <address>
+  - 'box.error.UNEXPECTED_PACKET_SYNC : 113'
+  - 'box.error.ROLE_EXISTS : 83'
   - 'box.error.NO_SUCH_FUNCTION : 51'
   - 'box.error.SERVER_UUID_MISMATCH : 111'
   - 'box.error.WRONG_INDEX_PARTS : 107'
@@ -311,7 +313,7 @@ t;
   - 'box.error.TUPLE_REF_OVERFLOW : 86'
   - 'box.error.PROC_LUA : 32'
   - 'box.error.UNKNOWN_SCHEMA_OBJECT : 49'
-  - 'box.error.ROLE_EXISTS : 83'
+  - 'box.error.UNEXPECTED_PACKET_TYPE : 112'
   - 'box.error.CREATE_ROLE : 84'
   - 'box.error.WRONG_INDEX_OPTIONS : 108'
   - 'box.error.NO_ACTIVE_TRANSACTION : 80'

@@ -45,6 +45,18 @@ struct iobuf
 
 /**
  * Create an instance of input/output buffer.
+ */
+void
+iobuf_create(struct iobuf *iobuf, struct slab_cache *slabc_out);
+
+/**
+ * Destroy an input/output buffer.
+ */
+void
+iobuf_destroy(struct iobuf *iobuf);
+
+/**
+ * Allocate and initialize an instance of input/output buffer.
  * @warning not safe to use in case of multi-threaded
  * access to in and out.
  */
@@ -52,7 +64,7 @@ struct iobuf *
 iobuf_new();
 
 /**
- * Destroy an input/output buffer.
+ * Destroy and free an input/output buffer.
  * @warning a counterpart of iobuf_new(), only for single threaded
  * access.
  */

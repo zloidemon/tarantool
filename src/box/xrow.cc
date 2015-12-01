@@ -189,6 +189,13 @@ xrow_to_iovec(const struct xrow_header *row, struct iovec *out)
 }
 
 void
+xrow_encode_ok(struct xrow_header *row)
+{
+	memset(row, 0, sizeof(*row));
+	row->type = IPROTO_OK;
+}
+
+void
 xrow_encode_auth(struct xrow_header *packet, const char *salt, size_t salt_len,
 		 const char *login, size_t login_len,
 		 const char *password, size_t password_len)
@@ -219,6 +226,30 @@ xrow_encode_auth(struct xrow_header *packet, const char *salt, size_t salt_len,
 	packet->body[0].iov_len = (d - buf);
 	packet->bodycnt = 1;
 	packet->type = IPROTO_AUTH;
+}
+
+void
+xrow_encode_error(struct xrow_header *row)
+{
+	struct error *e = diag_last_error(&fiber()->diag);
+
+	memset(row, 0, sizeof(*row));
+
+	uint32_t errmsg_len = strlen(e->errmsg);
+	uint32_t errcode = ClientError::get_errcode(e);
+
+	size_t size = mp_sizeof_map(1) + mp_sizeof_uint(IPROTO_ERROR) +
+		mp_sizeof_str(errmsg_len);
+	char *buf = (char *) region_alloc_xc(&fiber()->gc, size);
+	char *data = buf;
+	data = mp_encode_map(data, 1);
+	data = mp_encode_uint(data, IPROTO_ERROR);
+	data = mp_encode_str(data, e->errmsg, errmsg_len);
+	assert(data <= buf + size);
+	row->body[0].iov_base = buf;
+	row->body[0].iov_len = (data - buf);
+	row->bodycnt = 1;
+	row->type = errcode | IPROTO_TYPE_ERROR;
 }
 
 void
@@ -259,7 +290,6 @@ xrow_decode_error(struct xrow_header *row)
 
 raise:
 	box_error_set(__FILE__, __LINE__, code, error);
-	diag_raise();
 }
 
 void

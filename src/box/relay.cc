@@ -87,6 +87,10 @@ relay_join_f(va_list ap)
 	struct relay *relay = va_arg(ap, struct relay *);
 
 	relay_set_cord_name(relay->io.fd);
+	iobuf_create(&relay->iobuf, &cord()->slabc);
+	auto iobuf_guard = make_scoped_guard([=]{
+		iobuf_destroy(&relay->iobuf);
+	});
 
 	/* Send snapshot */
 	engine_join(relay);
@@ -132,13 +136,8 @@ relay_join(int fd, struct xrow_header *packet,
 	 * out the id of the server it has connected to.
 	 */
 	row.server_id = master_server_id;
-	relay_send(&relay, &row);
-}
-
-static void
-feed_event_f(struct trigger *trigger, void * /* event */)
-{
-	ev_feed_event(loop(), (struct ev_io *) trigger->data, EV_CUSTOM);
+	row.sync = row.sync;
+	coio_write_xrow(&relay.io, &row);
 }
 
 /**
@@ -151,54 +150,15 @@ relay_subscribe_f(va_list ap)
 {
 	struct relay *relay = va_arg(ap, struct relay *);
 	struct recovery *r = relay->r;
-
 	relay_set_cord_name(relay->io.fd);
+	iobuf_create(&relay->iobuf, &cord()->slabc);
+	auto iobuf_guard = make_scoped_guard([=]{
+		iobuf_destroy(&relay->iobuf);
+	});
 	recovery_follow_local(r, fiber_name(fiber()),
 			      relay->wal_dir_rescan_delay);
+	recovery_join_local(r);
 
-	/*
-	 * Init a read event: when replica closes its end
-	 * of the socket, we can read EOF and shutdown the
-	 * relay.
-	 */
-	struct ev_io read_ev;
-	read_ev.data = fiber();
-	ev_io_init(&read_ev, (ev_io_cb) fiber_schedule_cb,
-		   relay->io.fd, EV_READ);
-	/**
-	 * If there is an exception in the follower fiber, it's
-	 * sufficient to break the main fiber's wait on the read
-	 * event.
-	 * recovery_stop_local() will follow and raise the
-	 * original exception in the joined fiber.  This original
-	 * exception will reach cord_join() and will be raised
-	 * further up, eventually reaching iproto_process(), where
-	 * it'll get converted to an iproto message and sent to
-	 * the client.
-	 * It's safe to allocate the trigger on stack, the life of
-	 * the follower fiber is enclosed into life of this fiber.
-	 */
-	struct trigger on_follow_error = {
-		RLIST_LINK_INITIALIZER, feed_event_f, &read_ev, NULL
-	};
-	trigger_add(&r->watcher->on_stop, &on_follow_error);
-	while (! fiber_is_dead(r->watcher)) {
-		ev_io_start(loop(), &read_ev);
-		fiber_yield();
-		ev_io_stop(loop(), &read_ev);
-
-		uint8_t data;
-		int rc = recv(read_ev.fd, &data, sizeof(data), 0);
-
-		if (rc == 0 || (rc < 0 && errno == ECONNRESET)) {
-			say_info("the replica has closed its socket, exiting");
-			break;
-		}
-		if (rc < 0 && errno != EINTR && errno != EAGAIN &&
-		    errno != EWOULDBLOCK)
-			say_syserror("recv");
-	}
-	recovery_stop_local(r);
 	say_crit("exiting the relay loop");
 }
 
@@ -250,7 +210,8 @@ relay_subscribe(int fd, struct xrow_header *packet,
 	 * out the id of the server it has connected to.
 	 */
 	row.server_id = master_server_id;
-	relay_send(&relay, &row);
+	row.sync = row.sync;
+	coio_write_xrow(&relay.io, &row);
 
 	struct cord cord;
 	cord_costart(&cord, "subscribe", relay_subscribe_f, &relay);
@@ -261,8 +222,26 @@ relay_subscribe(int fd, struct xrow_header *packet,
 void
 relay_send(struct relay *relay, struct xrow_header *packet)
 {
+	/* Send request to the remote peer */
 	packet->sync = relay->sync;
 	coio_write_xrow(&relay->io, packet);
+
+	/* Wait for acknowledgement from the remote server */
+	struct xrow_header resp;
+	coio_read_xrow(&relay->io, &relay->iobuf.in, &resp);
+	if (resp.sync != relay->sync) {
+		tnt_raise(LoggedError, ER_UNEXPECTED_PACKET_SYNC,
+			  (unsigned long long) resp.sync,
+			  (unsigned long long) packet->sync);
+	} else if (iproto_type_is_error(resp.type)) {
+		xrow_decode_error(&resp);
+		diag_raise();
+	} else if (resp.type != IPROTO_OK) {
+		tnt_raise(LoggedError, ER_UNEXPECTED_PACKET_TYPE,
+			  resp.type);
+	}
+
+	iobuf_reset(&relay->iobuf);
 }
 
 /** Send a single row to the client. */

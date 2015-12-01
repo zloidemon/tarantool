@@ -66,23 +66,35 @@ iobuf_new()
 	return iobuf_new_mt(&cord()->slabc);
 }
 
+void
+iobuf_create(struct iobuf *iobuf, struct slab_cache *slabc_out)
+{
+	/* Note: do not allocate memory upfront. */
+	ibuf_create(&iobuf->in, &cord()->slabc, iobuf_readahead);
+	obuf_create(&iobuf->out, slabc_out, iobuf_readahead);
+}
+
 struct iobuf *
 iobuf_new_mt(struct slab_cache *slabc_out)
 {
 	struct iobuf *iobuf;
 	iobuf = (struct iobuf *) mempool_alloc_xc(&iobuf_pool);
-	/* Note: do not allocate memory upfront. */
-	ibuf_create(&iobuf->in, &cord()->slabc, iobuf_readahead);
-	obuf_create(&iobuf->out, slabc_out, iobuf_readahead);
+	iobuf_create(iobuf, slabc_out);
 	return iobuf;
+}
+
+void
+iobuf_destroy(struct iobuf *iobuf)
+{
+	ibuf_destroy(&iobuf->in);
+	obuf_destroy(&iobuf->out);
 }
 
 /** Destroy an instance and delete it. */
 void
 iobuf_delete(struct iobuf *iobuf)
 {
-	ibuf_destroy(&iobuf->in);
-	obuf_destroy(&iobuf->out);
+	iobuf_destroy(iobuf);
 	mempool_free(&iobuf_pool, iobuf);
 }
 

@@ -254,13 +254,18 @@ recovery_atfork(struct recovery *r)
        r->writer = NULL;
 }
 
-void
+int
 recovery_apply_row(struct recovery *r, struct xrow_header *row)
 {
-	/* Check lsn */
-	int64_t current_lsn = vclock_get(&r->vclock, row->server_id);
-	if (row->lsn > current_lsn)
-		r->apply_row(r, r->apply_row_param, row);
+	try {
+		/* Check lsn */
+		int64_t current_lsn = vclock_get(&r->vclock, row->server_id);
+		if (row->lsn > current_lsn)
+			r->apply_row(r, r->apply_row_param, row);
+		return 0;
+	} catch (struct error *e) {
+		return -1;
+	}
 }
 
 /**
@@ -593,6 +598,15 @@ recovery_follow_local(struct recovery *r, const char *name,
 	r->watcher = fiber_new_xc(name, recovery_follow_f);
 	fiber_set_joinable(r->watcher, true);
 	fiber_start(r->watcher, r, wal_dir_rescan_delay);
+}
+
+void
+recovery_join_local(struct recovery *r)
+{
+	struct fiber *f = r->watcher;
+	fiber_join(f);
+	r->watcher = NULL;
+	diag_raise();
 }
 
 void

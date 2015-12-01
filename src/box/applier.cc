@@ -147,6 +147,40 @@ applier_connect(struct applier *applier)
 	applier_set_state(applier, APPLIER_CONNECTED);
 }
 
+static void
+applier_process_row(struct applier *applier, struct recovery *r,
+		    struct xrow_header *row)
+{
+	struct xrow_header resp;
+	if (iproto_type_is_dml(row->type)) {
+		/* Execute request from the remote peer */
+		if (recovery_apply_row(r, row) == 0) {
+			if (applier->version_id < version_id(1, 7, 0))
+				return;
+
+			/* Send acknowledgement */
+			xrow_encode_ok(&resp);
+			resp.sync = row->sync;
+			coio_write_xrow(&applier->io, &resp);
+			return;
+		}
+		/* Send the error message */
+		xrow_encode_error(&resp);
+		coio_write_xrow(&applier->io, &resp);
+		diag_raise();
+	} else if (iproto_type_is_error(row->type)) {
+		/* Re-throw remote error */
+		xrow_decode_error(row);
+		diag_raise();
+	} else {
+		/* Protocol error, notify the remote peer */
+		tnt_error(LoggedError, ER_UNEXPECTED_PACKET_TYPE, row->type);
+		xrow_encode_error(&resp);
+		coio_write_xrow(&applier->io, &resp);
+		diag_raise();
+	}
+}
+
 /**
  * Execute and process JOIN request (bootstrap the server).
  */
@@ -173,12 +207,8 @@ applier_join(struct applier *applier, struct recovery *r)
 			/* End of stream */
 			say_info("done");
 			break;
-		} else if (iproto_type_is_dml(row.type)) {
-			/* Regular snapshot row  (IPROTO_INSERT) */
-			recovery_apply_row(r, &row);
-		} else /* error or unexpected packet */ {
-			xrow_decode_error(&row);  /* rethrow error */
 		}
+		applier_process_row(applier, r, &row);
 	}
 
 	/* Decode end of stream packet */
@@ -259,9 +289,7 @@ applier_subscribe(struct applier *applier, struct recovery *r)
 		applier->lag = ev_now(loop()) - row.tm;
 		applier->last_row_time = ev_now(loop());
 
-		if (iproto_type_is_error(row.type))
-			xrow_decode_error(&row);  /* error */
-		recovery_apply_row(r, &row);
+		applier_process_row(applier, r, &row);
 
 		iobuf_reset(iobuf);
 		fiber_gc();
@@ -338,8 +366,6 @@ applier_f(va_list ap)
 			assert(0);
 			return;
 		} catch (ClientError *e) {
-			/* log logical error which caused replica to stop */
-			e->log();
 			applier_disconnect(applier, e, APPLIER_STOPPED);
 			throw;
 		} catch (FiberIsCancelled *e) {
