@@ -60,6 +60,7 @@ set (core_sources
      memory.c
      fiber.c
      cbus.c
+     cpipe_call.cc
      exception.cc
      coro.c
      reflection.c

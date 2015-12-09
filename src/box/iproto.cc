@@ -929,96 +929,28 @@ iproto_init()
 	cbus_join(&net_tx_bus, &tx_pipe);
 }
 
-/**
- * Since there is no way to "synchronously" change the
- * state of the io thread, to change the listen port
- * we need to bounce a couple of messages to and
- * from this thread.
- */
-struct iproto_set_listen_msg: public cmsg
-{
-	/**
-	 * If there was an error setting the listen port,
-	 * this will contain the error when the message
-	 * returns to the caller.
-	 */
-	struct diag diag;
-	/**
-	 * The uri to set.
-	 */
-	const char *uri;
-	/**
-	 * The way to tell the caller about the end of
-	 * bind.
-	 */
-	struct cmsg_notify wakeup;
-};
-
-/**
- * The bind has finished, notify the caller.
- */
 static void
-iproto_on_bind(void *arg)
+iproto_do_set_listen(struct cpipe_call *call, void *param)
 {
-	cpipe_push(&tx_pipe, (struct cmsg *) arg);
-}
+	const char *uri = (const char *)param;
 
-static void
-iproto_do_set_listen(struct cmsg *m)
-{
-	struct iproto_set_listen_msg *msg =
-		(struct iproto_set_listen_msg *) m;
-	try {
-		if (evio_service_is_active(&binary))
-			evio_service_stop(&binary);
+	if (evio_service_is_active(&binary))
+		evio_service_stop(&binary);
 
-		if (msg->uri != NULL) {
-			binary.on_bind = iproto_on_bind;
-			binary.on_bind_param = &msg->wakeup;
-			evio_service_start(&binary, msg->uri);
-		} else {
-			iproto_on_bind(&msg->wakeup);
-		}
-	} catch (Exception *e) {
-		diag_move(&fiber()->diag, &msg->diag);
-		iproto_on_bind(&msg->wakeup);
+	if (uri == NULL) {
+		cpipe_call_done(call);
+		return;
 	}
-}
 
-static void
-iproto_set_listen_msg_init(struct iproto_set_listen_msg *msg,
-			    const char *uri)
-{
-	static cmsg_hop route[] = { { iproto_do_set_listen, NULL }, };
-	cmsg_init(msg, route);
-	msg->uri = uri;
-	diag_create(&msg->diag);
-
-	cmsg_notify_init(&msg->wakeup);
+	binary.on_bind = (void(*)(void *))cpipe_call_done;
+	binary.on_bind_param = call;
+	evio_service_start(&binary, uri);
 }
 
 void
 iproto_set_listen(const char *uri)
 {
-	/**
-	 * This is a tricky orchestration for something
-	 * that should be pretty easy at the first glance:
-	 * change the listen uri in the io thread.
-	 *
-	 * To do it, create a message which sets the new
-	 * uri, and another one, which will alert tx
-	 * thread when bind() on the new port is done.
-	 */
-	static struct iproto_set_listen_msg msg;
-	iproto_set_listen_msg_init(&msg, uri);
-
-	cpipe_push(&net_pipe, &msg);
-	/** Wait for the end of bind. */
-	fiber_yield();
-	if (! diag_is_empty(&msg.diag)) {
-		diag_move(&msg.diag, &fiber()->diag);
-		diag_raise();
-	}
+	cpipe_call(&net_pipe, &tx_pipe, iproto_do_set_listen, (void *)uri);
 }
 
 /* vim: set foldmethod=marker */

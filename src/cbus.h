@@ -42,6 +42,7 @@ extern "C" {
 
 struct cmsg;
 struct cpipe;
+struct cpipe_call;
 typedef void (*cmsg_f)(struct cmsg *);
 
 enum cbus_stat_name {
@@ -480,6 +481,27 @@ void
 cpipe_fiber_pool_create(struct cpipe_fiber_pool *pool,
 			const char *name, struct cpipe *pipe,
 			int max_pool_size, float idle_timeout);
+
+/**
+ * Implement a cross-thread call, via a cpipe.
+ * The caller fiber blocks until the call is completed.
+ * For result and arguments passing use the memory block pointed by
+ * userdata.
+ * Eg:
+ * struct cpipe *request_pipe, *response_pipe;
+ * void do_fuss(struct cpipe_call *call, void *userdata)
+ * {
+ *   (int*)userdata = 42;
+ *   cpipe_call_done(call);
+ * }
+ * int result;
+ * cpipe_call(request_pipe, response_pipe, do_fuss, &result);
+ */
+void cpipe_call(struct cpipe *request_pipe, struct cpipe *response_pipe,
+                void(*fn)(struct cpipe_call*, void *),
+                void *userdata);
+
+void cpipe_call_done(struct cpipe_call *);
 
 #if defined(__cplusplus)
 } /* extern "C" */
