@@ -337,6 +337,8 @@ check_cfg()
 extern "C" void
 load_cfg()
 {
+	int hot_standby_mode = cfg_geti("__hotstandby");
+
 	const char *work_dir = cfg_gets("work_dir");
 	if (work_dir != NULL && chdir(work_dir) == -1)
 		panic_syserror("can't chdir to `%s'", work_dir);
@@ -413,8 +415,9 @@ load_cfg()
 	/*
 	 * pid file check must happen before logger init in order for the
 	 * error message to show in stderr
+	 * (unless in botched hot standby mode)
 	 */
-	if (pid_file != NULL) {
+	if (pid_file != NULL && !hot_standby_mode) {
 		pid_t other_pid = -1;
 		pid_file_handle = pidfile_open(pid_file, 0644, &other_pid);
 		if (pid_file_handle == NULL) {
@@ -457,7 +460,21 @@ load_cfg()
 
 	title_set_custom(cfg_gets("custom_proc_title"));
 	title_update();
-	box_load_cfg();
+	box_load_cfg(hot_standby_mode);
+
+	if (hot_standby_mode && pid_file != NULL) {
+		/* create pid file now (forced) */
+		assert(pid_file_handle == NULL);
+		unlink(pid_file);
+		pid_file_handle = pidfile_open(pid_file, 0644, NULL);
+		if (pid_file_handle == NULL) {
+			say_syserror(
+				"failed to create pid file '%s'",
+				pid_file);
+			exit(EXIT_FAILURE);
+		}
+		pidfile_write(pid_file_handle);
+	}
 }
 
 void

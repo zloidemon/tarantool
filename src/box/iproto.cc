@@ -953,4 +953,40 @@ iproto_set_listen(const char *uri)
 	cpipe_call(&net_pipe, &tx_pipe, iproto_do_set_listen, (void *)uri);
 }
 
+
+struct set_listen_args
+{
+	const char *uri;
+	int result;
+};
+
+static void
+iproto_do_try_set_listen(struct cpipe_call *call, void *param)
+{
+	struct set_listen_args *args;
+	args = (struct set_listen_args *)param;
+
+	if (evio_service_is_active(&binary))
+		evio_service_stop(&binary);
+
+	args->result = 0;
+
+	if (args->uri != NULL) {
+		binary.on_bind = NULL;
+		binary.on_bind_param = NULL;
+		args->result = evio_service_try_start(&binary, args->uri);
+	}
+
+	cpipe_call_done(call);
+}
+
+int
+iproto_try_set_listen(const char *uri)
+{
+	struct set_listen_args args;
+	args.uri = uri;
+	cpipe_call(&net_pipe, &tx_pipe, iproto_do_try_set_listen, &args);
+	return args.result;
+}
+
 /* vim: set foldmethod=marker */

@@ -125,6 +125,10 @@ evio_service_start(struct evio_service *service, const char *uri);
 void
 evio_service_stop(struct evio_service *service);
 
+/** Like evio_service_start but don't retry if EADDRINUSE */
+int
+evio_service_try_start(struct evio_service *service, const char *uri);
+
 void
 evio_socket(struct ev_io *coio, int domain, int type, int protocol);
 

@@ -323,6 +323,24 @@ evio_service_init(ev_loop *loop,
 void
 evio_service_start(struct evio_service *service, const char *uri)
 {
+	if (evio_service_try_start(service, uri) == -1) {
+		say_info("%s: started", evio_service_name(service));
+		/* Try again after a delay. */
+		say_warn("%s: %s is already in use, will "
+			 "retry binding after %lf seconds.",
+			 evio_service_name(service),
+			 sio_strfaddr(&service->addr, service->addr_len),
+			 BIND_RETRY_DELAY);
+
+		ev_timer_set(&service->timer,
+			     BIND_RETRY_DELAY, BIND_RETRY_DELAY);
+		ev_timer_start(service->loop, &service->timer);
+	}
+}
+
+int
+evio_service_try_start(struct evio_service *service, const char *uri)
+{
 	struct uri u;
 	if (uri_parse(&u, uri) || u.service == NULL)
 		tnt_raise(SocketError, -1, "invalid uri for bind: %s", uri);
@@ -336,21 +354,14 @@ evio_service_start(struct evio_service *service, const char *uri)
 
 	assert(! ev_is_active(&service->ev));
 
-	say_info("%s: started", evio_service_name(service));
-
-	if (evio_service_bind_and_listen(service)) {
-		/* Try again after a delay. */
-		say_warn("%s: %s is already in use, will "
-			 "retry binding after %lf seconds.",
-			 evio_service_name(service),
-			 sio_strfaddr(&service->addr, service->addr_len),
-			 BIND_RETRY_DELAY);
-
-		ev_timer_set(&service->timer,
-			     BIND_RETRY_DELAY, BIND_RETRY_DELAY);
-		ev_timer_start(service->loop, &service->timer);
+	if (evio_service_bind_and_listen(service) == 0) {
+		say_info("%s: started", evio_service_name(service));
+		return 0;
 	}
+
+	return -1;
 }
+
 
 /** It's safe to stop a service which is not started yet. */
 void

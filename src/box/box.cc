@@ -960,7 +960,7 @@ thread_pool_trim()
 }
 
 static inline void
-box_init(void)
+box_init(int hot_standby_mode)
 {
 	error_init();
 
@@ -1005,12 +1005,27 @@ box_init(void)
 	/* Use the first replica by URI as a bootstrap leader */
 	struct applier *applier = cluster_applier_first();
 
+	/* bind listener now - unless in HS mode */
+	port_init();
+	iproto_init();
+	const char *listen = cfg_gets("listen");
+	if (!hot_standby_mode && iproto_try_set_listen(listen) == -1) {
+		tnt_raise(SocketError, -1,
+			  "address already in use: %s", listen);
+	}
+
 	if (recovery_has_data(recovery)) {
 		/* Tell Sophia engine LSN it must recover to. */
 		int64_t checkpoint_id =
 			recovery_last_checkpoint(recovery);
 		engine_recover_to_checkpoint(checkpoint_id);
 	} else if (applier != NULL && !box_cfg_listen_eq(&applier->uri)) {
+
+		/* refuse if hot standby mode active */
+		if (hot_standby_mode)
+			tnt_raise(SystemError, "can't init replica "
+				  "while in hot standby mode");
+
 		/* Generate Server-UUID */
 		tt_uuid_create(&recovery->server_uuid);
 
@@ -1027,6 +1042,11 @@ box_init(void)
 		int64_t checkpoint_id = vclock_sum(&recovery->vclock);
 		engine_checkpoint(checkpoint_id);
 	} else {
+		/* refuse if hot standby mode active */
+		if (hot_standby_mode)
+			tnt_raise(SystemError, "can't init new storage "
+				  "while in hot standby mode");
+
 		/* Initialize the first server of a new cluster */
 		recovery_bootstrap(recovery);
 		box_set_cluster_uuid();
@@ -1036,14 +1056,14 @@ box_init(void)
 	}
 	fiber_gc();
 
-	title("orphan");
-	recovery_follow_local(recovery, "hot_standby",
-			      cfg_getd("wal_dir_rescan_delay"));
-	title("hot_standby");
+	if (hot_standby_mode) {
+		title("orphan");
+		recovery_follow_local(recovery, "hot_standby",
+				      cfg_getd("wal_dir_rescan_delay"));
+		title("hot_standby");
 
-	port_init();
-	iproto_init();
-	box_set_listen();
+		box_set_listen();
+	}
 
 	int rows_per_wal = box_check_rows_per_wal(cfg_geti("rows_per_wal"));
 	enum wal_mode wal_mode = box_check_wal_mode(cfg_gets("wal_mode"));
@@ -1072,10 +1092,10 @@ box_init(void)
 }
 
 void
-box_load_cfg()
+box_load_cfg(int hot_standby_mode)
 {
 	try {
-		box_init();
+		box_init(hot_standby_mode);
 	} catch (Exception *e) {
 		e->log();
 		panic("can't initialize storage: %s", e->get_errmsg());

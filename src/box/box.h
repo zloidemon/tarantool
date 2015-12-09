@@ -50,7 +50,7 @@ struct xrow_header;
 struct obuf;
 
 /** To be called at program start. */
-void box_load_cfg();
+void box_load_cfg(int hot_standby_mode);
 /** To be called at program end. */
 void box_free(void);
 

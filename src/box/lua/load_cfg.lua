@@ -122,6 +122,7 @@ local template_cfg = {
     coredump            = 'boolean',
     snapshot_period     = 'number',
     snapshot_count      = 'number',
+    __hotstandby        = 'boolean',
 }
 
 local function normalize_uri(port)
