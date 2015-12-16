@@ -75,6 +75,7 @@ add_library(box STATIC
     lua/error.cc
     lua/session.c
     lua/net_box.c
+    lua/xlog_parser.cc
     ${bin_sources})
 
 add_dependencies(box build_bundled_libs)
