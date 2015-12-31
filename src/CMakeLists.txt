@@ -11,43 +11,29 @@ include_directories(${READLINE_INCLUDE_DIR})
 
 set(LIBUTIL_FREEBSD_SRC ${CMAKE_SOURCE_DIR}/third_party/libutil_freebsd)
 include_directories(${LIBUTIL_FREEBSD_SRC})
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-# Compile src/lua/*.lua files into src/lua/*.lua.c sources
-set(lua_sources)
-lua_source(lua_sources lua/init.lua)
-lua_source(lua_sources lua/fiber.lua)
-lua_source(lua_sources lua/buffer.lua)
-lua_source(lua_sources lua/uuid.lua)
-lua_source(lua_sources lua/digest.lua)
-lua_source(lua_sources lua/msgpackffi.lua)
-lua_source(lua_sources lua/uri.lua)
-lua_source(lua_sources lua/console.lua)
-lua_source(lua_sources lua/socket.lua)
-lua_source(lua_sources lua/errno.lua)
-lua_source(lua_sources lua/log.lua)
-lua_source(lua_sources lua/help.lua)
-lua_source(lua_sources lua/help_en_US.lua)
-lua_source(lua_sources lua/tap.lua)
-lua_source(lua_sources lua/fio.lua)
-lua_source(lua_sources lua/csv.lua)
-lua_source(lua_sources lua/strict.lua)
-lua_source(lua_sources lua/clock.lua)
-lua_source(lua_sources lua/title.lua)
-lua_source(lua_sources ../third_party/luafun/fun.lua)
-# LuaJIT jit.* library
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/bc.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/bcsave.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/dis_x86.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/dis_x64.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/dump.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/vmdef.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/v.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/p.lua")
-lua_source(lua_sources "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/zone.lua")
+# Compile src/lua/*.lua files into src/lua/*.lua.h sources
+lua_source(lua_sources
+    @builtin lua/init.lua lua/fiber.lua lua/buffer.lua
+             lua/uuid.lua lua/digest.lua lua/msgpackffi.lua
+             lua/uri.lua lua/console.lua lua/socket.lua lua/errno.lua
+             lua/log.lua lua/help.lua lua/help_en_US.lua lua/tap.lua
+             lua/fio.lua lua/csv.lua lua/strict.lua lua/clock.lua
+             lua/title.lua
+    @builtin/luafun
+             ../third_party/luafun/fun.lua
+    @builtin/luajit/jit
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/bc.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/bcsave.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/dis_x86.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/dis_x64.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/dump.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/vmdef.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/v.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/p.lua"
+             "${CMAKE_BINARY_DIR}/third_party/luajit/src/jit/zone.lua")
 
-add_custom_target(generate_lua_sources
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src/box
-    DEPENDS ${lua_sources})
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${lua_sources})
 
 add_custom_target(ragel

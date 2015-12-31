@@ -37,35 +37,64 @@ macro(set_source_files_compile_flags)
     unset(_lang)
 endmacro(set_source_files_compile_flags)
 
-# A helper function to compile *.lua source into *.lua.c sources
-function(lua_source varname filename)
-    if (IS_ABSOLUTE "${filename}")
-        set (srcfile "${filename}")
-        set (tmpfile "${filename}.new.c")
-        set (dstfile "${filename}.c")
-    else(IS_ABSOLUTE "${filename}")
-        set (srcfile "${CMAKE_CURRENT_SOURCE_DIR}/${filename}")
-        set (tmpfile "${CMAKE_CURRENT_BINARY_DIR}/${filename}.new.c")
-        set (dstfile "${CMAKE_CURRENT_BINARY_DIR}/${filename}.c")
-    endif(IS_ABSOLUTE "${filename}")
-    get_filename_component(module ${filename} NAME_WE)
-    get_filename_component(_name ${dstfile} NAME)
-    string(REGEX REPLACE "${_name}$" "" dstdir ${dstfile})
-    if (IS_DIRECTORY ${dstdir})
-    else()
-        file(MAKE_DIRECTORY ${dstdir})
-    endif()
+# lua_source(VAR_NAME file1.lua ...)
+#
+# Emit rules for compiling lua sources; the list of generated files
+# is saved in VAR_NAME in the caller scope. Note: files are created
+# in ${CMAKE_CURRENT_BINARY_DIR}/lua.
+#
+# Arguments starting with @ are commands:
+#   @<vinstall_path> - source file name is recorded in compiled module,
+#                      modify recorded name to appear as if the file was
+#                      installed in <vinstall_path>, ex: @bultin/foo
+function(lua_source varname)
+    set(generated)
+    set(vinstall_path)
+    set(luajit_cmd
+        env LUA_PATH=${CMAKE_BINARY_DIR}/third_party/luajit/src/?.lua
+        ${CMAKE_BINARY_DIR}/third_party/luajit/src/luajit)
+    foreach(srcfile ${ARGN})
+        if ("${srcfile}" MATCHES "^@")
+            set(vinstall_path "${srcfile}")
+        else ()
+            get_filename_component(srcfile ${srcfile} ABSOLUTE)
+            get_filename_component(filename ${srcfile} NAME)
+            get_filename_component(filename_we ${srcfile} NAME_WE)
+            set (dstdir "${CMAKE_CURRENT_BINARY_DIR}/lua")
+            set (rawfile "${dstdir}/${filename_we}.raw")
+            set (tmpfile "${dstdir}/${filename}.new.h")
+            set (dstfile "${dstdir}/${filename}.h")
+            if (NOT IS_DIRECTORY ${dstdir})
+                file(MAKE_DIRECTORY ${dstdir})
+            endif()
 
-    ADD_CUSTOM_COMMAND(OUTPUT ${dstfile}
-        COMMAND ${ECHO} 'const char ${module}_lua[] =' > ${tmpfile}
-        COMMAND ${CMAKE_BINARY_DIR}/extra/txt2c ${srcfile} >> ${tmpfile}
-        COMMAND ${ECHO} '\;' >> ${tmpfile}
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${tmpfile} ${dstfile}
-        COMMAND ${CMAKE_COMMAND} -E remove ${tmpfile}
-        DEPENDS ${srcfile} txt2c libluajit)
+            if ("${vinstall_path}" STREQUAL "")
+                set(instname_stage)
+            else ()
+                set(instname_stage COMMAND
+                    ${CMAKE_SOURCE_DIR}/extra/lua_instname.py
+                    "-r${vinstall_path}/${filename}" ${rawfile})
+            endif ()
 
-    set(var ${${varname}})
-    set(${varname} ${var} ${dstfile} PARENT_SCOPE)
+            # 1. compile and save binary bytecode in ${rawfile}
+            # 2. lint
+            # 3. fix recorded file name in ${rawfile}
+            # 4. convert ${rawfile} to a C header file
+            #    (put bytecode in a static array)
+            ADD_CUSTOM_COMMAND(OUTPUT ${dstfile}
+                COMMAND ${luajit_cmd} -bg ${srcfile} ${rawfile}
+                ${instname_stage}
+                COMMAND ${luajit_cmd} -bg ${rawfile} ${tmpfile}
+                COMMAND ${CMAKE_COMMAND} -E copy ${tmpfile} ${dstfile}
+                COMMAND ${CMAKE_COMMAND} -E remove ${rawfile} ${tmpfile}
+                DEPENDS ${CMAKE_SOURCE_DIR}/extra/lua_instname.py
+                DEPENDS ${srcfile} libluajit)
+
+            set(generated ${generated} ${dstfile})
+        endif ()
+    endforeach()
+
+    set(${varname} ${generated} PARENT_SCOPE)
 endfunction()
 
 function(bin_source varname srcfile dstfile)

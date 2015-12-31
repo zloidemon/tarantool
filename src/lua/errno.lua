@@ -1,7 +1,5 @@
 -- errno.lua (internal file)
 
-do
-
 local ffi = require 'ffi'
 
 ffi.cdef[[
@@ -10,15 +8,15 @@ ffi.cdef[[
     int errno_set(int new_errno);
 ]]
 
-local exports = require('errno')
-exports.strerror = function(errno)
+local errno = require('errno')
+errno.strerror = function(errno)
     if errno == nil then
         errno = ffi.C.errno_get()
     end
     return ffi.string(ffi.C.strerror(tonumber(errno)))
 end
 
-setmetatable(exports, {
+setmetatable(errno, {
     __newindex  = function() error("Can't create new errno constants") end,
     __call = function(self, new_errno)
         local res
@@ -29,4 +27,4 @@ setmetatable(exports, {
     end
 })
 
-end
+return errno

@@ -37,8 +37,6 @@
 #include <say.h>
 #include "lua/utils.h"
 
-extern char errno_lua[];
-
 void
 tarantool_lua_errno_init(struct lua_State *L)
 {
@@ -294,10 +292,6 @@ tarantool_lua_errno_init(struct lua_State *L)
 		lua_rawset(L, -3);
 	}
 	lua_pop(L, -1);
-
-	if (luaL_dostring(L, errno_lua))
-		panic("Error loading Lua source (internal)/errno.lua: %s",
-			      lua_tostring(L, -1));
 }
 
 int

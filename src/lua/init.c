@@ -70,70 +70,78 @@ struct ibuf *tarantool_lua_ibuf = &tarantool_lua_ibuf_body;
 struct fiber *script_fiber;
 bool start_loop = true;
 
-/* contents of src/lua/ files */
-extern char strict_lua[],
-	uuid_lua[],
-	msgpackffi_lua[],
-	fun_lua[],
-	digest_lua[],
-	init_lua[],
-	buffer_lua[],
-	fiber_lua[],
-	log_lua[],
-	uri_lua[],
-	socket_lua[],
-	console_lua[],
-	help_lua[],
-	help_en_US_lua[],
-	tap_lua[],
-	fio_lua[],
-	/* jit.* library */
-	vmdef_lua[],
-	bc_lua[],
-	bcsave_lua[],
-	dis_x86_lua[],
-	dis_x64_lua[],
-	dump_lua[],
-	csv_lua[],
-	v_lua[],
-	clock_lua[],
-	title_lua[],
-	p_lua[], /* LuaJIT 2.1 profiler */
-	zone_lua[] /* LuaJIT 2.1 profiler */;
+/* compiled lua modules */
+#include "lua/init.lua.h"
+#include "lua/fiber.lua.h"
+#include "lua/buffer.lua.h"
+#include "lua/uuid.lua.h"
+#include "lua/digest.lua.h"
+#include "lua/msgpackffi.lua.h"
+#include "lua/uri.lua.h"
+#include "lua/console.lua.h"
+#include "lua/socket.lua.h"
+#include "lua/errno.lua.h"
+#include "lua/log.lua.h"
+#include "lua/help.lua.h"
+#include "lua/help_en_US.lua.h"
+#include "lua/tap.lua.h"
+#include "lua/fio.lua.h"
+#include "lua/csv.lua.h"
+#include "lua/strict.lua.h"
+#include "lua/clock.lua.h"
+#include "lua/title.lua.h"
+#include "lua/fun.lua.h"
+#include "lua/bc.lua.h"
+#include "lua/bcsave.lua.h"
+#include "lua/dis_x86.lua.h"
+#include "lua/dis_x64.lua.h"
+#include "lua/dump.lua.h"
+#include "lua/vmdef.lua.h"
+#include "lua/v.lua.h"
+#include "lua/p.lua.h"
+#include "lua/zone.lua.h"
 
-static const char *lua_modules[] = {
+#define BC(name) (name), sizeof(name)
+
+static const struct module {
+	const char *name;
+	const char *code;
+	size_t code_size;
+
+} lua_modules[] = {
 	/* Make it first to affect load of all other modules */
-	"strict", strict_lua,
-	"tarantool", init_lua,
-	"fiber", fiber_lua,
-	"buffer", buffer_lua,
-	"msgpackffi", msgpackffi_lua,
-	"fun", fun_lua,
-	"digest", digest_lua,
-	"uuid", uuid_lua,
-	"log", log_lua,
-	"uri", uri_lua,
-	"fio", fio_lua,
-	"csv", csv_lua,
-	"clock", clock_lua,
-	"socket", socket_lua,
-	"console", console_lua,
-	"title", title_lua,
-	"tap", tap_lua,
-	"help.en_US", help_en_US_lua,
-	"help", help_lua,
+	{"strict",      BC(luaJIT_BC_strict)},
+	{"errno",       BC(luaJIT_BC_errno)},
+	{"tarantool",   BC(luaJIT_BC_init)},
+	{"fiber",       BC(luaJIT_BC_fiber)},
+	{"buffer",      BC(luaJIT_BC_buffer)},
+	{"msgpackffi",  BC(luaJIT_BC_msgpackffi)},
+	{"fun",         BC(luaJIT_BC_fun)},
+	{"digest",      BC(luaJIT_BC_digest)},
+	{"uuid",        BC(luaJIT_BC_uuid)},
+	{"log",         BC(luaJIT_BC_log)},
+	{"uri",         BC(luaJIT_BC_uri)},
+	{"fio",         BC(luaJIT_BC_fio)},
+	{"csv",         BC(luaJIT_BC_csv)},
+	{"clock",       BC(luaJIT_BC_clock)},
+	{"socket",      BC(luaJIT_BC_socket)},
+	{"console",     BC(luaJIT_BC_console)},
+	{"title",       BC(luaJIT_BC_title)},
+	{"tap",         BC(luaJIT_BC_tap)},
+	{"help.en_US",  BC(luaJIT_BC_help_en_US)},
+	{"help",        BC(luaJIT_BC_help)},
 	/* jit.* library */
-	"jit.vmdef", vmdef_lua,
-	"jit.bc", bc_lua,
-	"jit.bcsave", bcsave_lua,
-	"jit.dis_x86", dis_x86_lua,
-	"jit.dis_x64", dis_x64_lua,
-	"jit.dump", dump_lua,
-	"jit.v", v_lua,
+	{"jit.vmdef",   BC(luaJIT_BC_vmdef)},
+	{"jit.bc",      BC(luaJIT_BC_bc)},
+	{"jit.bcsave",  BC(luaJIT_BC_bcsave)},
+	{"jit.dis_x86", BC(luaJIT_BC_dis_x86)},
+	{"jit.dis_x64", BC(luaJIT_BC_dis_x64)},
+	{"jit.dump",    BC(luaJIT_BC_dump)},
+	{"jit.v",       BC(luaJIT_BC_v)},
 	/* Profiler */
-	"jit.p", p_lua,
-	"jit.zone", zone_lua,
-	NULL
+	{"jit.p",       BC(luaJIT_BC_p)},
+	{"jit.zone",    BC(luaJIT_BC_zone)},
+	{0, 0, 0}
 };
 
 /*
@@ -400,22 +408,19 @@ tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 	lua_pop(L, 1);
 
 	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
-	for (const char **s = lua_modules; *s; s += 2) {
-		const char *modname = *s;
-		const char *modsrc = *(s + 1);
-		const char *modfile = lua_pushfstring(L,
-			"@builtin/%s.lua", modname);
-		if (luaL_loadbuffer(L, modsrc, strlen(modsrc), modfile))
+	for (const struct module *mod = lua_modules; mod->name; mod++) {
+		lua_pushstring(L, mod->name);
+		if (luaL_loadbuffer(L, mod->code, mod->code_size, 0))
 			panic("Error loading Lua module %s...: %s",
-			      modname, lua_tostring(L, -1));
-		lua_pushstring(L, modname);
+			      mod->name, lua_tostring(L, -1));
+		lua_pushvalue(L, -2);
 		lua_call(L, 1, 1);
 		if (!lua_isnil(L, -1)) {
-			lua_setfield(L, -3, modname); /* package.loaded.modname = t */
+			lua_setfield(L, -3, mod->name); /* package.loaded.modname = t */
 		} else {
 			lua_pop(L, 1); /* nil */
 		}
-		lua_pop(L, 1); /* chunkname */
+		lua_pop(L, 1); /* modname */
 	}
 	lua_pop(L, 1); /* _LOADED */
 

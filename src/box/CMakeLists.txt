@@ -1,20 +1,14 @@
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/box/lua)
-
 include_directories(${SOPHIA_INCLUDE_DIR})
 
-set(lua_sources)
-lua_source(lua_sources lua/load_cfg.lua)
-lua_source(lua_sources lua/schema.lua)
-lua_source(lua_sources lua/tuple.lua)
-lua_source(lua_sources lua/session.lua)
-lua_source(lua_sources lua/snapshot_daemon.lua)
-lua_source(lua_sources lua/net_box.lua)
+lua_source(lua_sources @builtin/box
+           lua/load_cfg.lua lua/schema.lua
+           lua/tuple.lua lua/session.lua
+           lua/snapshot_daemon.lua
+           lua/net_box.lua)
+
 set(bin_sources)
 bin_source(bin_sources bootstrap.snap bootstrap.h)
 
-add_custom_target(box_generate_lua_sources
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src/box
-    DEPENDS ${lua_sources})
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${lua_sources})
 
 add_library(box
