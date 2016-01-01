@@ -2,7 +2,7 @@ include_directories(${SOPHIA_INCLUDE_DIR})
 
 lua_source(lua_sources @builtin/box
            lua/load_cfg.lua lua/schema.lua
-           @@nolint@@ lua/tuple.lua @@lint@@ lua/session.lua
+           lua/tuple.lua lua/session.lua
            lua/snapshot_daemon.lua
            lua/net_box.lua)
 

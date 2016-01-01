@@ -51,9 +51,6 @@
  */
 
 static const char *tuplelib_name = "box.tuple";
-static const char *tuple_iteratorlib_name = "box.tuple.iterator";
-
-extern char tuple_lua[]; /* Lua source */
 
 uint32_t CTID_CONST_STRUCT_TUPLE_REF;
 
@@ -359,19 +356,14 @@ lbox_pushtuple(struct lua_State *L, struct tuple *tuple)
 	luaL_setcdatagc(L, -2);
 }
 
-static const struct luaL_reg lbox_tuple_meta[] = {
-	{"__gc", lbox_tuple_gc},
-	{"slice", lbox_tuple_slice},
-	{"transform", lbox_tuple_transform},
+static const struct luaL_reg lbox_tuplelib_internal[] = {
+	{"tuple_slice", lbox_tuple_slice},
+	{"tuple_transform", lbox_tuple_transform},
 	{NULL, NULL}
 };
 
 static const struct luaL_reg lbox_tuplelib[] = {
 	{"new", lbox_tuple_new},
-	{NULL, NULL}
-};
-
-static const struct luaL_reg lbox_tuple_iterator_meta[] = {
 	{NULL, NULL}
 };
 
@@ -381,14 +373,9 @@ void
 box_lua_tuple_init(struct lua_State *L)
 {
 	/* export C functions to Lua */
-	luaL_newmetatable(L, tuplelib_name);
-	luaL_register(L, NULL, lbox_tuple_meta);
-	/* save Lua/C functions to the global variable (cleaned by tuple.lua) */
-	lua_setglobal(L, "cfuncs");
-	luaL_register_type(L, tuple_iteratorlib_name,
-			   lbox_tuple_iterator_meta);
+	luaL_register(L, "box.internal", lbox_tuplelib_internal);
 	luaL_register_module(L, tuplelib_name, lbox_tuplelib);
-	lua_pop(L, 1);
+	lua_pop(L, 2);
 
 	luamp_set_encode_extension(luamp_encode_extension_box);
 

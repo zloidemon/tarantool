@@ -250,14 +250,12 @@ end
 msgpackffi.on_encode(const_tuple_ref_t, tuple_to_msgpack)
 
 
--- cfuncs table is set by C part
-
 local methods = {
     ["next"]        = tuple_next;
     ["ipairs"]      = tuple_ipairs;
     ["pairs"]       = tuple_ipairs; -- just alias for ipairs()
-    ["slice"]       = cfuncs.slice;
-    ["transform"]   = cfuncs.transform;
+    ["slice"]       = internal.tuple_slice;
+    ["transform"]   = internal.tuple_transform;
     ["find"]        = tuple_find;
     ["findall"]     = tuple_findall;
     ["unpack"]      = tuple_unpack;
@@ -305,9 +303,6 @@ ffi.metatype(tuple_iterator_t, {
     __call = tuple_iterator_next;
     __tostring = function(it) return "<tuple iterator>" end;
 })
-
--- Remove the global variable
-cfuncs = nil
 
 -- internal api for box.select and iterators
 box.tuple.bless = tuple_bless
