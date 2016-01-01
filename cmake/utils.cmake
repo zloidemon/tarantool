@@ -44,18 +44,27 @@ endmacro(set_source_files_compile_flags)
 # in ${CMAKE_CURRENT_BINARY_DIR}/lua.
 #
 # Arguments starting with @ are commands:
+#   @@lint@@, @@nolint@@ - lint on or off,
 #   @<vinstall_path> - source file name is recorded in compiled module,
 #                      modify recorded name to appear as if the file was
 #                      installed in <vinstall_path>, ex: @bultin/foo
 function(lua_source varname)
+    set(atat @@) # to prevent @VAR@ expansion in "@@lint@@" string
     set(generated)
     set(vinstall_path)
+    set(lint 1)
     set(luajit_cmd
         env LUA_PATH=${CMAKE_BINARY_DIR}/third_party/luajit/src/?.lua
         ${CMAKE_BINARY_DIR}/third_party/luajit/src/luajit)
     foreach(srcfile ${ARGN})
         if ("${srcfile}" MATCHES "^@")
-            set(vinstall_path "${srcfile}")
+            if ("${srcfile}" STREQUAL "${atat}lint${atat}")
+                set(lint 1)
+            elseif ("${srcfile}" STREQUAL "${atat}nolint${atat}")
+                set(lint 0)
+            else ()
+                set(vinstall_path "${srcfile}")
+            endif ()
         else ()
             get_filename_component(srcfile ${srcfile} ABSOLUTE)
             get_filename_component(filename ${srcfile} NAME)
@@ -76,6 +85,13 @@ function(lua_source varname)
                     "-r${vinstall_path}/${filename}" ${rawfile})
             endif ()
 
+            if ("${lint}" EQUAL 1)
+                set(lint_stage COMMAND ${luajit_cmd}
+                    ${CMAKE_SOURCE_DIR}/extra/lint.lua ${rawfile})
+            else ()
+                set(lint_stage)
+            endif ()
+
             # 1. compile and save binary bytecode in ${rawfile}
             # 2. lint
             # 3. fix recorded file name in ${rawfile}
@@ -83,10 +99,12 @@ function(lua_source varname)
             #    (put bytecode in a static array)
             ADD_CUSTOM_COMMAND(OUTPUT ${dstfile}
                 COMMAND ${luajit_cmd} -bg ${srcfile} ${rawfile}
+                ${lint_stage}
                 ${instname_stage}
                 COMMAND ${luajit_cmd} -bg ${rawfile} ${tmpfile}
                 COMMAND ${CMAKE_COMMAND} -E copy ${tmpfile} ${dstfile}
                 COMMAND ${CMAKE_COMMAND} -E remove ${rawfile} ${tmpfile}
+                DEPENDS ${CMAKE_SOURCE_DIR}/extra/lint.lua
                 DEPENDS ${CMAKE_SOURCE_DIR}/extra/lua_instname.py
                 DEPENDS ${srcfile} libluajit)
 

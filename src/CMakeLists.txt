@@ -21,6 +21,7 @@ lua_source(lua_sources
              lua/log.lua lua/help.lua lua/help_en_US.lua lua/tap.lua
              lua/fio.lua lua/csv.lua lua/strict.lua lua/clock.lua
              lua/title.lua
+    @@nolint@@
     @builtin/luafun
              ../third_party/luafun/fun.lua
     @builtin/luajit/jit
