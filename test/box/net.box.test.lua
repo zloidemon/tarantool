@@ -13,7 +13,6 @@ index = space:create_index('primary', { type = 'tree' })
 -- low level connection
 log.info("create connection")
 cn = remote:new(LISTEN.host, LISTEN.service)
-cn:_wait_state({active = true, error = true}, 1)
 log.info("state is %s", cn.state)
 
 cn:ping()
@@ -172,7 +171,7 @@ cn.space.net_box_test_space:get(354)
 -- reconnects after errors
 
 -- -- 1. no reconnect
-cn:_fatal('Test fatal error')
+cn:_fatal('Error injection')
 -- We expect the connection to enter 'closed' state due to 'reconnect_after'
 -- option missing, however 'error'->'closed' transition happens in some
 -- unrelated fiber, scheduling quirks bite (again) (sigh)
@@ -183,17 +182,16 @@ cn:call('test_foo')
 
 -- -- 2 reconnect
 cn = remote:new(LISTEN.host, LISTEN.service, { reconnect_after = .1 })
-cn:_wait_state({active = true}, 1)
 cn.space ~= nil
 
 cn.space.net_box_test_space:select({}, { iterator = 'ALL' })
-cn:_fatal 'Test error'
-cn:_wait_state({active = true, activew = true}, 2)
+cn:_fatal('Error injection')
+cn:wait_connected()
 cn:ping()
 cn.state
 cn.space.net_box_test_space:select({}, { iterator = 'ALL' })
 
-cn:_fatal 'Test error'
+cn:_fatal('Error injection')
 cn:_select(space.id, 0, {}, { iterator = 'ALL' })
 
 -- send broken packet (remote server will close socket)
@@ -209,7 +207,7 @@ cn1 = remote.new(LISTEN.host, LISTEN.service)
 cn1:_select(space.id, 0, {}, { iterator = 'ALL' })
 
 -- -- error while waiting for response
-type(fiber.create(function() fiber.sleep(.5) cn:_fatal('Test error') end))
+type(fiber.create(function() fiber.sleep(.5) cn:_fatal('Error injection') end))
 function pause() fiber.sleep(10) return true end
 
 cn:call('pause')
@@ -278,14 +276,6 @@ remote.self:wait_connected()
 
 -- cleanup database after tests
 space:drop()
-
-
--- admin console tests
-cnc = remote:new(os.getenv('ADMIN'))
-cnc.console ~= nil
-cnc:console('return 1, 2, 3, "string", nil')
-cnc:console('error("test")')
-cnc:console('a = {1, 2, 3, 4}; return a[3]')
 
 -- #545 user or password is not defined
 remote:new(LISTEN.host, LISTEN.service, { user = 'test' })
