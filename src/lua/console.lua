@@ -7,6 +7,7 @@ local log = require('log')
 local errno = require('errno')
 local urilib = require('uri')
 local ffi = require('ffi')
+local nc = require('net_connector')
 
 -- admin formatter must be able to encode any Lua variable
 local formatter = require('yaml').new()
@@ -86,34 +87,34 @@ end
 -- Evaluate command on remote server
 --
 local function remote_eval(self, line)
-    if not line then
-        if type(self.on_client_disconnect) == 'function' then
-            self:on_client_disconnect()
-        end
-        pcall(self.remote.close, self.remote)
+    if not line or self.remote.state ~= 'active' then
+        pcall(self.on_client_disconnect, self)
+        local errmsg = self.remote.errmsg
+        self.remote.close()
         self.remote = nil
+        -- restore local REPL mode
         self.eval = nil
         self.prompt = nil
         self.completion = nil
-        return ""
+        return (errmsg and format(false, errmsg)) or ''
     end
-    --
-    -- console connection: execute line as is
-    --
-    if self.remote.console then
-        return self.remote:console(line)
+    if self.remote.protocol == 'Binary' then
+        local err, hdr, body = nc.iproto_eval(
+            self.remote,
+            'return require("console").eval(...)', line)
+        if err then
+            return format(false, hdr)
+        elseif hdr[0] ~= 0 then
+            return format(false, body[0x31])
+        end
+        return body[0x30][1]
+    else
+        local err, res = nc.console_eval(self.remote, line .. '$EOF$\n')
+        if err then
+            return format(false, res)
+        end
+        return res
     end
-    --
-    -- binary connection: call remote 'console.eval' function
-    --
-    local status, res = pcall(self.remote.eval, self.remote,
-        "return require('console').eval(...)", line)
-    if not status then
-        -- remote request failed
-        return format(status, res)
-    end
-    -- return formatted output from remote
-    return res
 end
 
 --
@@ -310,26 +311,43 @@ local function connect(uri)
     end
 
     -- connect to remote host
-    local remote = require('net.box'):new(u.host, u.service,
-        { user = u.login, password = u.password })
+    local remote = nc.connect(u.host, u.service, {
+        user = u.login, password = u.password })
 
-    -- run disconnect trigger
-    if remote.state == 'closed' then
-        if type(self.on_client_disconnect) == 'function' then
-            self:on_client_disconnect()
+    remote.connect()
+    if not remote.wait_state('active') then
+        pcall(self.on_client_disconnect, self)
+        error('Connection is not established: ' .. remote.errmsg)
+    end
+
+    remote.host, remote.port = u.host, u.service
+
+    -- check connection && permissions
+    local err, info
+    if remote.protocol == 'Binary' then
+        local hdr, body
+        err, hdr, body = nc.iproto_eval(remote, 'return true')
+        if err then
+            info = hdr
+        elseif hdr[0] ~= 0 then
+            err = true
+            info = body[0x31]
+        end
+    else
+        local code, res = 'require("console").delimiter("$EOF$")\n'
+        err, res = nc.console_eval(remote, code)
+        if err then
+            info = res
+        elseif res ~= '---\n...\n' then
+            err = true
+            info = 'Unexpected response'
         end
     end
 
-    -- check connection && permissions
-    local status, reason
-    if remote.console then
-        status, reason = pcall(remote.console, remote, 'return true')
-    else
-        status, reason = pcall(remote.eval, remote, 'return true')
-    end
-    if not status then
-        remote:close() -- don't leak net.box connection
-        error(reason) -- re-throw original error (there is no better way)
+    if err then
+        pcall(self.on_client_disconnect, self)
+        remote.close()
+        error(info)
     end
 
     -- override methods

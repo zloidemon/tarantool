@@ -85,6 +85,7 @@ extern char strict_lua[],
 	log_lua[],
 	uri_lua[],
 	socket_lua[],
+	net_connector_lua[],
 	console_lua[],
 	help_lua[],
 	help_en_US_lua[],
@@ -122,6 +123,7 @@ static const char *lua_modules[] = {
 	"csv", csv_lua,
 	"clock", clock_lua,
 	"socket", socket_lua,
+	"net_connector", net_connector_lua,
 	"console", console_lua,
 	"title", title_lua,
 	"tap", tap_lua,
@@ -287,6 +289,9 @@ luaopen_tarantool(lua_State *L)
 }
 
 void
+tarantool_lua_iomux_init(struct lua_State *L);
+
+void
 tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 {
 	lua_State *L = luaL_newstate();
@@ -311,6 +316,7 @@ tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 	tarantool_lua_fio_init(L);
 	tarantool_lua_socket_init(L);
 	tarantool_lua_pickle_init(L);
+	tarantool_lua_iomux_init(L);
 	luaopen_msgpack(L);
 	lua_pop(L, 1);
 	luaopen_yaml(L);

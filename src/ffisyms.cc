@@ -60,8 +60,6 @@
  * LuaJIT FFI.
  */
 void *ffi_symbols[] = {
-	(void *) bswap_u32,
-	(void *) bswap_u64,
 	(void *) box_select,
 	(void *) box_insert,
 	(void *) box_replace,
@@ -131,7 +129,6 @@ void *ffi_symbols[] = {
 	(void *) csv_iterator_create,
 	(void *) csv_next,
 	(void *) csv_feed,
-	(void *) greeting_decode,
 	(void *) title_update,
 	(void *) title_get,
 	(void *) title_set_interpretor_name,

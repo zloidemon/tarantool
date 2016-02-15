@@ -195,7 +195,13 @@ cn:_fatal('Error injection')
 cn:_select(space.id, 0, {}, { iterator = 'ALL' })
 
 -- send broken packet (remote server will close socket)
-cn.s:syswrite(msgpack.encode(1) .. msgpack.encode('abc'))
+test_run:cmd("setopt delimiter ';'")
+do
+    local _, buf = cn._conn.begin_request()
+    local m = msgpack.encode(1) .. msgpack.encode('abc')
+    require('ffi').copy(buf:alloc(#m), m, #m)
+    test_run:cmd("setopt delimiter ''")
+end;
 fiber.sleep(.2)
 
 cn.state

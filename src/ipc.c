@@ -483,3 +483,33 @@ ipc_channel_get_msg_timeout(struct ipc_channel *ch,
 	}
 }
 
+void
+ipc_event_create(struct ipc_event *e)
+{
+        rlist_create(&e->waiters);
+}
+
+void
+ipc_event_signal(struct ipc_event *e)
+{
+	struct rlist copy;
+	rlist_create(&copy);
+	rlist_swap(&e->waiters, &copy);
+	while (! rlist_empty(&copy)) {
+		struct fiber *f;
+		f = rlist_shift_entry(&copy, struct fiber, state);
+		fiber_wakeup(f);
+	}
+}
+
+int
+ipc_event_wait_timeout(struct ipc_event *e, ev_tstamp timeout)
+{
+	struct fiber *f = fiber();
+        rlist_add_tail_entry(&e->waiters, f, state);
+        if (fiber_yield_timeout(timeout)) {
+		diag_set(TimedOut);
+                return -1;
+        }
+        return 0;
+}

@@ -29,6 +29,7 @@ lua_source(lua_sources lua/console.lua)
 lua_source(lua_sources lua/socket.lua)
 lua_source(lua_sources lua/errno.lua)
 lua_source(lua_sources lua/log.lua)
+lua_source(lua_sources lua/net_connector.lua)
 lua_source(lua_sources lua/help.lua)
 lua_source(lua_sources lua/help_en_US.lua)
 lua_source(lua_sources lua/tap.lua)
@@ -107,6 +108,7 @@ set (server_sources
      lua/console.c
      lua/digest.c
      lua/init.c
+     lua/iomux.c
      lua/fiber.c
      lua/trigger.c
      lua/ipc.c

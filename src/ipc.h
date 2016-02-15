@@ -367,6 +367,25 @@ ipc_channel_is_closed(struct ipc_channel *ch)
 	return ch->is_closed;
 }
 
+struct ipc_event {
+	struct rlist waiters;
+};
+
+void
+ipc_event_create(struct ipc_event *e);
+
+void
+ipc_event_signal(struct ipc_event *e);
+
+int
+ipc_event_wait_timeout(struct ipc_event *e, ev_tstamp timeout);
+
+static inline int
+ipc_event_wait(struct ipc_event *e)
+{
+        return ipc_event_wait_timeout(e, TIMEOUT_INFINITY);
+}
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

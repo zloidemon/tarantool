@@ -463,7 +463,16 @@ static int
 lbox_fiber_cancel(struct lua_State *L)
 {
 	struct fiber *f = lbox_checkfiber(L, 1);
-	fiber_cancel(f);
+	const char *m;
+	if ((m = lua_tostring(L, 2)) != NULL && m[0] == 'a') {
+		/* async cancel: doesn't yield */
+		assert(f->fid != 0);
+		f->flags |= FIBER_IS_CANCELLED;
+		if (f->flags & FIBER_IS_CANCELLABLE)
+			fiber_wakeup(f);
+	} else {
+		fiber_cancel(f);
+	}
 	/*
 	 * Check if we're ourselves cancelled.
 	 * This also implements cancel for the case when

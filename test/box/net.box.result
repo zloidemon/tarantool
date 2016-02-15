@@ -300,7 +300,7 @@ cn.space.net_box_test_space:insert{234, 1,2,3}
 ...
 cn.space.net_box_test_space.insert{234, 1,2,3}
 ---
-- error: 'builtin/box/net_box.lua..."]:<line>: Use space:method(...) instead space.method(...)'
+- error: Use space:insert(...) instead of space.insert(...)
 ...
 cn.space.net_box_test_space:replace{354, 1,2,3}
 ---
@@ -473,7 +473,7 @@ cn:ping()
 ...
 cn:call('test_foo')
 ---
-- error: Connection is not established
+- error: Error injection
 ...
 -- -- 2 reconnect
 cn = remote:new(LISTEN.host, LISTEN.service, { reconnect_after = .1 })
@@ -493,7 +493,7 @@ cn:_fatal('Error injection')
 ...
 cn:wait_connected()
 ---
-- active
+- true
 ...
 cn:ping()
 ---
@@ -517,9 +517,17 @@ cn:_select(space.id, 0, {}, { iterator = 'ALL' })
   - [354, 1, 2, 4]
 ...
 -- send broken packet (remote server will close socket)
-cn.s:syswrite(msgpack.encode(1) .. msgpack.encode('abc'))
+test_run:cmd("setopt delimiter ';'")
 ---
-- 5
+- true
+...
+do
+    local _, buf = cn._conn.begin_request()
+    local m = msgpack.encode(1) .. msgpack.encode('abc')
+    require('ffi').copy(buf:alloc(#m), m, #m)
+    test_run:cmd("setopt delimiter ''")
+end;
+---
 ...
 fiber.sleep(.2)
 ---
@@ -685,6 +693,7 @@ cn:timeout(.01):call('ret_after', 1)
 ...
 cn = remote:timeout(0.0000000001):new(LISTEN.host, LISTEN.service, { user = 'netbox', password = '123' })
 ---
+- error: Timeout exceeded
 ...
 cn = remote:timeout(1):new(LISTEN.host, LISTEN.service, { user = 'netbox', password = '123' })
 ---
