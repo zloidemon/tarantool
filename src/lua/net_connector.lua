@@ -18,6 +18,7 @@ local ibuf_decode   = msgpack.ibuf_decode
 local encode_auth
 local encode_select
 local encode_eval
+local parse_response
 
 -- select errors from box.error
 local E_UNKNOWN              = 0
@@ -121,6 +122,7 @@ function connect(host, port, opts)
         encode_auth  = internal.encode_auth
         encode_select = internal.encode_select
         encode_eval = internal.encode_eval
+        parse_response = internal.parse_response
     end
 
     local state           = ''
@@ -291,26 +293,15 @@ function connect(host, port, opts)
     end
 
     local function send_and_recv_iproto(deadline)
-        local data_len = recvb.wpos - recvb.rpos
-        local required
-        if data_len < 5 then
-            required = 5
-        else
-            -- PWN! insufficient input validation
-            local rpos, len = ibuf_decode(recvb.rpos)
-            required = (rpos - recvb.rpos) + len
-            if data_len >= required then
-                local hdr
-                rpos, hdr = ibuf_decode(rpos)
-                local body = {}
-                if rpos - recvb.rpos < required then
-                    rpos, body = ibuf_decode(rpos)
-                end
-                recvb.rpos = rpos
-                return nil, hdr, body
-            end
+        local packet_len, hdr, body = parse_response(recvb)
+        if packet_len == nil then
+            return E_NO_CONNECTION, 'Invalid response packet'
         end
-        local err, extra = send_and_recv(required, deadline)
+        if recvb.wpos - recvb.rpos >= packet_len then
+            recvb.rpos = recvb.rpos + packet_len
+            return nil, hdr, body
+        end
+        local err, extra = send_and_recv(packet_len, deadline)
         if err then
             return err, extra
         end

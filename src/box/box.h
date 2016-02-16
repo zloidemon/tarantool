@@ -58,6 +58,8 @@ void box_free(void);
 void
 box_atfork();
 
+bool
+box_is_initialized();
 
 void
 box_set_ro(bool ro);

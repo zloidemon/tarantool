@@ -183,6 +183,12 @@ process_rw(struct request *request, struct tuple **result)
 	}
 }
 
+bool
+box_is_initialized()
+{
+	return box_init_done;
+}
+
 void
 box_set_ro(bool ro)
 {

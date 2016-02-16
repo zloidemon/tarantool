@@ -34,7 +34,9 @@
 #include <msgpuck.h> /* mp_store_u32() */
 #include "scramble.h"
 
+#include "box/box.h"
 #include "box/iproto_constants.h"
+#include "box/tuple.h"
 #include "box/lua/tuple.h" /* luamp_convert_tuple() / luamp_convert_key() */
 
 #include "lua/msgpack.h"
@@ -398,6 +400,168 @@ netbox_encode_upsert(lua_State *L)
 	return 0;
 }
 
+static int
+parse_response_body(lua_State *L, const char **pi, const char *end)
+{
+	const char         *i = *pi;
+	uint32_t            num_cells, cur_cell;
+	bool                box_inited;
+	box_tuple_format_t *fmt;
+
+	box_inited = box_is_initialized();
+	if (box_inited)
+		fmt = box_tuple_format_default();
+
+	if (i == end || mp_typeof(*i) != MP_ARRAY ||
+		mp_check_array(i, end) > 0) {
+
+		return -1; /* parse error */
+	}
+
+	num_cells = mp_decode_array(&i);
+	lua_createtable(L, num_cells, 0);
+	for (cur_cell = 0; cur_cell < num_cells; cur_cell++) {
+		const char *object = i;
+		if (mp_check(&i, end) > 0) {
+			return -1; /* parse error */
+		}
+		if (box_inited && mp_typeof(*object) == MP_ARRAY) {
+			/*
+			 * XXX it would be great if we could do that even if the
+			 * box was not inited yet
+			 */
+			lbox_pushtuple(L, box_tuple_new(fmt, object, i));
+		} else {
+			luamp_decode(L, cfg, &object);
+		}
+		lua_rawseti(L, -2, cur_cell + 1);
+	}
+
+	*pi = i;
+	return 0;
+}
+
+static int
+netbox_parse_response(lua_State *L)
+{
+	/* packet_size, hdr, body - success
+	 * packet_size            - not enough data
+	 * (none)                 - parse error
+	 */
+	struct ibuf *ibuf = (struct ibuf *) lua_topointer(L, 1);
+	const char  *i;
+	const char  *end;
+	uint32_t     num_fields, cur_field;
+
+	if (ibuf_used(ibuf) == 0) {
+		lua_pushinteger(L, 1);
+		return 1;
+	}
+
+	if (mp_typeof(*ibuf->rpos) != MP_UINT) {
+		return 0; /* parse error */
+	} else {
+		ptrdiff_t res = mp_check_uint(ibuf->rpos, ibuf->wpos);
+		uint64_t  payload_len;
+		if (res > 0) {
+			lua_pushinteger(L, ibuf_used(ibuf) + res);
+			return 1;
+		}
+		i = ibuf->rpos;
+		payload_len = mp_decode_uint(&i);
+		if (payload_len == 0) {
+			/* XXX max packet size? */
+			return 0; /* parse error */
+		}
+		end = i + payload_len;
+		lua_pushinteger(L, end - ibuf->rpos);
+		if (end > ibuf->wpos) {
+			return 1;
+		}
+	}
+	/* have enough bytes, stack:[packet_size] */
+
+	/* parse header */
+	if (mp_typeof(*i) != MP_MAP || mp_check_map(i, end) > 0) {
+		return 0; /* parse error */
+	}
+	num_fields = mp_decode_map(&i);
+	lua_createtable(L, 0, num_fields);
+	for (cur_field = 0; cur_field < num_fields; cur_field++) {
+		uint64_t code;
+		if (i == end) {
+			return 0; /* parse error */
+		}
+		if (mp_typeof(*i) != MP_UINT || mp_check_uint(i, end) > 0) {
+			/* skip unexpected data */
+			if (mp_check(&i, end) != 0 || mp_check(&i, end) > 0) {
+				return 0; /* parse error */
+			}
+			continue;
+		}
+		code = mp_decode_uint(&i);
+		lua_pushinteger(L, (int)code); /* range check later */
+		if (i == end) {
+			return 0; /* parse error */
+		}
+		if (code > 0xffff ||
+			mp_typeof(*i) != MP_UINT || mp_check_uint(i, end) > 0) {
+
+			/* skip unexpected data */
+			if (mp_check(&i, end) > 0) {
+				return 0; /* parse error */
+			}
+			lua_pop(L, 1);
+			continue;
+		}
+		luaL_pushuint64(L, mp_decode_uint(&i));
+		lua_settable(L, -3);
+	}
+
+	/* parse optional body, stack:[packet_size, hdr] */
+	if (i == end) {
+		return 2;
+	}
+	if (mp_typeof(*i) != MP_MAP || mp_check_map(i, end) > 0) {
+		return 0; /* parse error */
+	}
+	num_fields = mp_decode_map(&i);
+	lua_createtable(L, 0, num_fields);
+	for (cur_field = 0; cur_field < num_fields; cur_field++) {
+		uint64_t code;
+		if (i == end) {
+			return 0; /* parse error */
+		}
+		if (mp_typeof(*i) != MP_UINT || mp_check_uint(i, end) > 0) {
+			/* skip unexpected data */
+			if (mp_check(&i, end) > 0 || mp_check(&i, end) > 0) {
+				return 0; /* parse error */
+			}
+			continue;
+		}
+		code = mp_decode_uint(&i);
+		lua_pushinteger(L, (int)code); /* range check later */
+		if (code == 0x30) {
+			if (parse_response_body(L, &i, end) != 0) {
+				return 0; /* parse error */
+			}
+		} else {
+			const char *object = i;
+			if (mp_check(&i, end) > 0) {
+				return 0; /* parse error */
+			}
+			if (code > 0xffff) {
+				lua_pop(L, 1);
+				continue;
+			}
+			luamp_decode(L, cfg, &object);
+		}
+		lua_settable(L, -3);
+	}
+
+	return 3;
+}
+
 int
 luaopen_net_box(struct lua_State *L)
 {
@@ -412,6 +576,7 @@ luaopen_net_box(struct lua_State *L)
 		{ "encode_update",  netbox_encode_update },
 		{ "encode_upsert",  netbox_encode_upsert },
 		{ "encode_auth",    netbox_encode_auth },
+		{ "parse_response", netbox_parse_response },
 		{ NULL, NULL}
 	};
 	luaL_register(L, "net.box.lib", net_box_lib);

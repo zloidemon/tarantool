@@ -150,15 +150,9 @@ local function connect(...)
             if status == 0 then
                 local res = body[0x30]
                 if res then
-                    setmetatable(res, sequence_mt)
-                    if encoder ~= encode_eval and rawget(box, 'tuple') then
-                        local tnew = box.tuple.new
-                        for i, v in pairs(res) do
-                            res[i] = tnew(v)
-                        end
-                    end
+                    return setmetatable(res, sequence_mt)
                 end
-                return res
+                return
             end
             local err = band(0x7FFF, status)
             if err ~= box.error.WRONG_SCHEMA_VERSION then
