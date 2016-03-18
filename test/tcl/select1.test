@@ -1,0 +1,87 @@
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+execsql { CREATE TABLE test (id INT, PRIMARY KEY (id)) }
+execsql {INSERT INTO test values (1)}
+execsql {INSERT INTO test values (2)}
+execsql {INSERT INTO test values (3)}
+
+execsql { CREATE TABLE test2 (id INT, PRIMARY KEY (id)) }
+execsql {INSERT INTO test2 values (1)}
+execsql {INSERT INTO test2 values (2)}
+execsql {INSERT INTO test2 values (3)}
+
+execsql { CREATE TABLE test3 (id INT, name TEXT, surname TEXT, bar INT, foo INT, qwerty INT, PRIMARY KEY (id)) }
+execsql { CREATE INDEX test3_secondary ON test3 (id, name) }
+execsql { CREATE INDEX test3_third ON test3 (surname, bar) }
+execsql { CREATE INDEX test3_fourth ON test3 (qwerty) }
+
+execsql { INSERT INTO test3 values (1, "Vlad", "Shpilevoy", 100, 200, 300) }
+execsql { INSERT INTO test3 values (2, "Ivan", "Petrov", 200, 300, 400) }
+execsql { INSERT INTO test3 values (3, "Maria", "Popova", 300, 400, 500) }
+execsql { INSERT INTO test3 values (4, "Albert", "Sukaev", 400, 500, 600) }
+execsql { INSERT INTO test3 values (5, "Ksenia", "Ivanova", 100, 200, 700) }
+execsql { INSERT INTO test3 values (6, "Brian", "Hankok", 200, 300, 800) }
+
+do_test select1-0.1 {
+  execsql {SELECT * from test}
+} {1.0 2.0 3.0}
+
+do_test select1-0.2 {
+  execsql {SELECT id from test}
+} {1.0 2.0 3.0}
+
+do_test select1-0.3 {
+  execsql {SELECT id, * from test}
+} {1.0 1.0 2.0 2.0 3.0 3.0}
+
+do_test select1-0.4 {
+  execsql {SELECT id, id from test}
+} {1.0 1.0 2.0 2.0 3.0 3.0}
+
+do_test select1-0.5 {
+  execsql {SELECT id, 10 from test}
+} {1.0 10 2.0 10 3.0 10}
+
+
+
+do_test select1-1.1 {
+  execsql {SELECT * from test2}
+} {1.0 2.0 3.0}
+
+do_test select1-1.2 {
+  execsql {SELECT id from test2}
+} {1.0 2.0 3.0}
+
+do_test select1-2.1 {
+	execsql {SELECT * from test, test2}
+}  {1.0 1.0\
+	1.0 2.0\
+	1.0 3.0\
+	2.0 1.0\
+	2.0 2.0\
+	2.0 3.0\
+	3.0 1.0\
+	3.0 2.0\
+	3.0 3.0}
+
+do_test select1-3.1 {
+	execsql {SELECT * from test3 where name='Vlad'}
+} {1.0 Vlad Shpilevoy 100.0 200.0 300.0}
+
+do_test select1-3.2 {
+	execsql {SELECT id, name from test3 where name='Vlad' and id < 3}
+} {1.0 Vlad}
+
+do_test select1-3.3 {
+	execsql {SELECT id, surname from test3 where qwerty >= 300 and id > 3 and id < 7}
+}  {4.0 Sukaev\
+	5.0 Ivanova\
+	6.0 Hankok}
+
+do_test select1-3.4 {
+	execsql {SELECT t1.name, t2.name from test3 as t1 join test3 as t2 on (t1.foo = t2.foo) where t1.name != t2.name and t1.id < t2.id}
+}  {Vlad Ksenia\
+	Ivan Brian}
+
+finish_test
