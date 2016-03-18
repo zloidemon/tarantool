@@ -387,6 +387,14 @@ add_dependencies(build_bundled_libs misc)
 include(BuildSophia)
 sophia_build()
 
+#
+# LibSQLite
+#
+
+include(BuildLibSqlite)
+trnsqlite_build()
+add_dependencies(build_bundled_libs trnsqlite)
+
 # cpack config. called package.cmake to avoid
 # conflicts with the global CPack.cmake (On MacOS X
 # file names are case-insensitive)

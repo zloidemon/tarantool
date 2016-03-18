@@ -1,6 +1,7 @@
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/box/lua)
 
 include_directories(${SOPHIA_INCLUDE_DIRS})
+include_directories(${LIBSQLITE_INCLUDE_DIR})
 
 set(lua_sources)
 lua_source(lua_sources lua/load_cfg.lua)
@@ -9,6 +10,7 @@ lua_source(lua_sources lua/tuple.lua)
 lua_source(lua_sources lua/session.lua)
 lua_source(lua_sources lua/snapshot_daemon.lua)
 lua_source(lua_sources lua/net_box.lua)
+lua_source(lua_sources lua/sql.lua)
 set(bin_sources)
 bin_source(bin_sources bootstrap.snap bootstrap.h)
 
@@ -76,7 +78,11 @@ add_library(box STATIC
     lua/error.cc
     lua/session.c
     lua/net_box.c
+    lua/sql.cc
+    lua/sql_mvalue.cc
+    lua/sql_tarantool_cursor.cc
+    lua/space_iterator.cc
     ${bin_sources})
 
 add_dependencies(box build_bundled_libs)
-target_link_libraries(box ${SOPHIA_LIBRARIES})
+target_link_libraries(box ${SOPHIA_LIBRARIES} trnsqlite)

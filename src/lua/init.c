@@ -89,6 +89,7 @@ extern char strict_lua[],
 	help_en_US_lua[],
 	tap_lua[],
 	fio_lua[],
+	sql_lua[],
 	/* jit.* library */
 	vmdef_lua[],
 	bc_lua[],

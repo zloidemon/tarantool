@@ -27,3 +27,6 @@
 	path = src/lib/small
 	url = https://github.com/tarantool/small.git
 	ignore = dirty
+[submodule "third_party/sqlite"]
+	path = third_party/sqlite
+	url = https://github.com/tarantool/sqlite.git
