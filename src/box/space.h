@@ -31,9 +31,12 @@
  * SUCH DAMAGE.
  */
 #include "index.h"
+#include "schema.h"
 #include "key_def.h"
 #include "engine.h"
 #include "small/rlist.h"
+#include "box.h"
+
 
 struct space {
 	struct access access[BOX_USER_MAX];
@@ -227,5 +230,11 @@ void
 space_check_update(struct space *space,
 		   struct tuple *old_tuple,
 		   struct tuple *new_tuple);
+
+/*
+ * Delete all tuples from space.
+ */
+void
+space_truncate(struct space *space);
 
 #endif /* TARANTOOL_BOX_SPACE_H_INCLUDED */

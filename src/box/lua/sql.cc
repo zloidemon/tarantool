@@ -1690,6 +1690,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_nested_insert_into_space = trntl_nested_insert_into_space;
 	ob->get_global_db = get_global_db;
 	ob->set_global_db = set_global_db;
+	ob->space_truncate_by_id = space_truncate_by_id;
 }
 
 void
@@ -1823,6 +1824,13 @@ void log_debug(const char *msg) {
 	say_debug("%s\n", msg);
 }
 
+void
+space_truncate_by_id(int space_id) {
+	struct space *space = space_by_id(get_space_id_from(space_id));
+	space_truncate(space);
+}
+
+
 int init_schema_with_table(void *self_, Table *table) {
 	static const char *__func_name = "init_schema_with_table";
 	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
@@ -1899,6 +1907,12 @@ __init_schema_with_table_index_created:
 	add_new_index_to_self(self, pIdx);
 	return SQLITE_OK;
 }
+
+/**
+ * Clear tarantool space with given sqlite id.
+ */
+void
+space_truncate_by_id(int space_id);
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
 

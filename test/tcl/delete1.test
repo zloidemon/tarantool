@@ -2,9 +2,9 @@ set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 
 execsql { CREATE TABLE test1 (id INT, PRIMARY KEY (id)) }
-execsql {INSERT INTO test1 values (1)}
-execsql {INSERT INTO test1 values (2)}
-execsql {INSERT INTO test1 values (3)}
+execsql { INSERT INTO test1 values (1)}
+execsql { INSERT INTO test1 values (2)}
+execsql { INSERT INTO test1 values (3)}
 
 execsql { CREATE TABLE test2 (id INT, name TEXT, surname TEXT, bar INT, foo INT, qwerty INT, PRIMARY KEY (id)) }
 execsql { CREATE INDEX test2_secondary ON test2 (id, name) }
