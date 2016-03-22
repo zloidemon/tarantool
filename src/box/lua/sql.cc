@@ -36,6 +36,7 @@ extern "C" {
 #include "sql.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "sqlite3.h"
 #include "sqliteInt.h"
 #include "btreeInt.h"
@@ -59,6 +60,8 @@ extern "C" {
 #include <string>
 #include "sql_tarantool_cursor.h"
 #include "space_iterator.h"
+
+#define GetLastErrMsg box_error_message(box_error_last())
 
 static const char *sqlitelib_name = "sqlite";
 
@@ -178,6 +181,19 @@ remove_from_master(Table *table);
 bool
 remove_from_master(SIndex *index);
 
+/**
+ * Drop index of space space_id with id = index_id. Also removes index
+ * from sqlite structures.
+ */
+int
+drop_index(int space_id, int index_id);
+
+/**
+ * Remove all indices of space with id = space_id
+ */
+int
+drop_all_indices(int space_id);
+
 extern "C" {
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ G L O B A L   O P E R A T I O N S   (C) ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -243,7 +259,7 @@ get_space_id_from(u32 num) {
  */
 u32
 get_index_id_from(u32 num) {
-	return ((num << 2) >> 28) % 15;
+	return ((num << 2) >> 28);
 }
 
 /**
@@ -401,6 +417,13 @@ int
 trntl_cursor_move_to_unpacked(void *self, BtCursor *pCur,
 	UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes,
 	RecordCompare xRecordCompare);
+
+/**
+ * Drop table or index with id coded in iTable.
+ * Set *piMoved in zero for sqlite compatibility.
+ */
+int
+trntl_drop_table(Btree *p, int iTable, int *piMoved);
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   N E S T E D   F U N C S ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -929,7 +952,7 @@ make_msgpuck_from(const SIndex *index, int &size) {
 	char *msg_data = NULL;
 	int msg_size = 5;
 	int space_id = get_space_id_from(index->tnum);
-	int index_id = get_index_id_from(index->tnum);
+	int index_id = get_index_id_from(index->tnum) % 15;
 	int name_len = strlen(index->zName);
 	const char *type = "TREE";
 	int type_len = strlen(type);
@@ -1473,7 +1496,7 @@ insert_into_master(Table *table) {
 			&table->pSchema->tblHash, "sqlite_master");
 	}
 	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum);
+	int index_id = get_index_id_from(master_table->tnum) % 15;
 	int name_len = strlen(table->zName);
 	char *msg_data, *it;
 	int msg_size = 5 + mp_sizeof_str(name_len) + mp_sizeof_str(5); //len of 'table'
@@ -1519,7 +1542,7 @@ insert_into_master(Table *table) {
 	int rc = box_insert(space_id, msg_data, it, NULL);
 	if (rc) {
 		say_debug("%s: error while inserting: %s\n",
-			__func_name, box_error_message(box_error_last()));
+			__func_name, GetLastErrMsg);
 		return false;
 	}
 	return true;
@@ -1537,7 +1560,7 @@ insert_into_master(SIndex *index) {
 			&index->pSchema->tblHash, "sqlite_master");
 	}
 	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum);
+	int index_id = get_index_id_from(master_table->tnum) % 15;
 	int table_name_len = strlen(index->pTable->zName);
 
 	int name_len = strlen(index->zName);
@@ -1587,7 +1610,7 @@ insert_into_master(SIndex *index) {
 	int rc = box_insert(space_id, msg_data, it, NULL);
 	if (rc) {
 		say_debug("%s: error while inserting: %s\n",
-			__func_name, box_error_message(box_error_last()));
+			__func_name, GetLastErrMsg);
 		return false;
 	}
 	return true;
@@ -1609,7 +1632,7 @@ remove_from_master(Table *table) {
 			"sqlite_master");
 	}
 	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum);
+	int index_id = get_index_id_from(master_table->tnum) % 15;
 	//len of "table" and table name
 	msg_size = 5 + mp_sizeof_str(5) + mp_sizeof_str(name_len);
 	SmartPtr<char> data_saver(new char[msg_size], [](char *p){delete[] p;});
@@ -1620,7 +1643,7 @@ remove_from_master(Table *table) {
 	int rc = box_delete(space_id, index_id, msg_data, it, NULL);
 	if (rc) {
 		say_debug("%s(): error while deleting table from master was occured: %s\n",
-			__func_name, box_error_message(box_error_last()));
+			__func_name, GetLastErrMsg);
 	}
 	return !rc;
 }
@@ -1642,7 +1665,7 @@ remove_from_master(SIndex *index) {
 			"sqlite_master");
 	}
 	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum);
+	int index_id = get_index_id_from(master_table->tnum) % 15;
 	//len of "index", index name and table name
 	msg_size = 5 + mp_sizeof_str(5) + mp_sizeof_str(name_len) + mp_sizeof_str(table_name_len);
 	SmartPtr<char> data_saver(new char[msg_size], [](char *p){delete[] p;});
@@ -1654,9 +1677,52 @@ remove_from_master(SIndex *index) {
 	int rc = box_delete(space_id, index_id, msg_data, it, NULL);
 	if (rc) {
 		say_debug("%s(): error while deleting index from master was occured: %s\n",
-			__func_name, box_error_message(box_error_last()));
+			__func_name, GetLastErrMsg);
 	}
 	return !rc;
+}
+
+int
+drop_index(int space_id, int index_id) {
+	int rc;
+	char key[128], *key_end;
+	key_end = mp_encode_array(key, 2);
+	key_end = mp_encode_uint(key_end, space_id);
+	key_end = mp_encode_uint(key_end, index_id);
+	rc = box_delete(BOX_INDEX_ID, 0, key, key_end, NULL);
+	if (rc) {
+		say_debug("%s(): error = %s\n", __FUNCTION__, GetLastErrMsg);
+	}
+	return rc;
+}
+
+int
+drop_all_indices(int space_id) {
+	int rc;
+	char key[128], *key_end;
+	key_end = mp_encode_array(key, 1);
+	key_end = mp_encode_uint(key_end, space_id);
+	void *argv[2];
+	int indices[15];
+	int ind_cnt = 0;
+	argv[0] = (void *)indices;
+	argv[1] = (void *)&ind_cnt;
+	SpaceIterator::SIteratorCallback callback = [](box_tuple_t *tpl, int, void **argv)
+	-> int {
+		int *indices = (int *)argv[0];
+		int *ind_cnt = (int *)argv[1];
+		const char *data = box_tuple_field(tpl, 1);
+		MValue index_id = MValue::FromMSGPuck(&data);
+		indices[(*ind_cnt)++] = index_id.GetUint64();
+		return 0;
+	};
+	SpaceIterator iterator(3, argv, callback, BOX_INDEX_ID, 0, key, key_end, ITER_EQ);
+	rc = iterator.IterateOver();
+	for (--ind_cnt; ind_cnt >= 0; --ind_cnt) {
+		rc = drop_index(space_id, indices[ind_cnt]);
+		if (rc) return rc;
+	}
+	return rc;
 }
 
 extern "C" {
@@ -1688,6 +1754,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->log_debug = log_debug;
 	ob->init_schema_with_table = init_schema_with_table;
 	ob->trntl_nested_insert_into_space = trntl_nested_insert_into_space;
+	ob->trntl_drop_table = trntl_drop_table;
 	ob->get_global_db = get_global_db;
 	ob->set_global_db = set_global_db;
 }
@@ -1922,7 +1989,7 @@ trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 	int index_id = 0;
 	int type = ITER_ALL;
 	int space_id = get_space_id_from(num);
-	index_id = get_index_id_from(num);
+	index_id = get_index_id_from(num) % 15;
 	u32 tnum = make_index_id(space_id, index_id);
 	SIndex *sql_index = NULL;
 	for (int i = 0; i < self->cnt_indices; ++i) {
@@ -2050,6 +2117,41 @@ int
 trntl_cursor_move_to_unpacked(void * /*self_*/, BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int /*biasRight*/, int *pRes, RecordCompare xRecordCompare) {
 	TrntlCursor *c = (TrntlCursor *)pCur->trntl_cursor;
 	return c->cursor.MoveToUnpacked(pIdxKey, intKey, pRes, xRecordCompare);
+}
+
+int
+trntl_drop_table(Btree *p, int iTable, int *piMoved)
+{
+	int space_id = get_space_id_from(iTable);
+	int index_id = get_index_id_from(iTable);
+	int rc;
+	char key[128], *key_end;
+	*piMoved = 0;
+	(void)p;
+	say_debug("%s(): space_id: %d, index_id: %d\n",
+		__FUNCTION__, space_id, index_id);
+	if (index_id == 15) {
+		rc = drop_all_indices(space_id);
+		if (rc) {
+			return SQLITE_ERROR;
+		}
+		//drop space
+		key_end = mp_encode_array(key, 1);
+		key_end = mp_encode_uint(key_end, space_id);
+		rc = box_delete(BOX_SPACE_ID, 0, key, key_end, NULL);
+	} else {
+		//drop index
+		key_end = mp_encode_array(key, 2);
+		key_end = mp_encode_uint(key_end, space_id);
+		key_end = mp_encode_uint(key_end, index_id);
+		rc = box_delete(BOX_INDEX_ID, 0, key, key_end, NULL);
+	}
+	if (rc) {
+		say_debug("%s(): error while droping = %s\n",
+			__FUNCTION__, GetLastErrMsg);
+		return SQLITE_ERROR;
+	}
+	return SQLITE_OK;
 }
 
 

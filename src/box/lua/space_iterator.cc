@@ -101,15 +101,17 @@ box_tuple_t *SpaceIterator::GetTuple() {
 	return current_tuple;
 }
 
-void SpaceIterator::IterateOver() {
-	if (!callback) return;
+int SpaceIterator::IterateOver() {
+	if (!callback) return 0;
+	int rc;
 	Next();
 	while(IsOpen() && !IsEnd()) {
-		if (callback(current_tuple, argc, argv)) {
-			break;
+		if ((rc = callback(current_tuple, argc, argv))) {
+			return rc;
 		}
 		Next();
 	}
+	return 0;
 }
 
 bool SpaceIterator::InProcess() const {
