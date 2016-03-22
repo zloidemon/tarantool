@@ -30,3 +30,4 @@
 [submodule "third_party/sqlite"]
 	path = third_party/sqlite
 	url = https://github.com/tarantool/sqlite.git
+	branch = master_taran
