@@ -264,6 +264,12 @@ remove_old_index_from_self(sql_trntl_self *self, SIndex *olf_index);
 void
 log_debug(const char *msg);
 
+/**
+ * Clear tarantool space with given sqlite id.
+ */
+void
+space_truncate_by_id(int space_id);
+
 int init_schema_with_table(void *self, Table *table);
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1907,12 +1913,6 @@ __init_schema_with_table_index_created:
 	add_new_index_to_self(self, pIdx);
 	return SQLITE_OK;
 }
-
-/**
- * Clear tarantool space with given sqlite id.
- */
-void
-space_truncate_by_id(int space_id);
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
 
