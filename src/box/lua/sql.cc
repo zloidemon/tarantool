@@ -54,6 +54,7 @@ extern "C" {
 #include "small/rlist.h"
 #include "sql_mvalue.h"
 #include "smart_ptr.h"
+#include "trivia/util.h"
 
 #include "lua/utils.h"
 #include <string>
@@ -1060,6 +1061,7 @@ insert_new_table_as_space(Table *table) {
 	char *msg_data;
 	int msg_size;
 	int id_max = get_max_id_of_space();
+	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
 	int rc;
 	sqlite3 *db;
 	if (id_max < 0) {
