@@ -55,6 +55,7 @@ extern "C" {
 #include "small/rlist.h"
 #include "sql_mvalue.h"
 #include "smart_ptr.h"
+#include "trivia/util.h"
 
 #include "lua/utils.h"
 #include <string>
@@ -273,6 +274,12 @@ add_new_index_to_self(sql_trntl_self *self, SIndex *new_index);
  */
 void
 remove_old_index_from_self(sql_trntl_self *self, SIndex *olf_index);
+
+/**
+ * Remove index from self->indices array
+ */
+void
+remove_and_free_sindex(void *self, SIndex *index);
 
 /**
  * Function for logging into tarantool from sqlite.
@@ -1077,6 +1084,7 @@ insert_new_table_as_space(Table *table) {
 	char *msg_data;
 	int msg_size;
 	int id_max = get_max_id_of_space();
+	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
 	int rc;
 	sqlite3 *db;
 	if (id_max < 0) {
@@ -1164,7 +1172,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		return NULL;
 	}
 
-	Table *table = p.pNewTable;
+	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){sqlite3_free(ptr);});
 	table->tnum = make_space_id(tbl_id.GetUint64());
 	if (db->mallocFailed) {
 		say_debug("%s(): error while allocating memory for table\n", __func_name);
@@ -1196,15 +1204,23 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 
 	uint32_t len = mp_decode_array(&data);
 
-	Column *cols = (Column *)sqlite3Malloc(len * sizeof(Column));
-	memset(cols, 0, sizeof(Column) * len);
+	SmartPtr<Column> cols((Column *)sqlite3Malloc(len * sizeof(Column)),
+		[](Column *ptr){sqlite3_free(ptr);});
+	memset(cols.get(), 0, sizeof(Column) * len);
 	int nCol = 0;
+	auto free_cols_content = [&](){
+		for (int i = 0; i < nCol; ++i) {
+			Column *cur = cols.get() + i;
+			sqlite3_free(cur->zName);
+			sqlite3_free(cur->zType);
+		}
+	};
 	for (uint32_t i = 0; i < len; ++i) {
 		map_size = mp_decode_map(&data);
 		MValue colname, coltype;
 		if (map_size != 2) {
 			say_debug("%s(): map_size not equal 2, but %u\n", __func_name, map_size);
-			sqlite3DbFree(db_alloc, table);
+			free_cols_content();
 			return NULL;
 		}
 		for (uint32_t j = 0; j < map_size; ++j) {
@@ -1212,7 +1228,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 			MValue val = MValue::FromMSGPuck(&data);
 			if ((key.GetType() != MP_STR) || (val.GetType() != MP_STR)) {
 				say_debug("%s(): unexpected not string format\n", __func_name);
-				sqlite3DbFree(db_alloc, table);
+				free_cols_content();
 				return NULL;
 			}
 			char c = key.GetStr()[0];
@@ -1224,7 +1240,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 				coltype = val;
 			} else {
 				say_debug("%s(): unknown string in space_format\n", __func_name);
-				sqlite3DbFree(db_alloc, table);
+				free_cols_content();
 				return NULL;
 			}
 		}
@@ -1251,12 +1267,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 				break;
 			}
 		}
-		if (!cols) {
-			say_debug("%s(): malloc failed while allocating memory for columns\n", __func_name);
-			sqlite3DbFree(db_alloc, table);
-			return NULL;
-		}
-		Column *cur = cols + nCol++;
+		Column *cur = cols.get() + nCol++;
 		size_t len;
 		colname.GetStr(&len);
 		cur->zName = (char *)sqlite3Malloc(len + 1);
@@ -1271,9 +1282,9 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	}
 	table->nRowLogEst = box_index_len(tbl_id.GetUint64(), 0);
 	table->szTabRow = ESTIMATED_ROW_SIZE;
-	table->aCol = cols;
+	table->aCol = cols.take_away();
 	table->nCol = nCol;
-	return table;
+	return table.take_away();
 }
 
 SIndex *
@@ -1343,7 +1354,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		return NULL;
 	}
 
-	SIndex *index = NULL;
+	SmartPtr<SIndex> index;
 	char *extra = NULL;
 	int extra_sz = 0;
 	char zName[256];
@@ -1375,7 +1386,8 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		extra_sz += strlen(zName) + 1;
 	}
 
-	index = sqlite3AllocateIndexObject(db, table->nCol, extra_sz, &extra);
+	index = SmartPtr<SIndex>(sqlite3AllocateIndexObject(db, table->nCol, extra_sz, &extra),
+		[](SIndex *ptr){sqlite3DbFree(get_global_db(), ptr);});
 	if (db->mallocFailed) {
 		say_debug("%s(): error while allocating memory for index\n", __func_name);
 		return NULL;
@@ -1407,6 +1419,11 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, sizeof(char) * (strlen("BINARY") + 1)));
 		memcpy(index->azColl[j], "BINARY", strlen("BINARY"));
 	}
+	auto free_index_azColls = [&]() {
+		for (int j = 0; j < table->nCol; ++j) {
+			sqlite3DbFree(db, index->azColl[j]);
+		}
+	};
 
 	//---- TYPE ----
 
@@ -1414,6 +1431,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	type = (int)mp_typeof(*data);
 	if (type != MP_STR) {
 		say_debug("%s(): field[3] in tuple in INDEX must be string, but is %d\n", __func_name, type);
+		free_index_azColls();
 		return NULL;
 	} else {
 		MValue buf = MValue::FromMSGPuck(&data);
@@ -1430,6 +1448,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	int map_size = mp_decode_map(&data);
 	if (map_size != 1) {
 		say_debug("%s(): field[4] map size in INDEX must be 1, but %u\n", __func_name, map_size);
+		free_index_azColls();
 		return NULL;
 	}
 	MValue key, value;
@@ -1438,10 +1457,12 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		value = MValue::FromMSGPuck(&data);
 		if (key.GetType() != MP_STR) {
 			say_debug("%s(): field[4][%u].key must be string, but type %d\n", __func_name, j, key.GetType());
+			free_index_azColls();
 			return NULL;
 		}
 		if (value.GetType() != MP_BOOL) {
 			say_debug("%s(): field[4][%u].value must be bool, but type %d\n", __func_name, j, value.GetType());
+			free_index_azColls();
 			return NULL;
 		}
 	}
@@ -1459,6 +1480,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	MValue idx_cols = MValue::FromMSGPuck(&data);
 	if (idx_cols.GetType() != MP_ARRAY) {
 		say_debug("%s(): field[5] in INDEX must be array, but type is %d\n", __func_name, idx_cols.GetType());
+		free_index_azColls();
 		return NULL;
 	}
 	index->nKeyCol = idx_cols.Size();
@@ -1481,7 +1503,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	for (int i = 0; i < index->nKeyCol; ++i) index->aiRowLogEst[i] = table->nRowLogEst;
 
 	ok = true;
-	return index;
+	return index.take_away();
 }
 
 bool
@@ -1757,6 +1779,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_drop_table = trntl_drop_table;
 	ob->get_global_db = get_global_db;
 	ob->set_global_db = set_global_db;
+	ob->remove_and_free_sindex = remove_and_free_sindex;
 }
 
 void
@@ -1779,18 +1802,27 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 		if (space_iterator.IsEnd()) break;
 		tpl = space_iterator.GetTuple();
 		bool is_temp;
-		Table *table = get_trntl_table_from_tuple(tpl, db, pSchema, &is_temp);
+		SmartPtr<Table> table(get_trntl_table_from_tuple(tpl, db, pSchema, &is_temp),
+			[](Table *ptr){
+				sqlite3 *db = get_global_db();
+				int i;
+				sqlite3_free(ptr->zName);
+				for (i = 0; i < ptr->nCol; ++i) {
+					sqlite3_free(ptr->aCol[i].zName);
+					sqlite3_free(ptr->aCol[i].zType);
+				}
+				sqlite3_free(ptr->aCol);
+				sqlite3DbFree(db, ptr);
+			});
+		Table *taked;
 		if (is_temp != must_be_temp) {
-			sqlite3DbFree(db, table);
 			continue;
 		}
-		if (table == NULL) return;
+		if (table.get() == NULL) return;
 		if (!strcmp(table->zName, "sqlite_master")) {
-			sqlite3DbFree(db, table);
 			continue;
 		}
 		if (!strcmp(table->zName, "sqlite_temp_master")) {
-			sqlite3DbFree(db, table);
 			continue;
 		}
 
@@ -1810,7 +1842,7 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 			}
 			index_tpl = index_iterator.GetTuple();
 			bool ok;
-			index = get_trntl_index_from_tuple(index_tpl, db, table, ok);
+			index = get_trntl_index_from_tuple(index_tpl, db, table.get(), ok);
 			if (index == NULL) {
 				if (ok) continue;
 				say_debug("%s(): error while getting index from tuple\n", __func_name);
@@ -1832,7 +1864,6 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 
 			continue;
 __get_trntl_spaces_index_bad:
-			sqlite3DbFree(db, table);
 			if (index->aSortOrder) sqlite3DbFree(db, index->aSortOrder);
 			if (index->aiColumn) sqlite3DbFree(db, index->aiColumn);
 			if (index->azColl) {
@@ -1844,10 +1875,10 @@ __get_trntl_spaces_index_bad:
 			if (index) sqlite3DbFree(db, index);
 			return;
 		} while (index_iterator.InProcess());
-
-		sqlite3HashInsert(tblHash, table->zName, table);
-		if (!insert_into_master(table)) {
-			say_debug("%s(): table %s was not inserted into master\n", __func_name, table->zName);
+		taked = table.take_away();
+		sqlite3HashInsert(tblHash, taked->zName, taked);
+		if (!insert_into_master(taked)) {
+			say_debug("%s(): table %s was not inserted into master\n", __func_name, taked->zName);
 		}
 	} while (space_iterator.InProcess());
 	return;
@@ -1884,6 +1915,11 @@ remove_old_index_from_self(sql_trntl_self *self, SIndex *old_index) {
 	delete[] self->indices;
 	if (found) self->cnt_indices--;
 	self->indices = new_indices;
+}
+
+void
+remove_and_free_sindex(void *self, SIndex *index) {
+	remove_old_index_from_self((sql_trntl_self *)self, index);
 }
 
 void log_debug(const char *msg) {

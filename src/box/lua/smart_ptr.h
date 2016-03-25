@@ -40,7 +40,7 @@ private:
 	void decrease_counter();
 
 public:
-	SmartPtr(T *ptr = NULL, void (*deleter)(T *) = NULL);
+	explicit SmartPtr(T *ptr = NULL, void (*deleter)(T *) = NULL);
 	SmartPtr(const SmartPtr &ob);
 	SmartPtr(SmartPtr &&ob);
 	SmartPtr &operator=(const SmartPtr &ob);
@@ -48,7 +48,10 @@ public:
 
 	void reset(T *ptr = NULL);
 	T *get();
+	T *take_away();
 	const T *get() const;
+	T *operator->();
+	const T *operator->() const;
 	~SmartPtr();
 };
 
@@ -56,7 +59,7 @@ template<typename T>
 void SmartPtr<T>::decrease_counter() {
 	if (counter) {
 		*counter -= 1;
-		if (*counter == 0) {
+		if (*counter <= 0) {
 			if (!deleter) delete ptr;
 			else deleter(ptr);
 			delete counter;
@@ -123,7 +126,26 @@ T *SmartPtr<T>::get() {
 }
 
 template<typename T>
+T *SmartPtr<T>::take_away() {
+	T *ret = ptr;
+	ptr = NULL;
+	*counter = 0;
+	deleter = NULL;
+	return ret;
+}
+
+template<typename T>
 const T *SmartPtr<T>::get() const {
+	return ptr;
+}
+
+template<typename T>
+T *SmartPtr<T>::operator->() {
+	return ptr;
+}
+
+template<typename T>
+const T *SmartPtr<T>::operator->() const {
 	return ptr;
 }
 
