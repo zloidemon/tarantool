@@ -20,6 +20,29 @@ local encode_select
 local encode_eval
 local parse_response
 
+--
+-- A contrived way to define 'real' constants.
+-- Mike Paul's-approved.
+--
+ffi.cdef([[
+    struct tarantool_iproto_constants
+    {
+        static const int STATUS_KEY    = 0x00;
+        static const int SYNC_KEY      = 0x01;
+        static const int SCHEMA_ID_KEY = 0x05;
+        static const int DATA_KEY      = 0x30;
+        static const int ERROR_KEY     = 0x31;
+
+        static const int STATUS_MASK   = 0x7FFF;
+
+        static const int GREETING_SIZE = 128;
+
+        static const int VSPACE_ID     = 281;
+        static const int VINDEX_ID     = 289;
+    };
+]])
+local iproto = ffi.new('struct tarantool_iproto_constants')
+
 -- select errors from box.error
 local E_UNKNOWN              = 0
 local E_NO_CONNECTION        = 77
@@ -318,12 +341,12 @@ function connect(host, port, opts)
             return error_sm(E_NO_CONNECTION, errno.strerror(errno()))
         end
         imx_configure(imx, {fd = sock:fd()})
-        local err, msg = send_and_recv(128, fiber.time() + 0.3)
+        local err, msg = send_and_recv(iproto.GREETING_SIZE, fiber.time() + 0.3)
         if err then
             return error_sm(err, msg)
         end
-        local h = ffi.string(recvb.rpos, 128)
-        recvb.rpos = recvb.rpos + 128
+        local h = ffi.string(recvb.rpos, iproto.GREETING_SIZE)
+        recvb.rpos = recvb.rpos + iproto.GREETING_SIZE
         local g = greeting_decode(h)
         if not g then
             return error_sm(E_NO_CONNECTION, 'Can\'t decode handshake')
@@ -366,10 +389,10 @@ function connect(host, port, opts)
         if err then
             return error_sm(err, hdr)
         end
-        if hdr[0] ~= 0 then
-            return error_sm(E_NO_CONNECTION, body[0x31])
+        if hdr[iproto.STATUS_KEY] ~= 0 then
+            return error_sm(E_NO_CONNECTION, body[iproto.ERROR_KEY])
         end
-        return iproto_schema_sm(hdr[5])
+        return iproto_schema_sm(hdr[iproto.SCHEMA_ID_KEY])
     end
 
     iproto_schema_sm = function (schema_id)
@@ -385,29 +408,29 @@ function connect(host, port, opts)
         local select2_id = new_request_id()
         local schema = {}
         local id_map = { [select1_id] = 1, [select2_id] = 2 }
-        encode_select(sendb, select1_id, schema_id, 281, 0, 2, 0, 0xFFFFFFFF, nil)
-        encode_select(sendb, select2_id, schema_id, 289, 0, 2, 0, 0xFFFFFFFF, nil)
+        encode_select(sendb, select1_id, schema_id, iproto.VSPACE_ID, 0, 2, 0, 0xFFFFFFFF, nil)
+        encode_select(sendb, select2_id, schema_id, iproto.VINDEX_ID, 0, 2, 0, 0xFFFFFFFF, nil)
         repeat
             local err, hdr, body = send_and_recv_iproto()
             if err then
                 return error_sm(err, hdr)
             end
-            local id    = hdr[1]
+            local id    = hdr[iproto.SYNC_KEY]
             local xslot = id_map[id]
             if not xslot then
                 -- response to a client request
                 dispatch_response(id, hdr, body)
             else
                 -- response to a schema query we've submitted
-                local status = hdr[0]
-                local response_schema_id = hdr[5]
+                local status = hdr[iproto.STATUS_KEY]
+                local response_schema_id = hdr[iproto.SCHEMA_ID_KEY]
                 -- error check
                 if status ~= 0 then
-                    if band(status, 0x7FFF) == E_WRONG_SCHEMA_VERSION then
+                    if band(status, iproto.STATUS_MASK) == E_WRONG_SCHEMA_VERSION then
                         -- restart schema loader
                         return iproto_schema_sm(response_schema_id)
                     end
-                    return error_sm(E_NO_CONNECTION, body[0x31])
+                    return error_sm(E_NO_CONNECTION, body[iproto.ERROR_KEY])
                 end
                 -- we could have sent requests without knowing a schema_id
                 if schema_id ~= response_schema_id then
@@ -417,7 +440,7 @@ function connect(host, port, opts)
                     end
                     schema_id = response_schema_id
                 end
-                schema[xslot] = body[0x30]
+                schema[xslot] = body[iproto.DATA_KEY]
                 if #schema == 2 then
                     break
                 end
@@ -436,16 +459,16 @@ function connect(host, port, opts)
         if err then
             return error_sm(err, hdr)
         end
-        local status = hdr[0]
+        local status = hdr[iproto.STATUS_KEY]
         if status ~= 0 and
-           band(status, 0x7FFF) == E_WRONG_SCHEMA_VERSION and
-           enable_schema and hdr[5] ~= schema_id
+           band(status, iproto.STATUS_MASK) == E_WRONG_SCHEMA_VERSION and
+           enable_schema and hdr[iproto.SCHEMA_ID_KEY] ~= schema_id
         then
             set_state('fetch_schema')
-            dispatch_response(hdr[1], hdr, body)
-            return iproto_schema_sm(hdr[5])
+            dispatch_response(hdr[iproto.SYNC_KEY], hdr, body)
+            return iproto_schema_sm(hdr[iproto.SCHEMA_ID_KEY])
         end
-        dispatch_response(hdr[1], hdr, body)
+        dispatch_response(hdr[iproto.SYNC_KEY], hdr, body)
         return iproto_sm(schema_id)
     end
 
@@ -539,5 +562,6 @@ return {
     greeting_decode  = greeting_decode,
     connect          = connect,
     console_eval     = console_eval,
-    iproto_eval      = iproto_eval
+    iproto_eval      = iproto_eval,
+    iproto           = iproto
 }

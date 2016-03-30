@@ -8,6 +8,7 @@ local errno = require('errno')
 local urilib = require('uri')
 local ffi = require('ffi')
 local nc = require('net_connector')
+local iproto = nc.iproto
 
 -- admin formatter must be able to encode any Lua variable
 local formatter = require('yaml').new()
@@ -104,10 +105,10 @@ local function remote_eval(self, line)
             'return require("console").eval(...)', line)
         if err then
             return format(false, hdr)
-        elseif hdr[0] ~= 0 then
-            return format(false, body[0x31])
+        elseif hdr[iproto.STATUS_KEY] ~= 0 then
+            return format(false, body[iproto.ERROR_KEY])
         end
-        return body[0x30][1]
+        return body[iproto.DATA_KEY][1]
     else
         local err, res = nc.console_eval(self.remote, line .. '$EOF$\n')
         if err then
@@ -329,9 +330,9 @@ local function connect(uri)
         err, hdr, body = nc.iproto_eval(remote, 'return true')
         if err then
             info = hdr
-        elseif hdr[0] ~= 0 then
+        elseif hdr[iproto.STATUS_KEY] ~= 0 then
             err = true
-            info = body[0x31]
+            info = body[iproto.ERROR_KEY]
         end
     else
         local code, res = 'require("console").delimiter("$EOF$")\n'

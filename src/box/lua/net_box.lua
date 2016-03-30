@@ -12,6 +12,7 @@ local fiber_self      = fiber.self
 local fiber_time      = fiber.time
 local check_iter_type = box.internal.check_iterator_type
 
+local iproto          = nc.iproto
 local encode_ping     = internal.encode_ping
 local encode_call     = internal.encode_call
 local encode_eval     = internal.encode_eval
@@ -146,20 +147,20 @@ local function connect(...)
             if err then
                 box.error({ code = err, reason = hdr })
             end
-            local status = hdr[0]
+            local status = hdr[iproto.STATUS_KEY]
             if status == 0 then
-                local res = body[0x30]
+                local res = body[iproto.DATA_KEY]
                 if res then
                     return setmetatable(res, sequence_mt)
                 end
                 return
             end
-            local err = band(0x7FFF, status)
+            local err = band(iproto.STATUS_MASK, status)
             if err ~= box.error.WRONG_SCHEMA_VERSION then
                 if err == box.error.TIMEOUT then
                     self._deadlines[fiber_self()] = nil
                 end
-                box.error({ code = err, reason = body[0x31] })
+                box.error({ code = err, reason = body[iproto.ERROR_KEY] })
             end
             -- retry request
         until false
@@ -269,7 +270,7 @@ function remote_methods.ping(self)
     if err and err == box.error.TIMEOUT then
         self._deadlines[fiber_self()] = nil
     end
-    return not err and hdr[0] == 0
+    return not err and hdr[iproto.STATUS_KEY] == 0
 end
 
 function remote_methods.reload_schema(self)
