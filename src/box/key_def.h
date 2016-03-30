@@ -304,6 +304,8 @@ struct space_opts {
 	 * - changes are not part of a snapshot
 	 */
 	bool temporary;
+    /** The space is actially SQL view */
+    bool view;
 };
 
 extern const struct space_opts space_opts_default;

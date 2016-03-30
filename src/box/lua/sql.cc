@@ -873,19 +873,30 @@ make_msgpuck_from(const Table *table, int &size) {
 	const char *engine = "memtx";
 	int name_len = strlen("name");
 	int type_len = strlen("type");
-	int engine_len = strlen("engine");
+	int engine_len = strlen("memtx");
 	int temporary_len = strlen("temporary");
+	int view_len = strlen("view");
 	int table_name_len = strlen(table->zName);
 	Column *cur;
 	int i;
 	bool is_temp = sqlite3SchemaToIndex(get_global_db(), table->pSchema);
+	bool is_view = (table->nCol == 0);
+	int flags_cnt = (int)is_temp + is_view;
 	msg_size += mp_sizeof_uint(cred->uid);
 	msg_size += mp_sizeof_str(table_name_len);
 	msg_size += mp_sizeof_str(engine_len);
 	msg_size += mp_sizeof_uint(0);
-	if (is_temp)
-		msg_size += mp_sizeof_map(1) + mp_sizeof_str(temporary_len)
-			+ mp_sizeof_bool(true);
+	if (flags_cnt){
+		msg_size += mp_sizeof_map(flags_cnt);
+		if (is_temp) {
+			msg_size += mp_sizeof_str(temporary_len)
+				+ mp_sizeof_bool(true);
+		}
+		if (is_view) {
+			msg_size += mp_sizeof_str(view_len)
+				+ mp_sizeof_bool(true);	
+		}
+	}
 	else
 		msg_size += mp_sizeof_map(0);
 	//sizeof parts
@@ -907,10 +918,16 @@ make_msgpuck_from(const Table *table, int &size) {
 	it = mp_encode_str(it, engine, engine_len); // space engine
 	it = mp_encode_uint(it, 0); // field count
 	// flags
-	if (is_temp) {
-		it = mp_encode_map(it, 1);
-		it = mp_encode_str(it, "temporary", temporary_len);
-		it = mp_encode_bool(it, true);
+	if (flags_cnt) {
+		it = mp_encode_map(it, flags_cnt);
+		if (is_temp) {	
+			it = mp_encode_str(it, "temporary", temporary_len);
+			it = mp_encode_bool(it, true);
+		}
+		if (is_view) {
+			it = mp_encode_str(it, "view", view_len);
+			it = mp_encode_bool(it, true);	
+		}
 	} else {
 		it = mp_encode_map(it, 0);
 	}
