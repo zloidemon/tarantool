@@ -45,27 +45,6 @@ fiber_set_txn(struct fiber *fiber, struct txn *txn)
 	fiber_set_key(fiber, FIBER_KEY_TXN, (void *) txn);
 }
 
-static struct xrow_header *
-txn_add_redo(struct txn_stmt *stmt)
-{
-	struct request *request = stmt->request;
-	assert(request != NULL);
-	if (request->header != NULL)
-		return request->header;
-
-	/* Create a redo log row for Lua requests */
-	struct xrow_header *row =
-		region_alloc_object_xc(&fiber()->gc, struct xrow_header);
-	/* Initialize members explicitly to save time on memset() */
-	row->type = request->type;
-	row->server_id = 0;
-	row->lsn = 0;
-	row->sync = 0;
-	row->tm = 0;
-	row->bodycnt = request_encode(request, row->body);
-	return row;
-}
-
 /** Initialize a new stmt object within txn. */
 static struct txn_stmt *
 txn_stmt_new(struct txn *txn)
@@ -222,24 +201,30 @@ txn_write_to_wal(struct txn *txn)
 	req = (struct wal_request *)region_aligned_alloc_xc(
 		&fiber()->gc,
 		sizeof(struct wal_request) +
-		         sizeof(req->rows[0]) * txn->n_rows,
+		         sizeof(req->requests[0]) * txn->n_rows,
 		alignof(struct wal_request));
 	/*
 	 * Note: offsetof(struct wal_request, rows) is more appropriate,
 	 * but compiler warns.
 	 */
-	req->n_rows = 0;
+	req->n_requests = 0;
 
 	struct txn_stmt *stmt;
 	stailq_foreach_entry(stmt, &txn->stmts, next) {
 		if (stmt->request == NULL)
 			continue;
 
-		struct xrow_header *row = txn_add_redo(stmt);
-		if (row->server_id == 0) {
+		struct xrow_header *row = stmt->request->header;
+		if (row == NULL || row->server_id == 0) {
 			/* Local request. */
+			row = region_alloc_object_xc(&fiber()->gc, struct xrow_header);
+			/* Initialize members explicitly to save time on memset() */
+			row->type = stmt->request->type;
 			row->server_id = r->server_id;
 			row->lsn = vclock_inc(&r->vclock, r->server_id);
+			row->sync = 0;
+			row->bodycnt = 0;
+			stmt->request->header = row;
 		} else {
 			/* Replication request. */
 			if (!vclock_has(&r->vclock, row->server_id)) {
@@ -253,9 +238,9 @@ txn_write_to_wal(struct txn *txn)
 			vclock_follow(&r->vclock,  row->server_id, row->lsn);
 		}
 		row->tm = ev_now(loop());
-		req->rows[req->n_rows++] = row;
+		req->requests[req->n_requests++] = stmt->request;
 	}
-	assert(req->n_rows == txn->n_rows);
+	assert(req->n_requests == txn->n_rows);
 
 	ev_tstamp start = ev_now(loop()), stop;
 	int64_t res = wal_write(wal, req);

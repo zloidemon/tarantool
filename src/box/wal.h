@@ -60,8 +60,8 @@ struct wal_request {
 	off_t start_offset;
 	/* Relative position of the end of request (used for rollback) */
 	off_t end_offset;
-	int n_rows;
-	struct xrow_header *rows[];
+	int n_requests;
+	struct request *requests[];
 };
 
 int64_t

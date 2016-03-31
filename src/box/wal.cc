@@ -37,6 +37,7 @@
 
 #include "xlog.h"
 #include "xrow.h"
+#include "request.h"
 #include "cbus.h"
 #include "coeio.h"
 
@@ -500,8 +501,10 @@ wal_write_to_disk(struct cmsg *msg)
 		/*
 		 * Iterate over request rows (tx statements)
 		 */
-		struct xrow_header **row = req->rows;
-		for (; row < req->rows + req->n_rows; row++) {
+		struct request **prequest = req->requests;
+		for (; prequest < req->requests + req->n_requests; prequest++) {
+			struct request *request = *prequest;
+			struct xrow_header *row = request->header;
 			/* Check batch has enough space to fit statement */
 			if (unlikely(fio_batch_unused(batch) < XROW_IOVMAX)) {
 				/*
@@ -521,7 +524,11 @@ wal_write_to_disk(struct cmsg *msg)
 			/* Add the statement to iov batch */
 			struct iovec *iov = fio_batch_book(batch, XROW_IOVMAX);
 			assert(iov != NULL); /* checked above */
-			int iovcnt = xlog_encode_row(*row, iov);
+			if (row->bodycnt == 0) {
+				/* Create redo log record */
+				row->bodycnt = request_encode(request, row->body);
+			}
+			int iovcnt = xlog_encode_row(row, iov);
 			batched_bytes += fio_batch_add(batch, iovcnt);
 		}
 
@@ -582,10 +589,10 @@ done:
 
 		/* Update internal vclock */
 		vclock_follow(&writer->vclock,
-			      req->rows[req->n_rows - 1]->server_id,
-			      req->rows[req->n_rows - 1]->lsn);
+			      req->requests[req->n_requests - 1]->header->server_id,
+			      req->requests[req->n_requests - 1]->header->lsn);
 		/* Update row counter for wal_opt_rotate() */
-		l->rows += req->n_rows;
+		l->rows += req->n_requests;
 		/* Mark request as successful for tx thread */
 		req->res = vclock_sum(&writer->vclock);
 	}
@@ -656,7 +663,7 @@ wal_write(struct wal_writer *writer, struct wal_request *req)
 		stailq_add_tail_entry(&batch->commit, req, fifo);
 		cpipe_push(&writer->wal_pipe, batch);
 	}
-	writer->wal_pipe.n_input += req->n_rows * XROW_IOVMAX;
+	writer->wal_pipe.n_input += req->n_requests * XROW_IOVMAX;
 	cpipe_flush_input(&writer->wal_pipe);
 	/**
 	 * It's not safe to spuriously wakeup this fiber
