@@ -113,9 +113,6 @@ recovery_finalize(struct recovery *r, enum wal_mode mode,
 		  int64_t rows_per_wal);
 
 void
-recovery_fill_lsn(struct recovery *r, struct xrow_header *row);
-
-void
 recovery_apply_row(struct recovery *r, struct xrow_header *packet);
 
 /**

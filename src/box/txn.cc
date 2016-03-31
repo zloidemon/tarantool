@@ -45,12 +45,13 @@ fiber_set_txn(struct fiber *fiber, struct txn *txn)
 	fiber_set_key(fiber, FIBER_KEY_TXN, (void *) txn);
 }
 
-static void
-txn_add_redo(struct txn_stmt *stmt, struct request *request)
+static struct xrow_header *
+txn_add_redo(struct txn_stmt *stmt)
 {
-	stmt->row = request->header;
+	struct request *request = stmt->request;
+	assert(request != NULL);
 	if (request->header != NULL)
-		return;
+		return request->header;
 
 	/* Create a redo log row for Lua requests */
 	struct xrow_header *row =
@@ -62,7 +63,7 @@ txn_add_redo(struct txn_stmt *stmt, struct request *request)
 	row->sync = 0;
 	row->tm = 0;
 	row->bodycnt = request_encode(request, row->body);
-	stmt->row = row;
+	return row;
 }
 
 /** Initialize a new stmt object within txn. */
@@ -78,7 +79,7 @@ txn_stmt_new(struct txn *txn)
 	stmt->space = NULL;
 	stmt->old_tuple = NULL;
 	stmt->new_tuple = NULL;
-	stmt->row = NULL;
+	stmt->request = NULL;
 
 	stailq_add_tail_entry(&txn->stmts, stmt, next);
 
@@ -123,7 +124,7 @@ txn_begin_in_engine(struct txn *txn, struct space *space)
 }
 
 struct txn *
-txn_begin_stmt(struct space *space)
+txn_begin_stmt(struct space *space, struct request *request)
 {
 	struct txn *txn = in_txn();
 	if (txn == NULL)
@@ -133,6 +134,12 @@ txn_begin_stmt(struct space *space)
 
 	struct txn_stmt *stmt = txn_stmt_new(txn);
 	stmt->space = space;
+	/* Create WAL record for the write requests in non-temporary spaces */
+	if (!space_is_temporary(stmt->space)) {
+		stmt->request = request;
+		++txn->n_rows;
+	}
+
 	return txn;
 }
 
@@ -141,7 +148,7 @@ txn_begin_stmt(struct space *space)
  * the current transaction as well.
  */
 void
-txn_commit_stmt(struct txn *txn, struct request *request)
+txn_commit_stmt(struct txn *txn)
 {
 	assert(txn->in_stmt);
 	/*
@@ -151,11 +158,6 @@ txn_commit_stmt(struct txn *txn, struct request *request)
 	struct txn_stmt *stmt = stailq_last_entry(&txn->stmts,
 						  struct txn_stmt, next);
 
-	/* Create WAL record for the write requests in non-temporary spaces */
-	if (!space_is_temporary(stmt->space)) {
-		txn_add_redo(stmt, request);
-		++txn->n_rows;
-	}
 	/*
 	 * If there are triggers, and they are not disabled, and
 	 * the statement found any rows, run triggers.
@@ -175,11 +177,46 @@ txn_commit_stmt(struct txn *txn, struct request *request)
 		txn_commit(txn);
 }
 
+static int64_t
+txn_no_wal(struct txn *txn)
+{
+	assert(txn->n_rows > 0);
+	struct recovery *r = recovery;
+
+	struct txn_stmt *stmt;
+	stailq_foreach_entry(stmt, &txn->stmts, next) {
+		if (stmt->request == NULL)
+			continue;
+
+		/*
+		 * Bump current LSN even if wal_mode = NONE, so that
+		 * snapshots still works with WAL turned off.
+		 */
+		struct xrow_header *row = stmt->request->header;
+		if (row == NULL || row->server_id == 0) {
+			/* Local request. */
+			vclock_inc(&r->vclock, r->server_id);
+		} else {
+			/* Replication request. */
+			if (!vclock_has(&r->vclock, row->server_id)) {
+				/*
+				 * A safety net, this can only occur
+				 * if we're fed a strangely broken xlog.
+				 */
+				tnt_raise(ClientError, ER_UNKNOWN_SERVER,
+					  int2str(row->server_id));
+			}
+			vclock_follow(&r->vclock,  row->server_id, row->lsn);
+		}
+	}
+	return vclock_sum(&recovery->vclock);
+}
 
 static int64_t
 txn_write_to_wal(struct txn *txn)
 {
 	assert(txn->n_rows > 0);
+	struct recovery *r = recovery;
 
 	struct wal_request *req;
 	req = (struct wal_request *)region_aligned_alloc_xc(
@@ -195,26 +232,33 @@ txn_write_to_wal(struct txn *txn)
 
 	struct txn_stmt *stmt;
 	stailq_foreach_entry(stmt, &txn->stmts, next) {
-		if (stmt->row == NULL)
-			continue; /* A read (e.g. select) request */
-		/*
-		 * Bump current LSN even if wal_mode = NONE, so that
-		 * snapshots still works with WAL turned off.
-		 */
-		recovery_fill_lsn(recovery, stmt->row);
-		stmt->row->tm = ev_now(loop());
-		req->rows[req->n_rows++] = stmt->row;
+		if (stmt->request == NULL)
+			continue;
+
+		struct xrow_header *row = txn_add_redo(stmt);
+		if (row->server_id == 0) {
+			/* Local request. */
+			row->server_id = r->server_id;
+			row->lsn = vclock_inc(&r->vclock, r->server_id);
+		} else {
+			/* Replication request. */
+			if (!vclock_has(&r->vclock, row->server_id)) {
+				/*
+				 * A safety net, this can only occur
+				 * if we're fed a strangely broken xlog.
+				 */
+				tnt_raise(ClientError, ER_UNKNOWN_SERVER,
+					  int2str(row->server_id));
+			}
+			vclock_follow(&r->vclock,  row->server_id, row->lsn);
+		}
+		row->tm = ev_now(loop());
+		req->rows[req->n_rows++] = row;
 	}
 	assert(req->n_rows == txn->n_rows);
 
 	ev_tstamp start = ev_now(loop()), stop;
-	int64_t res;
-	if (wal == NULL) {
-		/** wal_mode = NONE or initial recovery. */
-		res = vclock_sum(&recovery->vclock);
-	} else {
-		res = wal_write(wal, req);
-	}
+	int64_t res = wal_write(wal, req);
 
 	stop = ev_now(loop());
 	if (stop - start > too_long_threshold)
@@ -236,11 +280,16 @@ txn_commit(struct txn *txn)
 
 	/* Do transaction conflict resolving */
 	if (txn->engine) {
-		int64_t signature = -1;
+		int64_t signature;
 		txn->engine->prepare(txn);
-
-		if (txn->n_rows > 0)
+		if (txn->n_rows == 0) {
+			signature = -1;
+		} else if (wal != NULL) {
 			signature = txn_write_to_wal(txn);
+		} else {
+			signature = txn_no_wal(txn);
+		}
+
 		/*
 		 * The transaction is in the binary log. No action below
 		 * may throw. In case an error has happened, there is
@@ -276,8 +325,8 @@ txn_rollback_stmt()
 	struct txn_stmt *stmt = stailq_last_entry(&txn->stmts, struct txn_stmt,
 						  next);
 	txn->engine->rollbackStatement(stmt);
-	if (stmt->row != NULL) {
-		stmt->row = NULL;
+	if (stmt->request != NULL) {
+		stmt->request = NULL;
 		--txn->n_rows;
 		assert(txn->n_rows >= 0);
 	}

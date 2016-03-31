@@ -96,27 +96,6 @@
 
 /* {{{ LSN API */
 
-void
-recovery_fill_lsn(struct recovery *r, struct xrow_header *row)
-{
-	if (row->server_id == 0) {
-		/* Local request. */
-		row->server_id = r->server_id;
-		row->lsn = vclock_inc(&r->vclock, r->server_id);
-	} else {
-		/* Replication request. */
-		if (!vclock_has(&r->vclock, row->server_id)) {
-			/*
-			 * A safety net, this can only occur
-			 * if we're fed a strangely broken xlog.
-			 */
-			tnt_raise(ClientError, ER_UNKNOWN_SERVER,
-				  int2str(row->server_id));
-		}
-		vclock_follow(&r->vclock,  row->server_id, row->lsn);
-	}
-}
-
 int64_t
 recovery_last_checkpoint(struct recovery *r)
 {

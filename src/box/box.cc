@@ -120,7 +120,7 @@ process_rw(struct request *request, struct tuple **result)
 	rmean_collect(rmean_box, request->type, 1);
 	try {
 		struct space *space = space_cache_find(request->space_id);
-		struct txn *txn = txn_begin_stmt(space);
+		struct txn *txn = txn_begin_stmt(space, request);
 		access_check_space(space, PRIV_W);
 		struct tuple *tuple;
 		switch (request->type) {
@@ -172,7 +172,7 @@ process_rw(struct request *request, struct tuple **result)
 		 * when WAL is written in autocommit mode.
 		 */
 		TupleRefNil ref(tuple);
-		txn_commit_stmt(txn, request);
+		txn_commit_stmt(txn);
 		if (result) {
 			if (tuple)
 				tuple_bless(tuple);
@@ -207,7 +207,7 @@ recover_row(struct recovery *r, void *param, struct xrow_header *row)
 	request = region_alloc_object_xc(&fiber()->gc, struct request);
 	request_create(request, row->type);
 	request_decode(request, (const char *) row->body[0].iov_base,
-		row->body[0].iov_len);
+		       row->body[0].iov_len);
 	request->header = row;
 	process_rw(request, NULL);
 	/**

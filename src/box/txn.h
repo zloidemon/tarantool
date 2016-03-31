@@ -56,8 +56,8 @@ struct txn_stmt {
 	struct space *space;
 	struct tuple *old_tuple;
 	struct tuple *new_tuple;
-	/** Redo info: the binary log row */
-	struct xrow_header *row;
+	/** Redo info: the binary request to create WAL row */
+	struct request *request;
 };
 
 struct txn {
@@ -146,7 +146,7 @@ txn_on_rollback(struct txn *txn, struct trigger *trigger)
  * start a new transaction with autocommit = true.
  */
 struct txn *
-txn_begin_stmt(struct space *space);
+txn_begin_stmt(struct space *space, struct request *request);
 
 void
 txn_begin_in_engine(struct txn *txn, struct space *space);
@@ -184,7 +184,7 @@ txn_commit_ro_stmt(struct txn *txn)
  * the current transaction as well.
  */
 void
-txn_commit_stmt(struct txn *txn, struct request *request);
+txn_commit_stmt(struct txn *txn);
 
 /**
  * Rollback a statement. In autocommit mode,
