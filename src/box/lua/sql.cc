@@ -287,6 +287,12 @@ remove_and_free_sindex(void *self, SIndex *index);
 void
 log_debug(const char *msg);
 
+/**
+ * Clear tarantool space with given sqlite id.
+ */
+void
+space_truncate_by_id(int space_id);
+
 int init_schema_with_table(void *self, Table *table);
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1780,6 +1786,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->get_global_db = get_global_db;
 	ob->set_global_db = set_global_db;
 	ob->remove_and_free_sindex = remove_and_free_sindex;
+	ob->space_truncate_by_id = space_truncate_by_id;
 }
 
 void
@@ -1924,6 +1931,12 @@ remove_and_free_sindex(void *self, SIndex *index) {
 
 void log_debug(const char *msg) {
 	say_debug("%s\n", msg);
+}
+
+void
+space_truncate_by_id(int space_id) {
+	struct space *space = space_by_id(get_space_id_from(space_id));
+	space_truncate(space);
 }
 
 int init_schema_with_table(void *self_, Table *table) {
