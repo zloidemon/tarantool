@@ -31,7 +31,7 @@
 
 #include "sql_mvalue.h"
 
-MValue::MValue() : type(-1), data(NULL), data_len(0), error(false) { }
+MValue::MValue() : type(MP_NIL), data(NULL), data_len(0), error(false) { }
 
 MValue::MValue(const MValue &ob) : type(-1), data(NULL), data_len(0), error(false) {
 	*this = ob;
