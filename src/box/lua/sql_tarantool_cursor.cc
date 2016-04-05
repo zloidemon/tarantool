@@ -132,7 +132,11 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 		MValue *val = fields + i;
 		serial_types[i] = 0;
 		switch(val->GetType()) {
-			case MP_NIL: break;
+			case MP_NIL: {
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
+			}
 			case MP_UINT: {
 				serial_types[i] = GetSerialTypeNum(val->GetUint64());
 				header_size += sqlite3VarintLen(serial_types[i]);
@@ -281,7 +285,11 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 		MValue *val = fields + i;
 		serial_types[i] = 0;
 		switch(val->GetType()) {
-			case MP_NIL: break;
+			case MP_NIL: {
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
+			}
 			case MP_UINT: {
 				serial_types[i] = GetSerialTypeNum(val->GetUint64());
 				header_size += sqlite3VarintLen(serial_types[i]);
@@ -413,7 +421,14 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 		switch(vals[i].GetType()) {
 			case MP_NIL: msg_size += mp_sizeof_nil(); break;
 			case MP_UINT: msg_size += mp_sizeof_uint(vals[i].GetUint64()); break;
-			case MP_INT: msg_size += mp_sizeof_int(vals[i].GetInt64()); break;
+			case MP_INT: {
+				if (vals[i].GetInt64() >= 0) {
+					msg_size += mp_sizeof_uint(vals[i].GetInt64());
+				} else {
+					msg_size += mp_sizeof_int(vals[i].GetInt64());
+				}
+				break;
+			}
 			case MP_STR: msg_size += mp_sizeof_str(vals[i].Size()); break;
 			case MP_BIN: msg_size += mp_sizeof_bin(vals[i].Size()); break;
 			case MP_DOUBLE: msg_size += mp_sizeof_double(vals[i].GetDouble()); break;
@@ -459,7 +474,14 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 		switch(vals[j].GetType()) {
 			case MP_NIL: it = mp_encode_nil(it); break;
 			case MP_UINT: it = mp_encode_uint(it, vals[j].GetUint64()); break;
-			case MP_INT: it = mp_encode_int(it, vals[j].GetInt64()); break;
+			case MP_INT: {
+				if (vals[i].GetInt64() >= 0) {
+					it = mp_encode_uint(it, vals[j].GetInt64());
+				} else {
+					it = mp_encode_int(it, vals[j].GetInt64());
+				}
+				break;
+			}
 			case MP_DOUBLE: it = mp_encode_double(it, vals[j].GetDouble()); break;
 			case MP_STR: it = mp_encode_str(it, vals[j].GetStr(), vals[j].Size()); break;
 			case MP_BIN: it = mp_encode_bin(it, vals[j].GetBin(), vals[j].Size()); break;
