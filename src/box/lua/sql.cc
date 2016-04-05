@@ -527,8 +527,18 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 	bool is_temp;
 	if (old_tuple != NULL) {
 		say_debug("%s(): old_tuple != NULL\n", __func_name);
-		Table *table = get_trntl_table_from_tuple(old_tuple, db, pSchema, &is_temp);
-		if (!table) {
+		auto table_deleter = [](Table *ptr){
+			sqlite3DbFree(get_global_db(), ptr->zName);
+			for (int i = 0; i < ptr->nCol; ++i) {
+				sqlite3DbFree(get_global_db(), ptr->aCol[i].zName);
+				sqlite3DbFree(get_global_db(), ptr->aCol[i].zType);
+			}
+			sqlite3DbFree(get_global_db(), ptr->aCol);
+			sqlite3DbFree(get_global_db(), ptr);
+		};
+		SmartPtr<Table> table(get_trntl_table_from_tuple(old_tuple, db, pSchema, &is_temp),
+			table_deleter);
+		if (!table.get()) {
 			say_debug("%s(): error while getting table\n", __func_name);
 			return;
 		}
@@ -537,15 +547,13 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 			pSchema = db->aDb[1].pSchema;
 			table->pSchema = pSchema;
 		}
-		Table *schema_table = (Table *)sqlite3HashFind(tblHash, table->zName);
-		if (!schema_table) {
+		SmartPtr<Table> schema_table((Table *)sqlite3HashFind(tblHash, table->zName),
+			table_deleter);
+		if (!schema_table.get()) {
 			say_debug("%s(): table was not found\n", __func_name);
-			sqlite3DbFree(db, table);
 			return;
 		}
 		sqlite3HashInsert(tblHash, table->zName, NULL);
-		sqlite3DbFree(db, table);
-		sqlite3DbFree(db, schema_table);
 	}
 	if (new_tuple != NULL) {
 		say_debug("%s(): new_tuple != NULL\n", __func_name);
@@ -621,12 +629,18 @@ on_commit_index(struct trigger * /*trigger*/, void * event) {
 			}
 		}
 		remove_old_index_from_self(self, cur);
+		for (int i = 0; i < table->nCol; ++i) {
+			sqlite3DbFree(db, index->azColl[i]);
+		}
 		sqlite3DbFree(db, index);
 		if (!ok) {
 			say_debug("%s(): index was not found in sql schema\n", __func_name);
 			return;
 		}
 		sqlite3HashInsert(idxHash, cur->zName, NULL);
+		for (int i = 0; i < table->nCol; ++i) {
+			sqlite3DbFree(db, cur->azColl[i]);
+		}
 		sqlite3DbFree(db, cur);
 	}
 	if (new_tuple != NULL) {
@@ -1087,31 +1101,26 @@ int get_max_id_of_index(int space_id) {
 int
 insert_new_table_as_space(Table *table) {
 	static const char *__func_name = "insert_new_table_as_space";
-	char *msg_data;
+	SmartPtr<char> msg_data;
 	int msg_size;
 	int id_max = get_max_id_of_space();
 	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
 	int rc;
-	sqlite3 *db;
 	if (id_max < 0) {
 		say_debug("%s(): error while getting max id\n", __func_name);
 		return -1;
 	}
 	id_max += 5;
 	table->tnum = make_space_id(id_max);
-	msg_data = make_msgpuck_from((const Table *)table, msg_size);
-	rc = box_insert(BOX_SPACE_ID, msg_data, msg_data + msg_size, NULL);
-	delete[] msg_data;
-	if (rc) {
-		db = get_global_db();
-	}
+	msg_data.reset(make_msgpuck_from((const Table *)table, msg_size));
+	rc = box_insert(BOX_SPACE_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
 }
 
 int
 insert_new_sindex_as_index(SIndex *index) {
 	static const char *__func_name = "insert_new_sindex_as_index";
-	char *msg_data;
+	SmartPtr<char> msg_data;
 	int msg_size;
 	int space_id = get_space_id_from(index->pTable->tnum);
 	int id_max = get_max_id_of_index(space_id);
@@ -1122,9 +1131,8 @@ insert_new_sindex_as_index(SIndex *index) {
 	}
 	id_max++;
 	index->tnum = make_index_id(space_id, id_max);
-	msg_data = make_msgpuck_from((const SIndex *)index, msg_size);
-	rc = box_insert(BOX_INDEX_ID, msg_data, msg_data + msg_size, NULL);
-	delete[] msg_data;
+	msg_data.reset(make_msgpuck_from((const SIndex *)index, msg_size));
+	rc = box_insert(BOX_INDEX_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
 }
 
@@ -1178,7 +1186,10 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		return NULL;
 	}
 
-	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){sqlite3_free(ptr);});
+	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){
+		sqlite3_free(ptr->zName);
+		sqlite3_free(ptr);
+	});
 	table->tnum = make_space_id(tbl_id.GetUint64());
 	if (db->mallocFailed) {
 		say_debug("%s(): error while allocating memory for table\n", __func_name);
@@ -2143,7 +2154,10 @@ remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor) {
 	}
 	delete[] self->cursors;
 	self->cnt_cursors--;
-	self->cursors = new_cursors;
+	if (self->cnt_cursors)
+		self->cursors = new_cursors;
+	else
+		self->cursors = nullptr;
 	delete c;
 	sqlite3_free(cursor->pKey);
 	cursor->pKey = 0;
