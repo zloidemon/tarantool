@@ -916,7 +916,7 @@ make_msgpuck_from(const Table *table, int &size) {
 	const char *engine = "memtx";
 	int name_len = strlen("name");
 	int type_len = strlen("type");
-	int engine_len = strlen("engine");
+	int engine_len = strlen(engine);
 	int temporary_len = strlen("temporary");
 	int table_name_len = strlen(table->zName);
 	Column *cur;
@@ -1269,8 +1269,8 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		int affinity;
 		switch(c) {
 			case 'n': case 'N': {
-				sql_type = "REAL";
-				affinity = SQLITE_AFF_REAL;
+				sql_type = "INT";
+				affinity = SQLITE_AFF_INTEGER;
 				break;
 			}
 			case 's': case 'S': {
@@ -2235,7 +2235,6 @@ trntl_nested_insert_into_space(int argc, void *argv_) {
 	if (!strcmp(name, "_space")) {
 		Table *table = (Table *)argv[2];
 		rc = insert_new_table_as_space(table);
-		//TODO: free table memory
 		if (rc) {
 			say_debug("%s(): error while inserting new table as space\n", __func_name);
 			return SQLITE_ERROR;
