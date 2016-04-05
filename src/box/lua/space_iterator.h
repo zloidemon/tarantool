@@ -75,7 +75,7 @@ public:
 	bool Open();
 	int Next();
 	box_tuple_t *GetTuple();
-	void IterateOver();
+	int IterateOver();
 	bool InProcess() const;
 	iterator_type GetIteratorType() const;
 };
