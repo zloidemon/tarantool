@@ -1,11 +1,13 @@
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 
+execsql { DROP TABLE IF EXISTS test }
 execsql { CREATE TABLE test (id INT, PRIMARY KEY (id)) }
 execsql {INSERT INTO test values (1)}
 execsql {INSERT INTO test values (2)}
 execsql {INSERT INTO test values (3)}
 
+execsql { DROP TABLE IF EXISTS test3 }
 execsql { CREATE TABLE test3 (id INT, name TEXT, surname TEXT, bar INT, foo INT, qwerty INT, PRIMARY KEY (id)) }
 execsql { CREATE INDEX test3_secondary ON test3 (id, name) }
 execsql { CREATE INDEX test3_third ON test3 (surname, bar) }
@@ -20,12 +22,12 @@ execsql { INSERT INTO test3 values (6, "Brian", "Hankok", 200, 300, 800) }
 
 do_test insert1-0.1 {
 	execsql {SELECT * from test}
-} {1.0 2.0 3.0}
+} {1 2 3}
 
 execsql {INSERT INTO test values (4)}
 do_test insert1-0.2 {
 	execsql {SELECT * from test}
-} {1.0 2.0 3.0 4.0}
+} {1 2 3 4}
 
 do_test insert1-0.3 {
 	catchsql {INSERT INTO test values (1)}
@@ -35,12 +37,12 @@ execsql {INSERT INTO test SELECT id from test3 id where id > 4}
 
 do_test insert1-0.4 {
 	execsql {SELECT * from test}
-} {1.0 2.0 3.0 4.0 5.0 6.0}
+} {1 2 3 4 5 6}
 
 do_test insert1-0.5 {
 	execsql {INSERT INTO test3 values (8, "Boba", "Fett", 3000, 4000, 9000)}
 	execsql {SELECT id, name, surname, bar, foo, qwerty from test3 where id = 8}
-} {8.0 Boba Fett 3000.0 4000.0 9000.0}
+} {8 Boba Fett 3000 4000 9000}
 
 
 finish_test
