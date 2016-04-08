@@ -41,6 +41,7 @@
 #include "third_party/tarantool_ev.h"
 #include "vclock.h"
 #include "ipc.h"
+#include "small/mempool.h"
 
 struct xstream;
 
@@ -81,7 +82,15 @@ struct applier {
 	socklen_t addr_len;
 	struct ev_io io;
 	/** Input/output buffer for buffered IO */
-	struct iobuf *iobuf;
+	struct iobuf *iobuf[2];
+	/** Index of input buffer */
+	int input_index;
+	/** Amount of unparsed input */
+	size_t input_unparsed;
+	/** True if applier want swap buffers */
+	bool want_swap_buffers;
+	/** Mempool for recovery messages */
+	struct mempool msg_pool;
 	/** Triggers invoked on state change */
 	struct rlist on_state;
 	/* Channel used by applier_connect_all() and applier_resume() */
@@ -91,25 +100,10 @@ struct applier {
 };
 
 /**
- * Start a client to a remote server using a background fiber.
- *
- * If recovery is finalized (i.e. r->writer != NULL) then the client
- * connect to a master and follow remote updates using SUBSCRIBE command.
- *
- * If recovery is not finalized (i.e. r->writer == NULL) then the client
- * connect to a master, download and process snapshot using JOIN command
- * and then switch to follow mode.
- *
- * \sa fiber_start()
- */
-void
-applier_start(struct applier *applier);
-
-/**
  * Stop a client.
  */
 void
-applier_stop(struct applier *applier);
+tx_applier_stop(struct applier *applier);
 
 /**
  * Allocate an instance of applier object, create applier and initialize
@@ -119,14 +113,14 @@ applier_stop(struct applier *applier);
  * @error   throws OutOfMemory exception if out of memory.
  */
 struct applier *
-applier_new(const char *uri, struct xstream *join_stream,
+tx_applier_new(const char *uri, struct xstream *join_stream,
 	    struct xstream *subscribe_stream);
 
 /**
  * Destroy and delete a applier.
  */
 void
-applier_delete(struct applier *applier);
+tx_applier_delete(struct applier *applier);
 
 /*
  * Connect all appliers to remote peer and receive UUID
@@ -134,7 +128,7 @@ applier_delete(struct applier *applier);
  * Use applier_resume(applier) to resume applier.
  */
 void
-applier_connect_all(struct applier **appliers, int count);
+tx_applier_connect_all(struct applier **appliers, int count);
 
 /*
  * Download and process the data snapshot from master.
@@ -143,13 +137,13 @@ applier_connect_all(struct applier **appliers, int count);
  * \sa applier_connect_all
  */
 void
-applier_bootstrap(struct applier *master);
+tx_applier_bootstrap(struct applier *master);
 
 /*
  * Resume execution of applier returned by applier_connect_all() or
  * applier_bootstrap().
  */
 void
-applier_resume(struct applier *applier);
+tx_applier_resume(struct applier *applier);
 
 #endif /* TARANTOOL_APPLIER_H_INCLUDED */

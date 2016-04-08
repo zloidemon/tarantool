@@ -37,7 +37,6 @@
 #include "scoped_guard.h"
 #include "coio.h"
 #include "coio_buf.h"
-#include "xstream.h"
 #include "recovery.h"
 #include "xrow.h"
 #include "request.h"
@@ -168,7 +167,7 @@ struct recovery_apply_row_msg: public cmsg
 	int len;
 	struct iobuf *iobuf;
 	struct applier *applier;
-	struct xstream *stream;
+	struct recovery *recovery;
 	struct xrow_header row;
 	struct request request;
 };
@@ -177,7 +176,7 @@ static void
 tx_recovery_do_apply_row(struct cmsg *m)
 {
 	struct recovery_apply_row_msg *msg = (struct recovery_apply_row_msg *)m;
-	xstream_write(msg->stream, &msg->row);
+	recovery_apply_row(msg->recovery, &msg->row);
 }
 
 static void
@@ -205,7 +204,7 @@ net_recovery_on_apply_row(struct cmsg *m)
 }
 
 static void
-net_recovery_apply_row(struct applier *applier, struct xstream *stream,
+net_recovery_apply_row(struct applier *applier, struct recovery *recovery,
 	struct xrow_header *row, int len)
 {
 	static const struct cmsg_hop apply_route[] = {
@@ -218,7 +217,7 @@ net_recovery_apply_row(struct applier *applier, struct xstream *stream,
 	msg->len = len;
 	msg->iobuf = applier->iobuf[applier->input_index];
 	msg->applier = applier;
-	msg->stream = stream;
+	msg->recovery = recovery;
 	msg->row = *row;
 	request_create(&msg->request, msg->row.type);
 	msg->request.header = &msg->row;
@@ -340,10 +339,8 @@ applier_parse_xrow(struct applier *applier, struct xrow_header *row)
  * Execute and process JOIN request (bootstrap the server).
  */
 static void
-applier_join(struct applier *applier)
+applier_join(struct applier *applier, struct recovery *r)
 {
-	assert(applier->join_stream != NULL);
-
 	say_info("downloading a snapshot from %s",
 		 sio_strfaddr(&applier->addr, applier->addr_len));
 
@@ -353,6 +350,8 @@ applier_join(struct applier *applier)
 	xrow_encode_join(&row, &SERVER_ID);
 	coio_write_xrow(coio, &row);
 	applier_set_state(applier, APPLIER_BOOTSTRAP);
+
+	assert(vclock_has(&r->vclock, 0)); /* check for surrogate server_id */
 
 	while (true) {
 		applier_read(applier);
@@ -369,9 +368,7 @@ applier_join(struct applier *applier)
 				goto join_done;
 			} else if (iproto_type_is_dml(row.type)) {
 				/* Regular snapshot row  (IPROTO_INSERT) */
-				net_recovery_apply_row(applier,
-						       applier->join_stream,
-						       &row, len);
+				net_recovery_apply_row(applier, r, &row, len);
 			} else /* error or unexpected packet */ {
 				iobuf->in.rpos += len;
 				xrow_decode_error(&row);  /* rethrow error */
@@ -396,17 +393,13 @@ join_done:
  * Execute and process SUBSCRIBE request (follow updates from a master).
  */
 static void
-applier_subscribe(struct applier *applier)
+applier_subscribe(struct applier *applier, struct recovery *r)
 {
-	assert(applier->subscribe_stream != NULL);
-
 	/* Send SUBSCRIBE request */
 	struct ev_io *coio = &applier->io;
 	struct iobuf *iobuf = applier->iobuf[applier->input_index];
 	struct xrow_header row;
 
-	/* TODO: don't use struct recovery here */
-	struct recovery *r = ::recovery;
 	xrow_encode_subscribe(&row, &CLUSTER_ID, &SERVER_ID, &r->vclock);
 	coio_write_xrow(coio, &row);
 	applier_set_state(applier, APPLIER_FOLLOW);
@@ -476,9 +469,8 @@ applier_subscribe(struct applier *applier)
 				iobuf->in.rpos += len;
 				xrow_decode_error(&row);  /* error */
 			}
-			net_recovery_apply_row(applier,
-					       applier->subscribe_stream,
-					       &row, len);
+			net_recovery_apply_row(applier, r, &row,
+				len);
 		}
 	}
 }
@@ -533,6 +525,7 @@ static int
 applier_f(va_list ap)
 {
 	struct applier *applier = va_arg(ap, struct applier *);
+	struct recovery *r = va_arg(ap, struct recovery *);
 
 	/* Re-connect loop */
 	while (!fiber_is_cancelled()) {
@@ -545,9 +538,9 @@ applier_f(va_list ap)
 				 * join will pause the applier
 				 * until WAL is created.
 				 */
-				applier_join(applier);
+				applier_join(applier, r);
 			}
-			applier_subscribe(applier);
+			applier_subscribe(applier, r);
 			/*
 			 * subscribe() has an infinite loop which
 			 * is stoppable only with fiber_cancel().
@@ -583,20 +576,8 @@ applier_f(va_list ap)
 	return 0;
 }
 
-/**
- * Start a client to a remote server using a background fiber.
- *
- * If recovery is finalized (i.e. r->writer != NULL) then the client
- * connect to a master and follow remote updates using SUBSCRIBE command.
- *
- * If recovery is not finalized (i.e. r->writer == NULL) then the client
- * connect to a master, download and process snapshot using JOIN command
- * and then switch to follow mode.
- *
- * \sa fiber_start()
- */
-void
-applier_start(struct applier *applier)
+static void
+applier_start(struct applier *applier, struct recovery *recovery)
 {
 	char name[FIBER_NAME_MAX];
 	assert(applier->reader == NULL);
@@ -611,7 +592,7 @@ applier_start(struct applier *applier)
 	 */
 	fiber_set_joinable(f, true);
 	applier->reader = f;
-	fiber_start(f, applier);
+	fiber_start(f, applier, recovery);
 }
 
 struct applier_stop_msg
@@ -645,7 +626,7 @@ tx_applier_stop(struct applier *applier)
 	fiber_set_cancellable(cancellable);
 }
 
-static void
+void
 applier_stop(struct applier *applier)
 {
 	struct applier_stop_msg msg;
@@ -658,8 +639,6 @@ struct applier_new_msg
 	struct cbus_call_msg base;
 	struct applier *applier;
 	const char *uri;
-	struct xstream *join_stream;
-	struct xstream *subscribe_stream;
 };
 
 static int
@@ -690,8 +669,6 @@ applier_do_new(struct cbus_call_msg *m)
 	assert(rc == 0 && applier->uri.service != NULL);
 	(void) rc;
 
-	applier->join_stream = msg->join_stream;
-	applier->subscribe_stream = msg->subscribe_stream;
 	applier->last_row_time = ev_now(loop());
 	rlist_create(&applier->on_state);
 	ipc_channel_create(&applier->pause, 0);
@@ -700,15 +677,11 @@ applier_do_new(struct cbus_call_msg *m)
 }
 
 struct applier *
-tx_applier_new(const char *uri,
-	       struct xstream *join_stream,
-	       struct xstream *subscribe_stream)
+tx_applier_new(const char *uri)
 {
 	struct applier_new_msg msg;
 	msg.applier = NULL;
 	msg.uri = uri;
-	msg.join_stream = join_stream;
-	msg.subscribe_stream = subscribe_stream;
 	bool cancellable = fiber_set_cancellable(false);
 	cbus_call(&net_tx_bus, &msg.base, applier_do_new, NULL, TIMEOUT_INFINITY);
 	fiber_set_cancellable(cancellable);
@@ -858,7 +831,7 @@ applier_do_connect_all(struct cbus_call_msg *m)
 		trigger_add(&msg->appliers[i]->on_state, &triggers[i]);
 
 		/* Start background connection */
-		applier_start(msg->appliers[i]);
+		applier_start(msg->appliers[i], recovery);
 	}
 
 	/* Wait `count` messages from channel */
@@ -906,13 +879,15 @@ error:
 }
 
 void
-tx_applier_connect_all(struct applier **appliers, int count)
+tx_applier_connect_all(struct applier **appliers, int count,
+		    struct recovery *recovery)
 {
 	if (count == 0)
 		return; /* nothing to do */
 	struct applier_connect_all_msg msg;
 	msg.appliers = appliers;
 	msg.count = count;
+	msg.recovery = recovery;
 	bool cancellable = fiber_set_cancellable(false);
 	int res = cbus_call(&net_tx_bus, &msg.base, applier_do_connect_all, NULL,
 		TIMEOUT_INFINITY);

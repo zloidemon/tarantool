@@ -358,13 +358,13 @@ cfg_get_replication_source(int *p_count)
 
 	for (int i = 0; i < count; i++) {
 		const char *source = cfg_getarr_elem("replication_source", i);
-		struct applier *applier = applier_new(source,
+		struct applier *applier = tx_applier_new(source,
 						      &join_stream,
 						      &subscribe_stream);
 		if (applier == NULL) {
 			/* Delete created appliers */
 			while (--i >= 0)
-				applier_delete(appliers[i]);
+				tx_applier_delete(appliers[i]);
 			return NULL;
 		}
 		appliers[i] = applier; /* link to the list */
@@ -389,10 +389,10 @@ box_sync_replication_source(void)
 
 	auto guard = make_scoped_guard([=]{
 		for (int i = 0; i < count; i++)
-			applier_delete(appliers[i]); /* doesn't affect diag */
+			tx_applier_delete(appliers[i]); /* doesn't affect diag */
 	});
 
-	applier_connect_all(appliers, count);
+	tx_applier_connect_all(appliers, count);
 	cluster_set_appliers(appliers, count);
 
 	guard.is_active = false;
@@ -413,7 +413,7 @@ box_set_replication_source(void)
 	box_sync_replication_source();
 	server_foreach(server) {
 		if (server->applier != NULL)
-			applier_resume(server->applier);
+			tx_applier_resume(server->applier);
 	}
 }
 
@@ -1109,7 +1109,7 @@ bootstrap_from_master(struct server *master)
 	vclock_add_server(&recovery->vclock, 0);
 
 	/* Download and process a data snapshot from master */
-	applier_bootstrap(master->applier);
+	tx_applier_bootstrap(master->applier);
 
 	/* Replace server vclock using master's vclock */
 	vclock_copy(&recovery->vclock, &master->applier->vclock);
@@ -1171,6 +1171,8 @@ box_init(void)
 	 */
 	xstream_create(&join_stream, apply_join_row);
 	xstream_create(&subscribe_stream, apply_subscribe_row);
+
+	iproto_init();
 	box_sync_replication_source();
 
 	int64_t lsn = recovery_last_checkpoint(NULL);
@@ -1190,7 +1192,6 @@ box_init(void)
 	title("hot_standby");
 
 	port_init();
-	iproto_init();
 	box_set_listen();
 
 	int64_t rows_per_wal = box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
@@ -1204,7 +1205,7 @@ box_init(void)
 	/* Follow replica */
 	server_foreach(server) {
 		if (server->applier != NULL)
-			applier_resume(server->applier);
+			tx_applier_resume(server->applier);
 	}
 
 	/* Enter read-write mode. */

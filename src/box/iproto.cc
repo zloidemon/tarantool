@@ -59,6 +59,7 @@
 #include "iproto_constants.h"
 #include "authentication.h"
 #include "rmean.h"
+#include "coeio.h"
 
 /* The number of iproto messages in flight */
 enum { IPROTO_MSG_MAX = 768 };
@@ -142,9 +143,9 @@ struct IprotoMsgGuard {
  * - on_connect trigger must be processed before any other
  *   request on this connection.
  */
-static struct cpipe tx_pipe;
-static struct cpipe net_pipe;
-static struct cbus net_tx_bus;
+struct cpipe tx_pipe;
+struct cpipe net_pipe;
+struct cbus net_tx_bus;
 /* A pointer to the transaction processor cord. */
 struct cord *tx_cord;
 
@@ -1018,6 +1019,7 @@ static int
 net_cord_f(va_list /* ap */)
 {
 	/* Got to be called in every thread using iobuf */
+	coeio_init();
 	iobuf_init();
 	mempool_create(&iproto_msg_pool, &cord()->slabc,
 		       sizeof(struct iproto_msg));

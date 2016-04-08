@@ -237,8 +237,8 @@ cluster_set_appliers(struct applier **appliers, int count)
 	server_foreach(server) {
 		if (server->applier == NULL)
 			continue;
-		applier_stop(server->applier); /* cancels a background fiber */
-		applier_delete(server->applier);
+		tx_applier_stop(server->applier); /* cancels a background fiber */
+		tx_applier_delete(server->applier);
 		server->applier = NULL;
 	}
 
