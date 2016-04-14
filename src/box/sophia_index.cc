@@ -251,7 +251,7 @@ SophiaIndex::bsize() const
 	return sp_getint(env, name);
 }
 
-struct tuple *
+tuple_id
 SophiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 {
 	(void)part_count;
@@ -272,23 +272,23 @@ SophiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 		sp_setint(obj, "cache_only", 0);
 		result = sophia_read(transaction, obj);
 		if (result == NULL)
-			return NULL;
+			return TUPLE_ID_NIL;
 	} else {
 		sp_destroy(obj);
 	}
-	struct tuple *tuple = sophia_tuple_new(result, key_def, format);
+	tuple_id tuple = sophia_tuple_new(result, key_def, format);
 	sp_destroy(result);
 	return tuple;
 }
 
-struct tuple *
-SophiaIndex::replace(struct tuple*, struct tuple*, enum dup_replace_mode)
+tuple_id
+SophiaIndex::replace(tuple_id, tuple_id, enum dup_replace_mode)
 {
 	/* This method is unused by sophia index.
 	 *
 	 * see ::replace_or_insert() */
 	assert(0);
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
 struct sophia_mempool {
@@ -502,8 +502,8 @@ SophiaIndex::replace_or_insert(const char *tuple,
 	const char *key = tuple_field_raw(tuple, size, key_def->parts[0].fieldno);
 	/* insert: ensure key does not exists */
 	if (mode == DUP_INSERT) {
-		struct tuple *found = findByKey(key);
-		if (found) {
+		tuple_id found = findByKey(key);
+		if (found != TUPLE_ID_NIL) {
 			tuple_delete(found);
 			struct space *sp = space_cache_find(key_def->space_id);
 			tnt_raise(ClientError, ER_TUPLE_FOUND,
@@ -563,10 +563,11 @@ sophia_iterator_free(struct iterator *ptr)
 	free(ptr);
 }
 
-struct tuple *
+tuple_id
+
 sophia_iterator_last(struct iterator *ptr __attribute__((unused)))
 {
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
 static inline void
@@ -579,7 +580,7 @@ sophia_iterator_mode(struct sophia_iterator *it,
 	sp_setint(obj, "immutable", immutable);
 }
 
-struct tuple *
+tuple_id
 sophia_iterator_next(struct iterator *ptr)
 {
 	struct sophia_iterator *it = (struct sophia_iterator *) ptr;
@@ -606,7 +607,7 @@ sophia_iterator_next(struct iterator *ptr)
 		/* immediately close the cursor */
 		sp_destroy(it->cursor);
 		it->cursor = NULL;
-		return NULL;
+		return TUPLE_ID_NIL;
 	}
 	it->current = obj;
 
@@ -615,7 +616,7 @@ sophia_iterator_next(struct iterator *ptr)
 	return sophia_tuple_new(obj, it->key_def, it->space->format);
 }
 
-struct tuple *
+tuple_id
 sophia_iterator_first(struct iterator *ptr)
 {
 	struct sophia_iterator *it = (struct sophia_iterator *) ptr;
@@ -623,7 +624,7 @@ sophia_iterator_first(struct iterator *ptr)
 	return sophia_tuple_new(it->current, it->key_def, it->space->format);
 }
 
-struct tuple *
+tuple_id
 sophia_iterator_eq(struct iterator *ptr)
 {
 	struct sophia_iterator *it = (struct sophia_iterator *) ptr;

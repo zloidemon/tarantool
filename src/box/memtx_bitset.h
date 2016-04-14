@@ -50,9 +50,8 @@ public:
 	virtual size_t size() const override;
 	virtual size_t count(enum iterator_type type, const char *key,
 			     uint32_t part_count) const override;
-	virtual struct tuple *replace(struct tuple *old_tuple,
-				      struct tuple *new_tuple,
-				      enum dup_replace_mode mode) override;
+	virtual tuple_id replace(tuple_id old_tuple, tuple_id new_tuple,
+				 enum dup_replace_mode mode) override;
 
 	virtual size_t bsize() const override;
 	virtual struct iterator *allocIterator() const override;
@@ -61,10 +60,10 @@ public:
 				  const char *key,
 				  uint32_t part_count) const override;
 #ifndef OLD_GOOD_BITSET
-	void registerTuple(struct tuple *tuple);
-	void unregisterTuple(struct tuple *tuple);
-	uint32_t tupleToValue(struct tuple *tuple) const;
-	struct tuple *valueToTuple(uint32_t value) const;
+	void registerTuple(tuple_id tuple);
+	void unregisterTuple(tuple_id tuple);
+	uint32_t tupleToValue(tuple_id tuple) const;
+	tuple_id valueToTuple(uint32_t value) const;
 #endif /*#ifndef OLD_GOOD_BITSET*/
 private:
 	struct bitset_index m_index;

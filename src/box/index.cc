@@ -176,26 +176,26 @@ Index::size() const
 	return 0;
 }
 
-struct tuple *
+tuple_id
 Index::min(const char* /* key */, uint32_t /* part_count */) const
 {
 	tnt_raise(UnsupportedIndexFeature, this, "min()");
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-struct tuple *
+tuple_id
 Index::max(const char* /* key */, uint32_t /* part_count */) const
 {
 	tnt_raise(UnsupportedIndexFeature, this, "max()");
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-struct tuple *
+tuple_id
 Index::random(uint32_t rnd) const
 {
 	(void) rnd;
 	tnt_raise(UnsupportedIndexFeature, this, "random()");
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
 size_t
@@ -206,32 +206,32 @@ Index::count(enum iterator_type /* type */, const char* /* key */,
 	return 0;
 }
 
-struct tuple *
+tuple_id
 Index::findByKey(const char *key, uint32_t part_count) const
 {
 	(void) key;
 	(void) part_count;
 	tnt_raise(UnsupportedIndexFeature, this, "findByKey()");
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-struct tuple *
-Index::findByTuple(struct tuple *tuple) const
+tuple_id
+Index::findByTuple(tuple_id tuple) const
 {
 	(void) tuple;
 	tnt_raise(UnsupportedIndexFeature, this, "findByTuple()");
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-struct tuple *
-Index::replace(struct tuple *old_tuple, struct tuple *new_tuple,
+tuple_id
+Index::replace(tuple_id old_tuple, tuple_id new_tuple,
 		     enum dup_replace_mode mode)
 {
 	(void) old_tuple;
 	(void) new_tuple;
 	(void) mode;
 	tnt_raise(UnsupportedIndexFeature, this, "replace()");
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
 size_t
@@ -281,12 +281,12 @@ check_index(uint32_t space_id, uint32_t index_id, struct space **space)
 	return index_find(*space, index_id);
 }
 
-static inline box_tuple_t *
-tuple_bless_null(struct tuple *tuple)
+static inline box_tuple_t
+tuple_bless_null(tuple_id tuple)
 {
-	if (tuple != NULL)
+	if (tuple != TUPLE_ID_NIL)
 		return tuple_bless(tuple);
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
 ssize_t
@@ -315,14 +315,14 @@ box_index_bsize(uint32_t space_id, uint32_t index_id)
 
 int
 box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
-		box_tuple_t **result)
+		box_tuple_t *result)
 {
 	assert(result != NULL);
 	try {
 		struct space *space;
 		/* no tx management, random() is for approximation anyway */
 		Index *index = check_index(space_id, index_id, &space);
-		struct tuple *tuple = index->random(rnd);
+		tuple_id tuple = index->random(rnd);
 		*result = tuple_bless_null(tuple);
 		return 0;
 	}  catch (Exception *) {
@@ -332,7 +332,7 @@ box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
 
 int
 box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
-	      const char *key_end, box_tuple_t **result)
+	      const char *key_end, box_tuple_t *result)
 {
 	mp_tuple_assert(key, key_end);
 	assert(result != NULL);
@@ -345,7 +345,7 @@ box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
 		primary_key_validate(index->key_def, key, part_count);
 		/* Start transaction in the engine. */
 		struct txn *txn = txn_begin_ro_stmt(space);
-		struct tuple *tuple = index->findByKey(key, part_count);
+		tuple_id tuple = index->findByKey(key, part_count);
 		/* Count statistics */
 		rmean_collect(rmean_box, IPROTO_SELECT, 1);
 
@@ -360,7 +360,7 @@ box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
 
 int
 box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
-	      const char *key_end, box_tuple_t **result)
+	      const char *key_end, box_tuple_t *result)
 {
 	mp_tuple_assert(key, key_end);
 	assert(result != NULL);
@@ -375,7 +375,7 @@ box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
 		key_validate(index->key_def, ITER_GE, key, part_count);
 		/* Start transaction in the engine */
 		struct txn *txn = txn_begin_ro_stmt(space);
-		struct tuple *tuple = index->min(key, part_count);
+		tuple_id tuple = index->min(key, part_count);
 		*result = tuple_bless_null(tuple);
 		txn_commit_ro_stmt(txn);
 		return 0;
@@ -387,7 +387,7 @@ box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
 
 int
 box_index_max(uint32_t space_id, uint32_t index_id, const char *key,
-	      const char *key_end, box_tuple_t **result)
+	      const char *key_end, box_tuple_t *result)
 {
 	mp_tuple_assert(key, key_end);
 	assert(result != NULL);
@@ -402,7 +402,7 @@ box_index_max(uint32_t space_id, uint32_t index_id, const char *key,
 		key_validate(index->key_def, ITER_LE, key, part_count);
 		/* Start transaction in the engine */
 		struct txn *txn = txn_begin_ro_stmt(space);
-		struct tuple *tuple = index->max(key, part_count);
+		tuple_id tuple = index->max(key, part_count);
 		*result = tuple_bless_null(tuple);
 		txn_commit_ro_stmt(txn);
 		return 0;
@@ -473,7 +473,7 @@ box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
 }
 
 int
-box_iterator_next(box_iterator_t *itr, box_tuple_t **result)
+box_iterator_next(box_iterator_t *itr, box_tuple_t *result)
 {
 	assert(result != NULL);
 	try {
@@ -483,21 +483,21 @@ box_iterator_next(box_iterator_t *itr, box_tuple_t **result)
 			Index *index = check_index(itr->space_id, itr->index_id,
 						   &space);
 			if (index != itr->index) {
-				*result = NULL;
+				*result = TUPLE_ID_NIL;
 				return 0;
 			}
 			if (index->sc_version > itr->sc_version) {
-				*result = NULL; /* invalidate iterator */
+				*result = TUPLE_ID_NIL; /* invalidate iterator */
 				return 0;
 			}
 			itr->sc_version = sc_version;
 		}
 	} catch (Exception *) {
-		*result = NULL;
+		*result = TUPLE_ID_NIL;
 		return 0; /* invalidate iterator */
 	}
 	try {
-		struct tuple *tuple = itr->next(itr);
+		tuple_id tuple = itr->next(itr);
 		*result = tuple_bless_null(tuple);
 		return 0;
 	} catch (Exception *) {

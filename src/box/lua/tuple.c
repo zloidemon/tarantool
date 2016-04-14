@@ -55,35 +55,35 @@ static const char *tuple_iteratorlib_name = "box.tuple.iterator";
 
 extern char tuple_lua[]; /* Lua source */
 
-uint32_t CTID_CONST_STRUCT_TUPLE_REF;
+uint32_t CTID_STRUCT_TUPLE_ID;
 
-static inline struct tuple *
+static inline tuple_id
 lua_checktuple(struct lua_State *L, int narg)
 {
-	struct tuple *tuple = lua_istuple(L, narg);
-	if (tuple == NULL)  {
+	tuple_id tuple = lua_istuple(L, narg);
+	if (tuple == TUPLE_ID_NIL)  {
 		luaL_error(L, "Invalid argument #%d (box.tuple expected, got %s)",
-		   narg, lua_typename(L, lua_type(L, narg)));
+			   narg, lua_typename(L, lua_type(L, narg)));
 	}
 
 	return tuple;
 }
 
-struct tuple *
+tuple_id
 lua_istuple(struct lua_State *L, int narg)
 {
-	assert(CTID_CONST_STRUCT_TUPLE_REF != 0);
+	assert(CTID_STRUCT_TUPLE_ID != 0);
 	uint32_t ctypeid;
 	void *data;
 
 	if (lua_type(L, narg) != LUA_TCDATA)
-		return NULL;
+		return TUPLE_ID_NIL;
 
 	data = luaL_checkcdata(L, narg, &ctypeid);
-	if (ctypeid != CTID_CONST_STRUCT_TUPLE_REF)
-		return NULL;
+	if (ctypeid != CTID_STRUCT_TUPLE_ID)
+		return TUPLE_ID_NIL;
 
-	return *(struct tuple **) data;
+	return *(tuple_id *) data;
 }
 
 static int
@@ -101,7 +101,8 @@ lbox_tuple_new(lua_State *L)
 	mpstream_init(&stream, buf, ibuf_reserve_cb, ibuf_alloc_cb,
 		      luamp_error, L);
 
-	if (argc == 1 && (lua_istable(L, 1) || lua_istuple(L, 1))) {
+	if (argc == 1 &&
+	    (lua_istable(L, 1) || lua_istuple(L, 1) != TUPLE_ID_NIL)) {
 		/* New format: box.tuple.new({1, 2, 3}) */
 		luamp_encode_tuple(L, luaL_msgpack_default, &stream, 1);
 	} else {
@@ -114,22 +115,14 @@ lbox_tuple_new(lua_State *L)
 	mpstream_flush(&stream);
 
 	box_tuple_format_t *fmt = box_tuple_format_default();
-	struct tuple *tuple = box_tuple_new(fmt, buf->buf,
-					   buf->buf + ibuf_used(buf));
-	if (tuple == NULL)
+	tuple_id tuple = box_tuple_new(fmt, buf->buf,
+				       buf->buf + ibuf_used(buf));
+	if (tuple == TUPLE_ID_NIL)
 		lbox_error(L);
 	/* box_tuple_new() doesn't leak on exception, see public API doc */
 	lbox_pushtuple(L, tuple);
 	ibuf_reinit(tarantool_lua_ibuf);
 	return 1;
-}
-
-static int
-lbox_tuple_gc(struct lua_State *L)
-{
-	struct tuple *tuple = lua_checktuple(L, 1);
-	box_tuple_unref(tuple);
-	return 0;
 }
 
 static int
@@ -156,7 +149,7 @@ lbox_tuple_slice_wrapper(struct lua_State *L)
 static int
 lbox_tuple_slice(struct lua_State *L)
 {
-	struct tuple *tuple = lua_checktuple(L, 1);
+	tuple_id tuple = lua_checktuple(L, 1);
 	int argc = lua_gettop(L) - 1;
 	uint32_t start, end;
 	int32_t offset;
@@ -212,8 +205,8 @@ luamp_convert_key(struct lua_State *L, struct luaL_serializer *cfg,
 {
 	/* Performs keyfy() logic */
 
-	struct tuple *tuple = lua_istuple(L, index);
-	if (tuple != NULL)
+	tuple_id tuple = lua_istuple(L, index);
+	if (tuple != TUPLE_ID_NIL)
 		return tuple_to_mpstream(tuple, stream);
 
 	struct luaL_field field;
@@ -236,8 +229,8 @@ void
 luamp_encode_tuple(struct lua_State *L, struct luaL_serializer *cfg,
 		   struct mpstream *stream, int index)
 {
-	struct tuple *tuple = lua_istuple(L, index);
-	if (tuple != NULL) {
+	tuple_id tuple = lua_istuple(L, index);
+	if (tuple != TUPLE_ID_NIL) {
 		return tuple_to_mpstream(tuple, stream);
 	} else if (luamp_encode(L, cfg, stream, index) != MP_ARRAY) {
 		diag_set(ClientError, ER_TUPLE_NOT_ARRAY);
@@ -246,7 +239,7 @@ luamp_encode_tuple(struct lua_State *L, struct luaL_serializer *cfg,
 }
 
 void
-tuple_to_mpstream(struct tuple *tuple, struct mpstream *stream)
+tuple_to_mpstream(tuple_id tuple, struct mpstream *stream)
 {
 	size_t bsize = box_tuple_bsize(tuple);
 	char *ptr = mpstream_reserve(stream, bsize);
@@ -259,8 +252,8 @@ static enum mp_type
 luamp_encode_extension_box(struct lua_State *L, int idx,
 			   struct mpstream *stream)
 {
-	struct tuple *tuple = lua_istuple(L, idx);
-	if (tuple != NULL) {
+	tuple_id tuple = lua_istuple(L, idx);
+	if (tuple != TUPLE_ID_NIL) {
 		tuple_to_mpstream(tuple, stream);
 		return MP_ARRAY;
 	}
@@ -281,7 +274,7 @@ luamp_encode_extension_box(struct lua_State *L, int idx,
 static int
 lbox_tuple_transform(struct lua_State *L)
 {
-	struct tuple *tuple = lua_checktuple(L, 1);
+	tuple_id tuple = lua_checktuple(L, 1);
 	int argc = lua_gettop(L);
 	if (argc < 3)
 		luaL_error(L, "tuple.transform(): bad arguments");
@@ -347,9 +340,9 @@ lbox_tuple_transform(struct lua_State *L)
 	mpstream_flush(&stream);
 
 	/* Execute tuple_update */
-	struct tuple *new_tuple =
+	tuple_id new_tuple =
 		box_tuple_update(tuple, buf->buf, buf->buf + ibuf_used(buf));
-	if (tuple == NULL)
+	if (tuple == TUPLE_ID_NIL)
 		lbox_error(L);
 	/* box_tuple_update() doesn't leak on exception, see public API doc */
 	lbox_pushtuple(L, new_tuple);
@@ -358,23 +351,20 @@ lbox_tuple_transform(struct lua_State *L)
 }
 
 void
-lbox_pushtuple(struct lua_State *L, struct tuple *tuple)
+lbox_pushtuple(struct lua_State *L, tuple_id tuple)
 {
-	assert(CTID_CONST_STRUCT_TUPLE_REF != 0);
-	struct tuple **ptr = (struct tuple **)
-		luaL_pushcdata(L, CTID_CONST_STRUCT_TUPLE_REF);
+	assert(CTID_STRUCT_TUPLE_ID != 0);
+	tuple_id *ptr = (tuple_id *)
+		luaL_pushcdata(L, CTID_STRUCT_TUPLE_ID);
 	*ptr = tuple;
 	/* The order is important - first reference tuple, next set gc */
 	if (box_tuple_ref(tuple) != 0) {
 		lbox_error(L);
 		return;
 	}
-	lua_pushcfunction(L, lbox_tuple_gc);
-	luaL_setcdatagc(L, -2);
 }
 
 static const struct luaL_reg lbox_tuple_meta[] = {
-	{"__gc", lbox_tuple_gc},
 	{"slice", lbox_tuple_slice},
 	{"transform", lbox_tuple_transform},
 	{NULL, NULL}
@@ -406,10 +396,11 @@ box_lua_tuple_init(struct lua_State *L)
 
 	luamp_set_encode_extension(luamp_encode_extension_box);
 
-	/* Get CTypeID for `struct tuple' */
-	int rc = luaL_cdef(L, "struct tuple;");
+	/* Get CTypeID for `tuple_id' */
+	int rc = luaL_cdef(L, "typedef struct tuple *tuple_id;"
+		"struct tuple_cdata { tuple_id tuple; };");
 	assert(rc == 0);
 	(void) rc;
-	CTID_CONST_STRUCT_TUPLE_REF = luaL_ctypeid(L, "const struct tuple &");
-	assert(CTID_CONST_STRUCT_TUPLE_REF != 0);
+	CTID_STRUCT_TUPLE_ID = luaL_ctypeid(L, "struct tuple_cdata");
+	assert(CTID_STRUCT_TUPLE_ID != 0);
 }

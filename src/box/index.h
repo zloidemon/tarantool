@@ -32,12 +32,13 @@
  */
 #include <stdbool.h>
 #include "trivia/util.h"
+#include "tuple_id.h"
 
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-typedef struct tuple box_tuple_t;
+typedef tuple_id box_tuple_t;
 
 /** \cond public */
 /** A space iterator */
@@ -108,7 +109,7 @@ box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
  * \retval 0 on success. The end of data is not an error.
  */
 int
-box_iterator_next(box_iterator_t *iterator, box_tuple_t **result);
+box_iterator_next(box_iterator_t *iterator, box_tuple_t *result);
 
 /**
  * Destroy and deallocate iterator.
@@ -158,7 +159,7 @@ box_index_bsize(uint32_t space_id, uint32_t index_id);
  */
 int
 box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
-		box_tuple_t **result);
+		 box_tuple_t *result);
 
 /**
  * Get a tuple from index by the key.
@@ -178,7 +179,7 @@ box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
  */
 int
 box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
-	      const char *key_end, box_tuple_t **result);
+	      const char *key_end, box_tuple_t *result);
 
 /**
  * Return a first (minimal) tuple matched the provided key.
@@ -196,7 +197,7 @@ box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
  */
 int
 box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
-	      const char *key_end, box_tuple_t **result);
+	      const char *key_end, box_tuple_t *result);
 
 /**
  * Return a last (maximal) tuple matched the provided key.
@@ -214,7 +215,7 @@ box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
  */
 int
 box_index_max(uint32_t space_id, uint32_t index_id, const char *key,
-	      const char *key_end, box_tuple_t **result);
+	      const char *key_end, box_tuple_t *result);
 
 /**
  * Count the number of tuple matched the provided key.
@@ -244,7 +245,7 @@ extern const char *iterator_type_strs[];
 #include "key_def.h"
 
 struct iterator {
-	struct tuple *(*next)(struct iterator *);
+	tuple_id (*next)(struct iterator *);
 	void (*free)(struct iterator *);
 	/* optional parameters used in lua */
 	uint32_t sc_version;
@@ -325,16 +326,15 @@ public:
 	Index& operator=(const Index&) = delete;
 
 	virtual size_t size() const;
-	virtual struct tuple *min(const char *key, uint32_t part_count) const;
-	virtual struct tuple *max(const char *key, uint32_t part_count) const;
-	virtual struct tuple *random(uint32_t rnd) const;
+	virtual tuple_id min(const char *key, uint32_t part_count) const;
+	virtual tuple_id max(const char *key, uint32_t part_count) const;
+	virtual tuple_id random(uint32_t rnd) const;
 	virtual size_t count(enum iterator_type type, const char *key,
 			     uint32_t part_count) const;
-	virtual struct tuple *findByKey(const char *key, uint32_t part_count) const;
-	virtual struct tuple *findByTuple(struct tuple *tuple) const;
-	virtual struct tuple *replace(struct tuple *old_tuple,
-				      struct tuple *new_tuple,
-				      enum dup_replace_mode mode);
+	virtual tuple_id findByKey(const char *key, uint32_t part_count) const;
+	virtual tuple_id findByTuple(tuple_id tuple) const;
+	virtual tuple_id replace(tuple_id old_tuple, tuple_id new_tuple,
+				 enum dup_replace_mode mode);
 	virtual size_t bsize() const;
 
 	/**
@@ -380,21 +380,21 @@ struct IteratorGuard
  * allowed.
  */
 static inline uint32_t
-replace_check_dup(struct tuple *old_tuple, struct tuple *dup_tuple,
+replace_check_dup(tuple_id old_tuple, tuple_id dup_tuple,
 		  enum dup_replace_mode mode)
 {
-	if (dup_tuple == NULL) {
+	if (dup_tuple == TUPLE_ID_NIL) {
 		if (mode == DUP_REPLACE) {
 			/*
 			 * dup_replace_mode is DUP_REPLACE, and
 			 * a tuple with the same key is not found.
 			 */
-			return old_tuple ?
+			return old_tuple != TUPLE_ID_NIL ?
 			       ER_CANT_UPDATE_PRIMARY_KEY : ER_TUPLE_NOT_FOUND;
 		}
 	} else { /* dup_tuple != NULL */
 		if (dup_tuple != old_tuple &&
-		    (old_tuple != NULL || mode == DUP_INSERT)) {
+		    (old_tuple != TUPLE_ID_NIL || mode == DUP_INSERT)) {
 			/*
 			 * There is a duplicate of new_tuple,
 			 * and it's not old_tuple: we can't

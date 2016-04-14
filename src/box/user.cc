@@ -286,8 +286,8 @@ user_reload_privs(struct user *user)
 		struct iterator *it = index->position();
 		index->initIterator(it, ITER_EQ, key, 1);
 
-		struct tuple *tuple;
-		while ((tuple = it->next(it))) {
+		tuple_id tuple;
+		while ((tuple = it->next(it)) != TUPLE_ID_NIL) {
 			struct priv_def priv;
 			priv_def_create_from_tuple(&priv, tuple);
 			/**

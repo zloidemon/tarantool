@@ -13,13 +13,15 @@ local builtin = ffi.C
 local tuple_encode = box.tuple.encode
 local tuple_bless = box.tuple.bless
 local is_tuple = box.tuple.is
+local TUPLE_ID_NIL = nil
 assert(tuple_encode ~= nil and tuple_bless ~= nil and is_tuple ~= nil)
 
 ffi.cdef[[
     struct space *space_by_id(uint32_t id);
     void space_run_triggers(struct space *space, bool yesno);
 
-    typedef struct tuple box_tuple_t;
+    typedef struct tuple *tuple_id;
+    typedef tuple_id box_tuple_t;
     typedef struct iterator box_iterator_t;
 
     /** \cond public */
@@ -27,7 +29,7 @@ ffi.cdef[[
     box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
                        const char *key, const char *key_end);
     int
-    box_iterator_next(box_iterator_t *itr, box_tuple_t **result);
+    box_iterator_next(box_iterator_t *itr, box_tuple_t *result);
     void
     box_iterator_free(box_iterator_t *itr);
     /** \endcond public */
@@ -38,16 +40,16 @@ ffi.cdef[[
     box_index_bsize(uint32_t space_id, uint32_t index_id);
     int
     box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
-                     box_tuple_t **result);
+                     box_tuple_t *result);
     int
     box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
-                  const char *key_end, box_tuple_t **result);
+                  const char *key_end, box_tuple_t *result);
     int
     box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
-                  const char *key_end, box_tuple_t **result);
+                  const char *key_end, box_tuple_t *result);
     int
     box_index_max(uint32_t space_id, uint32_t index_id, const char *key,
-                  const char *key_end, box_tuple_t **result);
+                  const char *key_end, box_tuple_t *result);
     ssize_t
     box_index_count(uint32_t space_id, uint32_t index_id, int type,
                     const char *key, const char *key_end);
@@ -61,7 +63,7 @@ ffi.cdef[[
 
     struct port_entry {
         struct port_entry *next;
-        struct tuple *tuple;
+        tuple_id tuple;
     };
 
     struct port {
@@ -568,7 +570,7 @@ box.schema.index.alter = function(space_id, index_id, options)
 end
 
 -- a static box_tuple_t ** instance for calling box_index_* API
-local ptuple = ffi.new('box_tuple_t *[1]')
+local ptuple = ffi.new('box_tuple_t [1]')
 
 local function keify(key)
     if key == nil then
@@ -614,7 +616,7 @@ local iterator_gen = function(param, state)
     -- next() modifies state in-place
     if builtin.box_iterator_next(state, ptuple) ~= 0 then
         return box.error() -- error
-    elseif ptuple[0] ~= nil then
+    elseif ptuple[0] ~= TUPLE_ID_NIL then
         return state, tuple_bless(ptuple[0]) -- new state, value
     else
         return nil
@@ -697,7 +699,7 @@ function box.schema.space.bless(space)
         if builtin.box_index_min(index.space_id, index.id,
                                  pkey, pkey_end, ptuple) ~= 0 then
             box.error() -- error
-        elseif ptuple[0] ~= nil then
+        elseif ptuple[0] ~= TUPLE_ID_NIL then
             return tuple_bless(ptuple[0])
         else
             return
@@ -712,7 +714,7 @@ function box.schema.space.bless(space)
         if builtin.box_index_max(index.space_id, index.id,
                                  pkey, pkey_end, ptuple) ~= 0 then
             box.error() -- error
-        elseif ptuple[0] ~= nil then
+        elseif ptuple[0] ~= TUPLE_ID_NIL then
             return tuple_bless(ptuple[0])
         else
             return
@@ -727,7 +729,7 @@ function box.schema.space.bless(space)
         if builtin.box_index_random(index.space_id, index.id, rnd,
                                     ptuple) ~= 0 then
             box.error() -- error
-        elseif ptuple[0] ~= nil then
+        elseif ptuple[0] ~= TUPLE_ID_NIL then
             return tuple_bless(ptuple[0])
         else
             return
@@ -790,7 +792,7 @@ function box.schema.space.bless(space)
         if builtin.box_index_get(index.space_id, index.id,
                                  key, key_end, ptuple) ~= 0 then
             return box.error() -- error
-        elseif ptuple[0] ~= nil then
+        elseif ptuple[0] ~= TUPLE_ID_NIL then
             return tuple_bless(ptuple[0])
         else
             return

@@ -37,8 +37,8 @@ args(box_function_ctx_t *ctx, const char *args, const char *args_end)
 	assert(d <= tuple_buf + sizeof(tuple_buf));
 
 	box_tuple_format_t *fmt = box_tuple_format_default();
-	box_tuple_t *tuple = box_tuple_new(fmt, tuple_buf, d);
-	if (tuple == NULL)
+	box_tuple_t tuple = box_tuple_new(fmt, tuple_buf, d);
+	if (tuple == TUPLE_ID_NIL)
 		return -1;
 	return box_return_tuple(ctx, tuple);
 }
@@ -84,11 +84,11 @@ multi_inc(box_function_ctx_t *ctx, const char *args, const char *args_end)
 
 		/* Get current value from space */
 		uint64_t counter = 0;
-		box_tuple_t *tuple;
+		box_tuple_t tuple;
 		if (box_index_get(space_id, index_id, key_buf, key_end,
 				  &tuple) != 0) {
 			return -1; /* error */
-		} else if (tuple != NULL) {
+		} else if (tuple != TUPLE_ID_NIL) {
 			const char *field = box_tuple_field(tuple, 1);
 			if (field == NULL || mp_typeof(*field) != MP_UINT)
 				return box_error_set(__FILE__, __LINE__,

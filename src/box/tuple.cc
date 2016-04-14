@@ -58,17 +58,139 @@ static struct mempool tuple_iterator_pool;
  * Last tuple returned by public C API
  * \sa tuple_bless()
  */
-struct tuple *box_tuple_last;
+tuple_id box_tuple_last;
+
+/**
+ * Some overloads, as in tuple.h, but with struct tuple * instead of tuple_id
+ */
+
+/**
+* @brief Return a tuple format instance
+* @param tuple tuple
+* @return tuple format instance
+*/
+static inline struct tuple_format *
+tuple_format_private(const struct tuple *tuple)
+{
+	struct tuple_format *format =
+		tuple_format_by_id(tuple->format_id);
+	assert(tuple_format_id(format) == tuple->format_id);
+	return format;
+}
+
+/**
+ * Get a field from tuple by index.
+ * Returns a pointer to msgpacked field.
+ *
+ * @pre field < tuple->field_count.
+ * @returns field data if field exists or NULL
+ */
+inline const char *
+tuple_field_old_private(const struct tuple_format *format,
+		const struct tuple *tuple, uint32_t i)
+{
+	if (likely(i < format->field_count)) {
+		/* Indexed field */
+
+		if (i == 0) {
+			const char *pos = tuple->data;
+			mp_decode_array(&pos);
+			return pos;
+		}
+
+		if (format->fields[i].offset_slot != INT32_MAX) {
+			uint32_t *field_map = (uint32_t *) tuple;
+			int32_t slot = format->fields[i].offset_slot;
+			return tuple->data + field_map[slot];
+		}
+	}
+	ERROR_INJECT(ERRINJ_TUPLE_FIELD, return NULL);
+	return tuple_field_raw(tuple->data, tuple->bsize, i);
+}
+
+static inline const char *
+tuple_field_private(const struct tuple *tuple, uint32_t i)
+{
+	return tuple_field_old_private(tuple_format_private(tuple), tuple, i);
+}
+
+/**
+ * Increment tuple reference counter.
+ * Throws if overflow detected.
+ *
+ * @pre tuple->refs + count >= 0
+ */
+static inline void
+tuple_ref_private(struct tuple *tuple)
+{
+	if (tuple->refs + 1 > TUPLE_REF_MAX)
+		tuple_ref_exception();
+
+	tuple->refs++;
+}
+
+/**
+ * Free the tuple.
+ * @pre tuple->refs  == 0
+ */
+void
+tuple_delete_private(struct tuple *tuple)
+{
+	say_debug("tuple_delete(%p)", tuple);
+	assert(tuple->refs == 0);
+	struct tuple_format *format = tuple_format(tuple);
+	size_t total = sizeof(struct tuple) + tuple->bsize + format->field_map_size;
+	char *ptr = (char *) tuple - format->field_map_size;
+	tuple_format_ref(format, -1);
+	if (!memtx_alloc.is_delayed_free_mode || tuple->version == snapshot_version)
+		smfree(&memtx_alloc, ptr, total);
+	else
+		smfree_delayed(&memtx_alloc, ptr, total);
+}
+
+/**
+ * Decrement tuple reference counter. If it has reached zero, free the tuple.
+ *
+ * @pre tuple->refs + count >= 0
+ */
+static inline void
+tuple_unref_private(struct tuple *tuple)
+{
+	assert(tuple->refs - 1 >= 0);
+
+	tuple->refs--;
+
+	if (tuple->refs == 0)
+		tuple_delete_private(tuple);
+}
+
+/**
+ * @brief Initialize an iterator over tuple fields
+
+ * @param[out] it tuple iterator
+ * @param[in]  tuple tuple
+ */
+inline void
+tuple_rewind_private(struct tuple_iterator *it, struct tuple *tuple)
+{
+	it->tuple = tuple;
+	it->data_start = tuple->data;
+	it->data_end = it->data_start + tuple->bsize;
+	it->field_count = mp_decode_array(&it->data_start);
+	it->pos = it->data_start;
+	it->fieldno = 0;
+}
 
 /*
  * Validate a new tuple format and initialize tuple-local
  * format data.
  */
 void
-tuple_init_field_map(struct tuple_format *format, struct tuple *tuple)
+tuple_init_field_map(struct tuple_format *format, tuple_id tupid)
 {
 	if (format->field_count == 0)
 		return; /* Nothing to initialize */
+	struct tuple *tuple = tuple_id_get(tupid);
 
 	const char *pos = tuple->data;
 	uint32_t *field_map = (uint32_t *) tuple;
@@ -130,8 +252,9 @@ tuple_validate_raw(struct tuple_format *format, const char *data)
  * throw proper exception if smth wrong.
  */
 void
-tuple_validate(struct tuple_format *format, struct tuple *tuple)
+tuple_validate(struct tuple_format *format, tuple_id tupid)
 {
+	struct tuple *tuple = tuple_id_get(tupid);
 	tuple_validate_raw(format, tuple->data);
 }
 
@@ -145,7 +268,7 @@ tuple_validate(struct tuple_format *format, struct tuple *tuple)
  */
 
 /** Allocate a tuple */
-struct tuple *
+tuple_id
 tuple_alloc(struct tuple_format *format, size_t size)
 {
 	size_t total = sizeof(struct tuple) + size + format->field_map_size;
@@ -179,7 +302,7 @@ tuple_alloc(struct tuple_format *format, size_t size)
 	tuple_format_ref(format, 1);
 
 	say_debug("tuple_alloc(%zu) = %p", size, tuple);
-	return tuple;
+	return tuple_id_create(tuple);
 }
 
 /**
@@ -187,18 +310,10 @@ tuple_alloc(struct tuple_format *format, size_t size)
  * @pre tuple->refs  == 0
  */
 void
-tuple_delete(struct tuple *tuple)
+tuple_delete(tuple_id tupid)
 {
-	say_debug("tuple_delete(%p)", tuple);
-	assert(tuple->refs == 0);
-	struct tuple_format *format = tuple_format(tuple);
-	size_t total = sizeof(struct tuple) + tuple->bsize + format->field_map_size;
-	char *ptr = (char *) tuple - format->field_map_size;
-	tuple_format_ref(format, -1);
-	if (!memtx_alloc.is_delayed_free_mode || tuple->version == snapshot_version)
-		smfree(&memtx_alloc, ptr, total);
-	else
-		smfree_delayed(&memtx_alloc, ptr, total);
+	struct tuple *tuple = tuple_id_get(tupid);
+	tuple_delete_private(tuple);
 }
 
 /**
@@ -219,8 +334,8 @@ tuple_seek(struct tuple_iterator *it, uint32_t i)
 		it->fieldno = i;
 		return tuple_next(it);
 	} else {
-		it->pos = it->tuple->data + it->tuple->bsize;
-		it->fieldno = tuple_field_count(it->tuple);
+		it->pos = it->data_end;
+		it->fieldno = it->field_count;
 		return NULL;
 	}
 }
@@ -228,11 +343,10 @@ tuple_seek(struct tuple_iterator *it, uint32_t i)
 const char *
 tuple_next(struct tuple_iterator *it)
 {
-	const char *tuple_end = it->tuple->data + it->tuple->bsize;
-	if (it->pos < tuple_end) {
+	if (it->pos < it->data_end) {
 		const char *field = it->pos;
 		mp_next(&it->pos);
-		assert(it->pos <= tuple_end);
+		assert(it->pos <= it->data_end);
 		it->fieldno++;
 		return field;
 	}
@@ -271,16 +385,10 @@ tuple_next_cstr(struct tuple_iterator *it)
 	return tuple_field_to_cstr(str, len);
 }
 
-extern inline const char *
-tuple_field(const struct tuple *tuple, uint32_t i);
-
-extern inline uint32_t
-tuple_field_u32(struct tuple *tuple, uint32_t i);
-
 const char *
-tuple_field_cstr(struct tuple *tuple, uint32_t i)
+tuple_field_cstr(tuple_id tupid, uint32_t i)
 {
-	const char *field = tuple_field(tuple, i);
+	const char *field = tuple_field(tupid, i);
 	if (field == NULL)
 		tnt_raise(ClientError, ER_NO_SUCH_FIELD, i);
 	if (mp_typeof(*field) != MP_STR)
@@ -354,12 +462,13 @@ key_create_from_tuple(struct key_def *key_def, const char *tuple,
 					    key_buf, key_buf_size);
 }
 
-struct tuple *
+tuple_id
 tuple_update(struct tuple_format *format,
 	     tuple_update_alloc_func f, void *alloc_ctx,
-	     const struct tuple *old_tuple, const char *expr,
+	     const tuple_id old_tupid, const char *expr,
 	     const char *expr_end, int field_base)
 {
+	struct tuple *old_tuple = tuple_id_get(old_tupid);
 	uint32_t new_size = 0;
 	const char *new_data =
 		tuple_update_execute(f, alloc_ctx,
@@ -370,12 +479,13 @@ tuple_update(struct tuple_format *format,
 	return tuple_new(format, new_data, new_data + new_size);
 }
 
-struct tuple *
+tuple_id
 tuple_upsert(struct tuple_format *format,
 	     void *(*region_alloc)(void *, size_t), void *alloc_ctx,
-	     const struct tuple *old_tuple,
+	     const tuple_id old_tupid,
 	     const char *expr, const char *expr_end, int field_base)
 {
+	struct tuple *old_tuple = tuple_id_get(old_tupid);
 	uint32_t new_size = 0;
 	const char *new_data =
 		tuple_upsert_execute(region_alloc, alloc_ctx, expr, expr_end,
@@ -386,13 +496,13 @@ tuple_upsert(struct tuple_format *format,
 	return tuple_new(format, new_data, new_data + new_size);
 }
 
-struct tuple *
+tuple_id
 tuple_new(struct tuple_format *format, const char *data, const char *end)
 {
 	size_t tuple_len = end - data;
 	assert(mp_typeof(*data) == MP_ARRAY);
-	struct tuple *new_tuple = tuple_alloc(format, tuple_len);
-	memcpy(new_tuple->data, data, tuple_len);
+	tuple_id new_tuple = tuple_alloc(format, tuple_len);
+	memcpy(tuple_id_get(new_tuple)->data, data, tuple_len);
 	try {
 		tuple_init_field_map(format, new_tuple);
 	} catch (Exception *e) {
@@ -439,9 +549,11 @@ tuple_compare_field(const char *field_a, const char *field_b,
 }
 
 int
-tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
-	      const struct key_def *key_def)
+tuple_compare_default(tuple_id tupid_a, tuple_id tupid_b,
+		      const struct key_def *key_def)
 {
+	struct tuple *tuple_a = tuple_id_get(tupid_a);
+	struct tuple *tuple_b = tuple_id_get(tupid_b);
 	if (key_def->part_count == 1 && key_def->parts[0].fieldno == 0) {
 		const char *a = tuple_a->data;
 		const char *b = tuple_b->data;
@@ -459,8 +571,10 @@ tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
 	int r = 0;
 
 	for (; part < end; part++) {
-		field_a = tuple_field_old(format_a, tuple_a, part->fieldno);
-		field_b = tuple_field_old(format_b, tuple_b, part->fieldno);
+		field_a = tuple_field_old_private(format_a, tuple_a,
+						  part->fieldno);
+		field_b = tuple_field_old_private(format_b, tuple_b,
+						  part->fieldno);
 		assert(field_a != NULL && field_b != NULL);
 		if ((r = tuple_compare_field(field_a, field_b, part->type)))
 			break;
@@ -469,7 +583,7 @@ tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
 }
 
 int
-tuple_compare_dup(const struct tuple *tuple_a, const struct tuple *tuple_b,
+tuple_compare_dup(tuple_id tuple_a, tuple_id tuple_b,
 		  const struct key_def *key_def)
 {
 	int r = key_def->tuple_compare(tuple_a, tuple_b, key_def);
@@ -480,8 +594,8 @@ tuple_compare_dup(const struct tuple *tuple_a, const struct tuple *tuple_b,
 }
 
 int
-tuple_compare_with_key_default(const struct tuple *tuple, const char *key,
-		       uint32_t part_count, const struct key_def *key_def)
+tuple_compare_with_key_default(const tuple_id tuple, const char *key,
+			       uint32_t part_count, const struct key_def *key_def)
 {
 	assert(key != NULL || part_count == 0);
 	assert(part_count <= key_def->part_count);
@@ -548,16 +662,16 @@ tuple_init(float tuple_arena_max_size, uint32_t objsize_min,
 	mempool_create(&tuple_iterator_pool, &cord()->slabc,
 		       sizeof(struct tuple_iterator));
 
-	box_tuple_last = NULL;
+	box_tuple_last = TUPLE_ID_NIL;
 }
 
 void
 tuple_free()
 {
 	/* Unref last tuple returned by public C API */
-	if (box_tuple_last != NULL) {
+	if (box_tuple_last != TUPLE_ID_NIL) {
 		tuple_unref(box_tuple_last);
-		box_tuple_last = NULL;
+		box_tuple_last = TUPLE_ID_NIL;
 	}
 
 	mempool_destroy(&tuple_iterator_pool);
@@ -607,20 +721,20 @@ box_tuple_format_default(void)
 	return tuple_format_default;
 }
 
-box_tuple_t *
+box_tuple_t
 box_tuple_new(box_tuple_format_t *format, const char *data, const char *end)
 {
 	try {
 		return tuple_bless(tuple_new(format, data, end));
 	} catch (Exception *e) {
-		return NULL;
+		return TUPLE_ID_NIL;
 	}
 }
 
 int
-box_tuple_ref(box_tuple_t *tuple)
+box_tuple_ref(box_tuple_t tuple)
 {
-	assert(tuple != NULL);
+	assert(tuple != TUPLE_ID_NIL);
 	try {
 		tuple_ref(tuple);
 		return 0;
@@ -630,53 +744,53 @@ box_tuple_ref(box_tuple_t *tuple)
 }
 
 void
-box_tuple_unref(box_tuple_t *tuple)
+box_tuple_unref(box_tuple_t tuple)
 {
-	assert(tuple != NULL);
+	assert(tuple != TUPLE_ID_NIL);
 	return tuple_unref(tuple);
 }
 
 uint32_t
-box_tuple_field_count(const box_tuple_t *tuple)
+box_tuple_field_count(const box_tuple_t tuple)
 {
-	assert(tuple != NULL);
+	assert(tuple != TUPLE_ID_NIL);
 	return tuple_field_count(tuple);
 }
 
 size_t
-box_tuple_bsize(const box_tuple_t *tuple)
+box_tuple_bsize(const box_tuple_t tuple)
 {
-	assert(tuple != NULL);
-	return tuple->bsize;
+	assert(tuple != TUPLE_ID_NIL);
+	return tuple_id_get(tuple)->bsize;
 }
 
 ssize_t
-box_tuple_to_buf(const box_tuple_t *tuple, char *buf, size_t size)
+box_tuple_to_buf(const box_tuple_t tuple, char *buf, size_t size)
 {
-	assert(tuple != NULL);
+	assert(tuple != TUPLE_ID_NIL);
 	return tuple_to_buf(tuple, buf, size);
 }
 
 box_tuple_format_t *
-box_tuple_format(const box_tuple_t *tuple)
+box_tuple_format(const box_tuple_t tuple)
 {
-	assert(tuple != NULL);
+	assert(tuple != TUPLE_ID_NIL);
 	return tuple_format(tuple);
 }
 
 const char *
-box_tuple_field(const box_tuple_t *tuple, uint32_t i)
+box_tuple_field(const box_tuple_t tuple, uint32_t i)
 {
-	assert(tuple != NULL);
+	assert(tuple != TUPLE_ID_NIL);
 	return tuple_field(tuple, i);
 }
 
 typedef struct tuple_iterator box_tuple_iterator_t;
 
 box_tuple_iterator_t *
-box_tuple_iterator(box_tuple_t *tuple)
+box_tuple_iterator(box_tuple_t tupid)
 {
-	assert(tuple != NULL);
+	assert(tupid != TUPLE_ID_NIL);
 	struct tuple_iterator *it;
 	try {
 		it = (struct tuple_iterator *)
@@ -684,15 +798,17 @@ box_tuple_iterator(box_tuple_t *tuple)
 	} catch (Exception *e) {
 		return NULL;
 	}
-	tuple_ref(tuple);
-	tuple_rewind(it, tuple);
+
+	struct tuple *tuple = tuple_id_get(tupid);
+	tuple_ref_private(tuple);
+	tuple_rewind_private(it, tuple);
 	return it;
 }
 
 void
 box_tuple_iterator_free(box_tuple_iterator_t *it)
 {
-	tuple_unref(it->tuple);
+	tuple_unref_private(it->tuple);
 	mempool_free(&tuple_iterator_pool, it);
 }
 
@@ -705,7 +821,7 @@ box_tuple_position(box_tuple_iterator_t *it)
 void
 box_tuple_rewind(box_tuple_iterator_t *it)
 {
-	tuple_rewind(it, it->tuple);
+	tuple_rewind_private(it, it->tuple);
 }
 
 const char *
@@ -720,30 +836,32 @@ box_tuple_next(box_tuple_iterator_t *it)
 	return tuple_next(it);
 }
 
-box_tuple_t *
-box_tuple_update(const box_tuple_t *tuple, const char *expr, const char *expr_end)
+box_tuple_t
+box_tuple_update(const box_tuple_t tuple, const char *expr, const char *expr_end)
 {
 	try {
 		RegionGuard region_guard(&fiber()->gc);
-		struct tuple *new_tuple = tuple_update(tuple_format_default,
-			region_aligned_alloc_xc_cb, &fiber()->gc, tuple,
-			expr, expr_end, 1);
+		tuple_id new_tuple = tuple_update(tuple_format_default,
+						  region_aligned_alloc_xc_cb,
+						  &fiber()->gc, tuple,
+						  expr, expr_end, 1);
 		return tuple_bless(new_tuple);
 	} catch (ClientError *e) {
-		return NULL;
+		return TUPLE_ID_NIL;
 	}
 }
 
-box_tuple_t *
-box_tuple_upsert(const box_tuple_t *tuple, const char *expr, const char *expr_end)
+box_tuple_t
+box_tuple_upsert(const box_tuple_t tuple, const char *expr, const char *expr_end)
 {
 	try {
 		RegionGuard region_guard(&fiber()->gc);
-		struct tuple *new_tuple = tuple_upsert(tuple_format_default,
-			region_aligned_alloc_xc_cb, &fiber()->gc, tuple,
-			expr, expr_end, 1);
+		tuple_id new_tuple = tuple_upsert(tuple_format_default,
+						  region_aligned_alloc_xc_cb,
+						  &fiber()->gc, tuple,
+						  expr, expr_end, 1);
 		return tuple_bless(new_tuple);
 	} catch (ClientError *e) {
-		return NULL;
+		return TUPLE_ID_NIL;
 	}
 }

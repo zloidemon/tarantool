@@ -37,7 +37,7 @@
 static struct mempool port_entry_pool;
 
 void
-port_add_tuple(struct port *port, struct tuple *tuple)
+port_add_tuple(struct port *port, tuple_id tuple)
 {
 	struct port_entry *e;
 	if (port->size == 0) {

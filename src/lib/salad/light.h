@@ -505,7 +505,7 @@ LIGHT(set_empty_prev)(struct LIGHT(record) *record, uint32_t pos)
 inline uint32_t
 LIGHT(get_empty_next)(struct LIGHT(record) *record)
 {
-	return (uint32_t)(uint64_t)record->value;
+	return *(uint32_t *)&record->value;
 }
 
 /*
@@ -515,7 +515,7 @@ LIGHT(get_empty_next)(struct LIGHT(record) *record)
 inline void
 LIGHT(set_empty_next)(struct LIGHT(record) *record, uint32_t pos)
 {
-	record->value = (LIGHT_DATA_TYPE)(int64_t)pos;
+	*(uint32_t *)&record->value = pos;
 }
 
 /*

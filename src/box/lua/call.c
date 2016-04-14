@@ -144,9 +144,9 @@ luamp_encode_call(lua_State *L, struct luaL_serializer *cfg,
 		for (int i = 1; i <= nrets; ++i) {
 			struct luaL_field field;
 			luaL_tofield(L, cfg, i, &field);
-			struct tuple *tuple;
+			tuple_id tuple;
 			if (field.type == MP_EXT &&
-			    (tuple = lua_istuple(L, i)) != NULL) {
+				(tuple = lua_istuple(L, i)) != TUPLE_ID_NIL) {
 				/* `return ..., box.tuple.new(...), ...` */
 				tuple_to_mpstream(tuple, stream);
 			} else if (field.type != MP_ARRAY) {
@@ -172,8 +172,9 @@ luamp_encode_call(lua_State *L, struct luaL_serializer *cfg,
 	 */
 	struct luaL_field root;
 	luaL_tofield(L, cfg, 1, &root);
-	struct tuple *tuple;
-	if (root.type == MP_EXT && (tuple = lua_istuple(L, 1)) != NULL) {
+	tuple_id tuple;
+	if (root.type == MP_EXT &&
+		(tuple = lua_istuple(L, 1)) != TUPLE_ID_NIL) {
 		/* `return box.tuple()` */
 		tuple_to_mpstream(tuple, stream);
 		return 1;
@@ -201,7 +202,8 @@ luamp_encode_call(lua_State *L, struct luaL_serializer *cfg,
 		lua_rawgeti(L, 1, t);
 		struct luaL_field field;
 		luaL_tofield(L, cfg, -1, &field);
-		if (field.type == MP_EXT && (tuple = lua_istuple(L, -1))) {
+		if (field.type == MP_EXT &&
+			(tuple = lua_istuple(L, -1)) != TUPLE_ID_NIL) {
 			tuple_to_mpstream(tuple, stream);
 		} else if (field.type != MP_ARRAY) {
 			/* The first member of root table is not tuple/array */
@@ -418,6 +420,6 @@ box_lua_call_init(struct lua_State *L)
 	assert(rc == 0);
 	(void) rc;
 	CTID_STRUCT_PORT_PTR = luaL_ctypeid(L, "struct port *");
-	assert(CTID_CONST_STRUCT_TUPLE_REF != 0);
+	assert(CTID_STRUCT_TUPLE_ID != 0);
 #endif
 }

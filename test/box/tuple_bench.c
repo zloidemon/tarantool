@@ -67,7 +67,7 @@ tuple_bench(box_function_ctx_t *ctx, const char *args, const char *args_end)
 	}
 
 	double t = proctime();
-	box_tuple_t *tuple;
+	box_tuple_t tuple;
 	for (int i = 0; i < 80000000; i++) {
 		int k = (i  + (i >> 2) + (i >> 5) + 13) & 3;
 		box_index_min(space_id, index_id, tuple_buf[k], tuple_end[k], &tuple);

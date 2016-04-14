@@ -54,12 +54,12 @@ lbox_push_on_replace_event(struct lua_State *L, void *event)
 {
 	struct txn_stmt *stmt = txn_current_stmt((struct txn *) event);
 
-	if (stmt->old_tuple) {
+	if (stmt->old_tuple != TUPLE_ID_NIL) {
 		lbox_pushtuple(L, stmt->old_tuple);
 	} else {
 		lua_pushnil(L);
 	}
-	if (stmt->new_tuple) {
+	if (stmt->new_tuple != TUPLE_ID_NIL) {
 		lbox_pushtuple(L, stmt->new_tuple);
 	} else {
 		lua_pushnil(L);

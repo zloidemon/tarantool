@@ -33,22 +33,22 @@
 
 #include "memtx_index.h"
 #include "memtx_engine.h"
+#include "tuple_id.h"
 
-struct tuple;
 struct key_data;
 
 int
-tree_index_compare(const struct tuple *a, const struct tuple *b, struct key_def *key_def);
+tree_index_compare(tuple_id a, tuple_id b, struct key_def *key_def);
 
 int
-tree_index_compare_key(const tuple *a, const key_data *b, struct key_def *key_def);
+tree_index_compare_key(tuple_id a, const key_data *b, struct key_def *key_def);
 
 #define BPS_TREE_NAME _index
 #define BPS_TREE_BLOCK_SIZE (512)
 #define BPS_TREE_EXTENT_SIZE MEMTX_EXTENT_SIZE
 #define BPS_TREE_COMPARE(a, b, arg) tree_index_compare(a, b, arg)
 #define BPS_TREE_COMPARE_KEY(a, b, arg) tree_index_compare_key(a, b, arg)
-#define bps_tree_elem_t struct tuple *
+#define bps_tree_elem_t tuple_id
 #define bps_tree_key_t struct key_data *
 #define bps_tree_arg_t struct key_def *
 
@@ -61,15 +61,14 @@ public:
 
 	virtual void beginBuild() override;
 	virtual void reserve(uint32_t size_hint) override;
-	virtual void buildNext(struct tuple *tuple) override;
+	virtual void buildNext(tuple_id tuple) override;
 	virtual void endBuild() override;
 	virtual size_t size() const override;
-	virtual struct tuple *random(uint32_t rnd) const override;
-	virtual struct tuple *findByKey(const char *key,
-					uint32_t part_count) const override;
-	virtual struct tuple *replace(struct tuple *old_tuple,
-				      struct tuple *new_tuple,
-				      enum dup_replace_mode mode) override;
+	virtual tuple_id random(uint32_t rnd) const override;
+	virtual tuple_id findByKey(const char *key,
+				   uint32_t part_count) const override;
+	virtual tuple_id replace(tuple_id old_tuple, tuple_id new_tuple,
+				 enum dup_replace_mode mode) override;
 
 	virtual size_t bsize() const override;
 	virtual struct iterator *allocIterator() const override;
@@ -91,7 +90,7 @@ public:
 
 // protected:
 	struct bps_tree_index tree;
-	struct tuple **build_array;
+	tuple_id *build_array;
 	size_t build_array_size, build_array_alloc_size;
 };
 

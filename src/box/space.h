@@ -124,7 +124,7 @@ space_size(struct space *space);
  * types (a pre-requisite for an INSERT).
  */
 void
-space_validate_tuple(struct space *sp, struct tuple *new_tuple);
+space_validate_tuple(struct space *sp, tuple_id new_tuple);
 
 void
 space_validate_tuple_raw(struct space *sp, const char *data);
@@ -225,7 +225,7 @@ space_run_triggers(struct space *space, bool yesno);
  */
 void
 space_check_update(struct space *space,
-		   struct tuple *old_tuple,
-		   struct tuple *new_tuple);
+		   tuple_id old_tuple,
+		   tuple_id new_tuple);
 
 #endif /* TARANTOOL_BOX_SPACE_H_INCLUDED */

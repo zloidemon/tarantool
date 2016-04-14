@@ -32,6 +32,7 @@
  */
 #include <stdbool.h>
 #include <stdint.h>
+#include "tuple_id.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -39,7 +40,6 @@ extern "C" {
 
 struct txn;
 struct port;
-struct tuple;
 
 /** box statistics */
 extern struct rmean *rmean_box;
@@ -104,7 +104,7 @@ request_encode(struct request *request, struct iovec *iov);
  */
 void
 request_rebind_to_primary_key(struct request *request, struct space *space,
-			      struct tuple *found_tuple);
+			      tuple_id found_tuple);
 
 #endif /* defined(__cplusplus) */
 

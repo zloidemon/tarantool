@@ -39,9 +39,9 @@
 #include "trigger.h"
 #include "fiber.h"
 #include "salad/stailq.h"
+#include "tuple_id.h"
 
 extern double too_long_threshold;
-struct tuple;
 
 /**
  * A single statement of a multi-statement
@@ -54,8 +54,8 @@ struct txn_stmt {
 	struct stailq_entry next;
 	/** Undo info. */
 	struct space *space;
-	struct tuple *old_tuple;
-	struct tuple *new_tuple;
+	tuple_id old_tuple;
+	tuple_id new_tuple;
 	/** Redo info: the binary log row */
 	struct xrow_header *row;
 };

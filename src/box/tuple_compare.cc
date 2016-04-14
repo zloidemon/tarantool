@@ -97,8 +97,8 @@ template <int IDX, int TYPE, int ...MORE_TYPES> struct FieldCompare { };
 template <int IDX, int TYPE, int IDX2, int TYPE2, int ...MORE_TYPES>
 struct FieldCompare<IDX, TYPE, IDX2, TYPE2, MORE_TYPES...>
 {
-	inline static int compare(const struct tuple *tuple_a,
-				  const struct tuple *tuple_b,
+	inline static int compare(tuple_id tuple_a,
+				  tuple_id tuple_b,
 				  const struct tuple_format *format_a,
 				  const struct tuple_format *format_b,
 				  const char *field_a,
@@ -125,8 +125,8 @@ struct FieldCompare<IDX, TYPE, IDX2, TYPE2, MORE_TYPES...>
 template <int IDX, int TYPE>
 struct FieldCompare<IDX, TYPE>
 {
-	inline static int compare(const struct tuple *,
-				  const struct tuple *,
+	inline static int compare(tuple_id,
+				  tuple_id,
 				  const struct tuple_format *,
 				  const struct tuple_format *,
 				  const char *field_a,
@@ -142,8 +142,8 @@ struct FieldCompare<IDX, TYPE>
 template <int IDX, int TYPE, int ...MORE_TYPES>
 struct TupleCompare
 {
-	static int compare(const struct tuple *tuple_a,
-			   const struct tuple *tuple_b,
+	static int compare(tuple_id tuple_a,
+			   tuple_id tuple_b,
 			   const struct key_def *)
 	{
 		struct tuple_format *format_a = tuple_format(tuple_a);
@@ -158,14 +158,14 @@ struct TupleCompare
 
 template <int TYPE, int ...MORE_TYPES>
 struct TupleCompare<0, TYPE, MORE_TYPES...> {
-	static int compare(const struct tuple *tuple_a,
-			   const struct tuple *tuple_b,
+	static int compare(tuple_id tuple_a,
+			   tuple_id tuple_b,
 			   const struct key_def *)
 	{
 		struct tuple_format *format_a = tuple_format(tuple_a);
 		struct tuple_format *format_b = tuple_format(tuple_b);
-		const char *field_a = tuple_a->data;
-		const char *field_b = tuple_b->data;
+		const char *field_a = tuple_id_get_data(tuple_a);
+		const char *field_b = tuple_id_get_data(tuple_b);
 		mp_decode_array(&field_a);
 		mp_decode_array(&field_b);
 		return FieldCompare<0, TYPE, MORE_TYPES...>::compare(tuple_a, tuple_b,
@@ -286,7 +286,7 @@ template <int FLD_ID, int IDX, int TYPE, int IDX2, int TYPE2, int ...MORE_TYPES>
 struct FieldCompareWithKey<FLD_ID, IDX, TYPE, IDX2, TYPE2, MORE_TYPES...>
 {
 	inline static int
-	compare(const struct tuple *tuple, const char *key,
+	compare(tuple_id tuple, const char *key,
 		uint32_t part_count, const struct key_def *key_def,
 		const struct tuple_format *format, const char *field)
 	{
@@ -311,12 +311,13 @@ struct FieldCompareWithKey<FLD_ID, IDX, TYPE, IDX2, TYPE2, MORE_TYPES...>
 
 template <int FLD_ID, int IDX, int TYPE>
 struct FieldCompareWithKey<FLD_ID, IDX, TYPE> {
-	inline static int compare(const struct tuple *,
-					 const char *key,
-					 uint32_t,
-					 const struct key_def *,
-					 const struct tuple_format *,
-					 const char *field)
+	static int
+	compare(tuple_id,
+		const char *key,
+		uint32_t,
+		const struct key_def *,
+		const struct tuple_format *,
+		const char *field)
 	{
 		return field_compare_with_key<TYPE>(&field, &key);
 	}
@@ -329,7 +330,7 @@ template <int FLD_ID, int IDX, int TYPE, int ...MORE_TYPES>
 struct TupleCompareWithKey
 {
 	static int
-	compare(const struct tuple *tuple, const char *key,
+	compare(tuple_id tuple, const char *key,
 		uint32_t part_count, const struct key_def *key_def)
 	{
 		/* Part count can be 0 in wildcard searches. */
@@ -346,16 +347,17 @@ struct TupleCompareWithKey
 template <int TYPE, int ...MORE_TYPES>
 struct TupleCompareWithKey<0, 0, TYPE, MORE_TYPES...>
 {
-	static int compare(const struct tuple *tuple,
-				  const char *key,
-				  uint32_t part_count,
-				  const struct key_def *key_def)
+	static int
+	compare(tuple_id tuple,
+		const char *key,
+		uint32_t part_count,
+		const struct key_def *key_def)
 	{
 		/* Part count can be 0 in wildcard searches. */
 		if (part_count == 0)
 			return 0;
 		struct tuple_format *format = tuple_format(tuple);
-		const char *field = tuple->data;
+		const char *field = tuple_id_get_data(tuple);
 		mp_decode_array(&field);
 		return FieldCompareWithKey<0, 0, TYPE, MORE_TYPES...>::
 			compare(tuple, key, part_count,

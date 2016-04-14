@@ -197,7 +197,7 @@ void
 priv_grant(struct user *grantee, struct priv_def *priv);
 
 void
-priv_def_create_from_tuple(struct priv_def *priv, struct tuple *tuple);
+priv_def_create_from_tuple(struct priv_def *priv, tuple_id tuple);
 
 /* }}} */
 

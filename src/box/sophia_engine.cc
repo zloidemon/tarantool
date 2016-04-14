@@ -123,7 +123,7 @@ sophia_write_parts(struct key_def *key_def, void *value, int valuesize,
 	return p + valuesize;
 }
 
-struct tuple *
+tuple_id
 sophia_tuple_new(void *obj, struct key_def *key_def,
 		 struct tuple_format *format)
 {
@@ -135,11 +135,11 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 	uint32_t field_count = 0;
 	size_t size = sophia_get_parts(key_def, obj, value, valuesize, parts,
 				       &field_count);
-	struct tuple *tuple = tuple_alloc(format, size);
-	char *d = tuple->data;
+	tuple_id tuple = tuple_alloc(format, size);
+	char *d = (char *)tuple_id_get_data(tuple);
 	d = mp_encode_array(d, field_count);
 	d = sophia_write_parts(key_def, value, valuesize, parts, d);
-	assert(tuple->data + size == d);
+	assert(tuple_id_get_data(tuple) + size == d);
 	try {
 		tuple_init_field_map(format, tuple);
 	} catch (Exception *e) {
@@ -300,13 +300,13 @@ struct SophiaSpace: public Handler {
 	SophiaSpace(Engine*);
 	virtual void
 	applySnapshotRow(struct space *space, struct request *request);
-	virtual struct tuple *
+	virtual tuple_id
 	executeReplace(struct txn*, struct space *space,
 	               struct request *request);
-	virtual struct tuple *
+	virtual tuple_id
 	executeDelete(struct txn*, struct space *space,
 	              struct request *request);
-	virtual struct tuple *
+	virtual tuple_id
 	executeUpdate(struct txn*, struct space *space,
 	              struct request *request);
 	virtual void
@@ -366,7 +366,7 @@ SophiaSpace::applySnapshotRow(struct space *space, struct request *request)
 	}
 }
 
-struct tuple *
+tuple_id
 SophiaSpace::executeReplace(struct txn *txn, struct space *space,
                             struct request *request)
 {
@@ -394,10 +394,10 @@ SophiaSpace::executeReplace(struct txn *txn, struct space *space,
 			mode = DUP_INSERT;
 	}
 	index->replace_or_insert(request->tuple, request->tuple_end, mode);
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-struct tuple *
+tuple_id
 SophiaSpace::executeDelete(struct txn *txn, struct space *space,
                            struct request *request)
 {
@@ -408,10 +408,10 @@ SophiaSpace::executeDelete(struct txn *txn, struct space *space,
 	uint32_t part_count = mp_decode_array(&key);
 	primary_key_validate(index->key_def, key, part_count);
 	index->remove(key);
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-struct tuple *
+tuple_id
 SophiaSpace::executeUpdate(struct txn *txn, struct space *space,
                            struct request *request)
 {
@@ -422,15 +422,15 @@ SophiaSpace::executeUpdate(struct txn *txn, struct space *space,
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
 	primary_key_validate(index->key_def, key, part_count);
-	struct tuple *old_tuple = index->findByKey(key, part_count);
+	tuple_id old_tuple = index->findByKey(key, part_count);
 
-	if (old_tuple == NULL)
-		return NULL;
+	if (old_tuple == TUPLE_ID_NIL)
+		return TUPLE_ID_NIL;
 	/* Sophia always yields a zero-ref tuple, GC it here. */
 	TupleRef old_ref(old_tuple);
 
 	/* Do tuple update */
-	struct tuple *new_tuple =
+	tuple_id new_tuple =
 		tuple_update(space->format,
 		             region_aligned_alloc_xc_cb,
 		             &fiber()->gc,
@@ -442,10 +442,10 @@ SophiaSpace::executeUpdate(struct txn *txn, struct space *space,
 	space_validate_tuple(space, new_tuple);
 	space_check_update(space, old_tuple, new_tuple);
 
-	index->replace_or_insert(new_tuple->data,
-	                         new_tuple->data + new_tuple->bsize,
+	index->replace_or_insert(tuple_id_get_data(new_tuple),
+				 tuple_id_get_data_end(new_tuple),
 	                         DUP_REPLACE);
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
 void

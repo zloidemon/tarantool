@@ -744,15 +744,15 @@ tx_process1(struct cmsg *m)
 	if (tx_check_schema(msg->header.schema_id))
 		goto error;
 
-	struct tuple *tuple;
+	tuple_id tuple;
 	struct obuf_svp svp;
 	if (box_process1(&msg->request, &tuple) ||
 	    iproto_prepare_select(out, &svp))
 		goto error;
-	if (tuple && tuple_to_obuf(tuple, out))
+	if (tuple != TUPLE_ID_NIL && tuple_to_obuf(tuple, out))
 		goto error;
 	iproto_reply_select(out, &svp, msg->header.sync,
-			    tuple != 0);
+			    tuple == TUPLE_ID_NIL ? 0 : 1);
 	msg->write_end = obuf_create_svp(out);
 	return;
 error:

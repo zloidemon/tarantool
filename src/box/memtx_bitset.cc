@@ -40,7 +40,7 @@
 #include "small/matras.h"
 
 struct bitset_hash_entry {
-	struct tuple *tuple;
+	tuple_id tuple;
 	uint32_t id;
 };
 #define mh_int_t uint32_t
@@ -56,7 +56,7 @@ struct bitset_hash_entry {
 #define mh_cmp_key(a, b, arg) ((a) != (b)->tuple)
 
 #define mh_node_t struct bitset_hash_entry
-#define mh_key_t struct tuple *
+#define mh_key_t tuple_id
 #define mh_name _bitset_index
 #define MH_SOURCE 1
 #include <salad/mhash.h>
@@ -66,17 +66,18 @@ enum {
 };
 
 void
-MemtxBitset::registerTuple(struct tuple *tuple)
+MemtxBitset::registerTuple(tuple_id tuple)
 {
 	uint32_t id;
-	struct tuple **place;
+	tuple_id *place;
 	if (m_spare_id != SPARE_ID_END) {
 		id = m_spare_id;
-		void *mem = matras_get(m_id_to_tuple, id);
-		m_spare_id = *(uint32_t *)mem;
-		place = (struct tuple **)mem;
+		place = (tuple_id *)matras_get(m_id_to_tuple, id);
+		m_spare_id = *(uint32_t *)place;
 	} else {
-		place = (struct tuple **)matras_alloc(m_id_to_tuple, &id);
+		place = (tuple_id *)matras_alloc(m_id_to_tuple, &id);
+		if (!place)
+			tnt_raise(OutOfMemory, sizeof(*place), "hash", "key");
 	}
 	*place = tuple;
 
@@ -85,14 +86,14 @@ MemtxBitset::registerTuple(struct tuple *tuple)
 	entry.tuple = tuple;
 	uint32_t pos = mh_bitset_index_put(m_tuple_to_id, &entry, 0, 0);
 	if (pos == mh_end(m_tuple_to_id)) {
-		*(uint32_t *)tuple = m_spare_id;
+		*(uint32_t *)place = m_spare_id;
 		m_spare_id = id;
 		tnt_raise(OutOfMemory, (ssize_t) pos, "hash", "key");
 	}
 }
 
 void
-MemtxBitset::unregisterTuple(struct tuple *tuple)
+MemtxBitset::unregisterTuple(tuple_id tuple)
 {
 
 	uint32_t k = mh_bitset_index_find(m_tuple_to_id, tuple, 0);
@@ -104,25 +105,25 @@ MemtxBitset::unregisterTuple(struct tuple *tuple)
 }
 
 uint32_t
-MemtxBitset::tupleToValue(struct tuple *tuple) const
+MemtxBitset::tupleToValue(tuple_id tuple) const
 {
 	uint32_t k = mh_bitset_index_find(m_tuple_to_id, tuple, 0);
 	struct bitset_hash_entry *e = mh_bitset_index_node(m_tuple_to_id, k);
 	return e->id;
 }
 
-struct tuple *
+tuple_id
 MemtxBitset::valueToTuple(uint32_t value) const
 {
 	void *mem = matras_get(m_id_to_tuple, value);
-	return *(struct tuple **)mem;
+	return *(tuple_id *)mem;
 }
 #else /* #ifndef OLD_GOOD_BITSET */
-static inline struct tuple *
+static inline tuple_id
 value_to_tuple(size_t value);
 
 static inline size_t
-tuple_to_value(struct tuple *tuple)
+tuple_to_value(tuple_id tuple)
 {
 	/*
 	 * @todo small_ptr_compress() is broken
@@ -134,11 +135,10 @@ tuple_to_value(struct tuple *tuple)
 	return value;
 }
 
-static inline struct tuple *
+static inline tuple_id
 value_to_tuple(size_t value)
 {
-	/* return (struct tuple *) salloc_ptr_from_index(value); */
-	return (struct tuple *) (value << 2);
+	return (tuple_id) (value << 2);
 }
 #endif /* #ifndef OLD_GOOD_BITSET */
 
@@ -166,7 +166,7 @@ bitset_index_iterator_free(struct iterator *iterator)
 	free(it);
 }
 
-struct tuple *
+tuple_id
 bitset_index_iterator_next(struct iterator *iterator)
 {
 	assert(iterator->free == bitset_index_iterator_free);
@@ -174,7 +174,7 @@ bitset_index_iterator_next(struct iterator *iterator)
 
 	size_t value = bitset_iterator_next(&it->bitset_it);
 	if (value == SIZE_MAX)
-		return NULL;
+		return TUPLE_ID_NIL;
 
 #ifndef OLD_GOOD_BITSET
 	return it->bitset_index->valueToTuple((uint32_t)value);
@@ -193,7 +193,7 @@ MemtxBitset::MemtxBitset(struct key_def *key_def)
 	m_id_to_tuple = (struct matras *)malloc(sizeof(*m_id_to_tuple));
 	if (!m_id_to_tuple)
 		panic_syserror("bitset_index_create");
-	matras_create(m_id_to_tuple, MEMTX_EXTENT_SIZE, sizeof(struct tuple *),
+	matras_create(m_id_to_tuple, MEMTX_EXTENT_SIZE, sizeof(tuple_id),
 		      memtx_index_extent_alloc, memtx_index_extent_free);
 
 	m_tuple_to_id = mh_bitset_index_new();
@@ -273,17 +273,17 @@ make_key(const char *field, uint32_t *key_len)
 	}
 }
 
-struct tuple *
-MemtxBitset::replace(struct tuple *old_tuple, struct tuple *new_tuple,
+tuple_id
+MemtxBitset::replace(tuple_id old_tuple, tuple_id new_tuple,
 		     enum dup_replace_mode mode)
 {
 	assert(!key_def->opts.is_unique);
-	assert(old_tuple != NULL || new_tuple != NULL);
+	assert(old_tuple != TUPLE_ID_NIL || new_tuple != TUPLE_ID_NIL);
 	(void) mode;
 
-	struct tuple *ret = NULL;
+	tuple_id ret = TUPLE_ID_NIL;
 
-	if (old_tuple != NULL) {
+	if (old_tuple != TUPLE_ID_NIL) {
 #ifndef OLD_GOOD_BITSET
 		uint32_t value = tupleToValue(old_tuple);
 #else /* #ifndef OLD_GOOD_BITSET */
@@ -300,7 +300,7 @@ MemtxBitset::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 		}
 	}
 
-	if (new_tuple != NULL) {
+	if (new_tuple != TUPLE_ID_NIL) {
 		const char *field;
 		field = tuple_field(new_tuple, key_def->parts[0].fieldno);
 		uint32_t key_len;

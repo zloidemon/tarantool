@@ -29,6 +29,7 @@ add_library(box STATIC
     xlog.cc
     tuple_format.cc
     tuple.cc
+    tuple_format.cc
     tuple_convert.cc
     tuple_update.cc
     tuple_compare.cc

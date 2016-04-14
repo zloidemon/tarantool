@@ -115,8 +115,8 @@ space_foreach(void (*func)(struct space *sp, void *udata), void *udata)
 		auto scoped_guard = make_scoped_guard([=] { it->free(it); });
 		pk->initIterator(it, ITER_GE, key, 1);
 
-		struct tuple *tuple;
-		while ((tuple = it->next(it))) {
+		tuple_id tuple;
+		while ((tuple = it->next(it)) != TUPLE_ID_NIL) {
 			/* Get space id, primary key, field 0. */
 			uint32_t id = tuple_field_u32(tuple, 0);
 			space = space_cache_find(id);
@@ -218,8 +218,8 @@ schema_find_id(uint32_t system_space_id, uint32_t index_id,
 	struct iterator *it = index->position();
 	index->initIterator(it, ITER_EQ, buf, 1);
 
-	struct tuple *tuple = it->next(it);
-	if (tuple) {
+	tuple_id tuple = it->next(it);
+	if (tuple != TUPLE_ID_NIL) {
 		/* id is always field #1 */
 		return tuple_field_u32(tuple, 0);
 	}
@@ -415,5 +415,5 @@ schema_find_grants(const char *type, uint32_t id)
 	char key[10 + BOX_NAME_MAX];
 	mp_encode_uint(mp_encode_str(key, type, strlen(type)), id);
 	index->initIterator(it, ITER_EQ, key, 2);
-	return it->next(it);
+	return it->next(it) != TUPLE_ID_NIL;
 }

@@ -178,7 +178,7 @@ space_validate_tuple_raw(struct space *sp, const char *data)
 }
 
 void
-space_validate_tuple(struct space *sp, struct tuple *new_tuple)
+space_validate_tuple(struct space *sp, tuple_id new_tuple)
 {
 	uint32_t field_count = tuple_field_count(new_tuple);
 	space_validate_field_count(sp, field_count);
@@ -222,8 +222,8 @@ space_run_triggers(struct space *space, bool yesno)
  */
 void
 space_check_update(struct space *space,
-		   struct tuple *old_tuple,
-		   struct tuple *new_tuple)
+		   tuple_id old_tuple,
+		   tuple_id new_tuple)
 {
 	assert(space->index_count > 0);
 	Index *index = space->index[0];

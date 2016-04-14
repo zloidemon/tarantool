@@ -74,7 +74,7 @@ void  sophia_error(void*);
 void *sophia_read(void*, void*);
 void  sophia_workers_start(void*);
 
-struct tuple *
+tuple_id
 sophia_tuple_new(void *obj, struct key_def *key_def,
 		 struct tuple_format *format);
 

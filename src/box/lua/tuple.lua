@@ -14,36 +14,37 @@ typedef struct tuple_format box_tuple_format_t;
 box_tuple_format_t *
 box_tuple_format_default(void);
 
-typedef struct tuple box_tuple_t;
+typedef struct tuple *tuple_id;
+typedef tuple_id box_tuple_t;
 
-box_tuple_t *
+box_tuple_t
 box_tuple_new(box_tuple_format_t *format, const char *data, const char *end);
 
 int
-box_tuple_ref(box_tuple_t *tuple);
+box_tuple_ref(box_tuple_t tuple);
 
 void
-box_tuple_unref(box_tuple_t *tuple);
+box_tuple_unref(box_tuple_t tuple);
 
 uint32_t
-box_tuple_field_count(const box_tuple_t *tuple);
+box_tuple_field_count(box_tuple_t tuple);
 
 size_t
-box_tuple_bsize(const box_tuple_t *tuple);
+box_tuple_bsize(box_tuple_t tuple);
 
 ssize_t
-box_tuple_to_buf(const box_tuple_t *tuple, char *buf, size_t size);
+box_tuple_to_buf(box_tuple_t tuple, char *buf, size_t size);
 
 box_tuple_format_t *
-box_tuple_format(const box_tuple_t *tuple);
+box_tuple_format(box_tuple_t tuple);
 
 const char *
-box_tuple_field(const box_tuple_t *tuple, uint32_t i);
+box_tuple_field(box_tuple_t tuple, uint32_t i);
 
 typedef struct tuple_iterator box_tuple_iterator_t;
 
 box_tuple_iterator_t *
-box_tuple_iterator(box_tuple_t *tuple);
+box_tuple_iterator(box_tuple_t tuple);
 
 void
 box_tuple_iterator_free(box_tuple_iterator_t *it);
@@ -62,20 +63,21 @@ box_tuple_next(box_tuple_iterator_t *it);
 
 /** \endcond public */
 
-box_tuple_t *
-box_tuple_update(box_tuple_t *tuple, const char *expr, const char *expr_end);
+box_tuple_t
+box_tuple_update(box_tuple_t tuple, const char *expr, const char *expr_end);
 
-box_tuple_t *
-box_tuple_upsert(box_tuple_t *tuple, const char *expr, const char *expr_end);
+box_tuple_t
+box_tuple_upsert(box_tuple_t tuple, const char *expr, const char *expr_end);
 ]]
 
 local builtin = ffi.C
 
-local tuple_t = ffi.typeof('box_tuple_t')
-local const_tuple_ref_t = ffi.typeof('const box_tuple_t&')
+local tuple_t = ffi.typeof('struct tuple_cdata')
+
+local TUPLE_ID_NIL = nil
 
 local is_tuple = function(tuple)
-    return tuple ~= nil and type(tuple) == 'cdata' and ffi.istype(const_tuple_ref_t, tuple)
+    return tuple ~= nil and type(tuple) == 'cdata' and ffi.istype(tuple_t, tuple)
 end
 
 local encode_fix = msgpackffi.internal.encode_fix
@@ -103,14 +105,15 @@ tuple_encode = function(obj)
 end
 
 local tuple_gc = function(tuple)
-    builtin.box_tuple_unref(tuple)
+    builtin.box_tuple_unref(tuple.tuple)
 end
 
 local tuple_bless = function(tuple)
     -- overflow checked by tuple_bless() in C
     builtin.box_tuple_ref(tuple)
-    -- must never fail:
-    return ffi.gc(ffi.cast(const_tuple_ref_t, tuple), tuple_gc)
+    local res = ffi.new(tuple_t)
+    res.tuple = tuple
+    return res;
 end
 
 local tuple_check = function(tuple, usage)
@@ -123,7 +126,7 @@ local tuple_iterator_t = ffi.typeof('box_tuple_iterator_t')
 local tuple_iterator_ref_t = ffi.typeof('box_tuple_iterator_t &')
 
 local function tuple_iterator(tuple)
-    local it = builtin.box_tuple_iterator(tuple)
+    local it = builtin.box_tuple_iterator(tuple.tuple)
     if it == nil then
         box.error()
     end
@@ -166,7 +169,7 @@ local function tuple_next(tuple, pos)
     if pos == nil then
         pos = 0
     end
-    local field = builtin.box_tuple_field(tuple, pos)
+    local field = builtin.box_tuple_field(tuple.tuple, pos)
     if field == nil then
         return nil
     end
@@ -242,8 +245,8 @@ local function tuple_update(tuple, expr)
         error("Usage: tuple:update({ { op, field, arg}+ })")
     end
     local pexpr, pexpr_end = tuple_encode(expr)
-    local tuple = builtin.box_tuple_update(tuple, pexpr, pexpr_end)
-    if tuple == nil then
+    local tuple = builtin.box_tuple_update(tuple.tuple, pexpr, pexpr_end)
+    if tuple == TUPLE_ID_NIL then
         return box.error()
     end
     return tuple_bless(tuple)
@@ -255,8 +258,8 @@ local function tuple_upsert(tuple, expr)
         error("Usage: tuple:upsert({ { op, field, arg}+ })")
     end
     local pexpr, pexpr_end = tuple_encode(expr)
-    local tuple = builtin.box_tuple_upsert(tuple, pexpr, pexpr_end)
-    if tuple == nil then
+    local tuple = builtin.box_tuple_upsert(tuple.tuple, pexpr, pexpr_end)
+    if tuple == TUPLE_ID_NIL then
         return box.error()
     end
     return tuple_bless(tuple)
@@ -265,18 +268,18 @@ end
 -- Set encode hooks for msgpackffi
 local function tuple_to_msgpack(buf, tuple)
     assert(ffi.istype(tuple_t, tuple))
-    local bsize = builtin.box_tuple_bsize(tuple)
+    local bsize = builtin.box_tuple_bsize(tuple.tuple)
     buf:reserve(bsize)
-    builtin.box_tuple_to_buf(tuple, buf.wpos, bsize)
+    builtin.box_tuple_to_buf(tuple.tuple, buf.wpos, bsize)
     buf.wpos = buf.wpos + bsize
 end
 
 local function tuple_bsize(tuple)
     tuple_check(tuple, "tuple:bsize()");
-    return tonumber(builtin.box_tuple_bsize(tuple))
+    return tonumber(builtin.box_tuple_bsize(tuple.tuple))
 end
 
-msgpackffi.on_encode(const_tuple_ref_t, tuple_to_msgpack)
+msgpackffi.on_encode(tuple_t, tuple_to_msgpack)
 
 
 -- cfuncs table is set by C part
@@ -298,7 +301,7 @@ local methods = {
 }
 
 local tuple_field = function(tuple, field_n)
-    local field = builtin.box_tuple_field(tuple, field_n - 1)
+    local field = builtin.box_tuple_field(tuple.tuple, field_n - 1)
     if field == nil then
         return nil
     end
@@ -309,7 +312,7 @@ end
 
 ffi.metatype(tuple_t, {
     __len = function(tuple)
-        return builtin.box_tuple_field_count(tuple)
+        return builtin.box_tuple_field_count(tuple.tuple)
     end;
     __tostring = function(tuple)
         -- Unpack tuple, call yaml.encode, remove yaml header and footer
@@ -324,10 +327,12 @@ ffi.metatype(tuple_t, {
     end;
     __eq = function(tuple_a, tuple_b)
         -- Two tuple are considered equal if they have same memory address
-        return ffi.cast('void *', tuple_a) == ffi.cast('void *', tuple_b);
+        if not tuple_b then return tuple_a.tuple == nil end --comparing with nil
+        return ffi.cast('void *', tuple_a.tuple) == ffi.cast('void *', tuple_b.tuple);
     end;
     __pairs = tuple_ipairs;  -- Lua 5.2 compatibility
     __ipairs = tuple_ipairs; -- Lua 5.2 compatibility
+    __gc = tuple_gc;
 })
 
 ffi.metatype(tuple_iterator_t, {

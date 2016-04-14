@@ -32,22 +32,22 @@
  */
 #include <stddef.h>
 #include <stdint.h>
+#include "tuple_id.h"
 
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-struct tuple;
 struct key_def;
 
-typedef int (*tuple_compare_with_key_t)(const struct tuple *tuple_a,
-			      const char *key,
-			      uint32_t part_count,
-			      const struct key_def *key_def);
+typedef int (*tuple_compare_with_key_t)(tuple_id tupid_a,
+					const char *key,
+					uint32_t part_count,
+					const struct key_def *key_def);
 
-typedef int (*tuple_compare_t)(const struct tuple *tuple_a,
-			   const struct tuple *tuple_b,
-			   const struct key_def *key_def);
+typedef int (*tuple_compare_t)(tuple_id tupid_a,
+			       tuple_id tupid_b,
+			       const struct key_def *key_def);
 
 tuple_compare_t
 tuple_compare_create(const struct key_def *key_def);

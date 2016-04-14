@@ -41,10 +41,10 @@ public:
 		if (m_position != NULL)
 			m_position->free(m_position);
 	}
-	virtual struct tuple *min(const char *key,
-				  uint32_t part_count) const override;
-	virtual struct tuple *max(const char *key,
-				  uint32_t part_count) const override;
+	virtual tuple_id min(const char *key,
+				    uint32_t part_count) const override;
+	virtual tuple_id max(const char *key,
+				    uint32_t part_count) const override;
 	virtual size_t count(enum iterator_type type, const char *key,
 			     uint32_t part_count) const override;
 
@@ -65,7 +65,7 @@ public:
 	 * is given after beginBuild().
 	 */
 	virtual void reserve(uint32_t /* size_hint */);
-	virtual void buildNext(struct tuple *tuple);
+	virtual void buildNext(tuple_id tuple);
 	virtual void endBuild();
 protected:
 	/*

@@ -33,6 +33,7 @@
 #include "trivia/util.h"
 
 #include <stdbool.h>
+#include "tuple_id.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -122,7 +123,7 @@ struct box_function_ctx {
 	struct port *port;
 };
 
-typedef struct tuple box_tuple_t;
+typedef tuple_id box_tuple_t;
 
 /* box_select is private and used only by FFI */
 API_EXPORT int
@@ -149,7 +150,7 @@ typedef struct box_function_ctx box_function_ctx_t;
  * \retval 0 otherwise
  */
 API_EXPORT int
-box_return_tuple(box_function_ctx_t *ctx, box_tuple_t *tuple);
+box_return_tuple(box_function_ctx_t *ctx, box_tuple_t tuple);
 
 /**
  * Find space id by name.
@@ -191,7 +192,7 @@ box_index_id_by_name(uint32_t space_id, const char *name, uint32_t len);
  */
 API_EXPORT int
 box_insert(uint32_t space_id, const char *tuple, const char *tuple_end,
-	   box_tuple_t **result);
+	   box_tuple_t *result);
 
 /**
  * Execute an REPLACE request.
@@ -206,7 +207,7 @@ box_insert(uint32_t space_id, const char *tuple, const char *tuple_end,
  */
 API_EXPORT int
 box_replace(uint32_t space_id, const char *tuple, const char *tuple_end,
-	    box_tuple_t **result);
+	    box_tuple_t *result);
 
 /**
  * Execute an DELETE request.
@@ -222,7 +223,7 @@ box_replace(uint32_t space_id, const char *tuple, const char *tuple_end,
  */
 API_EXPORT int
 box_delete(uint32_t space_id, uint32_t index_id, const char *key,
-	   const char *key_end, box_tuple_t **result);
+	   const char *key_end, box_tuple_t *result);
 
 /**
  * Execute an UPDATE request.
@@ -245,7 +246,7 @@ box_delete(uint32_t space_id, uint32_t index_id, const char *key,
 API_EXPORT int
 box_update(uint32_t space_id, uint32_t index_id, const char *key,
 	   const char *key_end, const char *ops, const char *ops_end,
-	   int index_base, box_tuple_t **result);
+	   int index_base, box_tuple_t *result);
 
 /**
  * Execute an UPSERT request.
@@ -268,7 +269,7 @@ box_update(uint32_t space_id, uint32_t index_id, const char *key,
 API_EXPORT int
 box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 	   const char *tuple_end, const char *ops, const char *ops_end,
-	   int index_base, box_tuple_t **result);
+	   int index_base, box_tuple_t *result);
 
 /**
  * Truncate space.
@@ -288,6 +289,6 @@ box_truncate(uint32_t space_id);
  * (master->slave propagation).
  */
 int
-box_process1(struct request *request, box_tuple_t **result);
+box_process1(struct request *request, box_tuple_t *result);
 
 #endif /* INCLUDES_TARANTOOL_BOX_H */

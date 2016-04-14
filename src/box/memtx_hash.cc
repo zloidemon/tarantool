@@ -43,14 +43,14 @@ enum {
 };
 
 static inline bool
-equal(struct tuple *tuple_a, struct tuple *tuple_b,
+equal(tuple_id tuple_a, tuple_id tuple_b,
 	    const struct key_def *key_def)
 {
 	return tuple_compare(tuple_a, tuple_b, key_def) == 0;
 }
 
 static inline bool
-equal_key(struct tuple *tuple, const char *key,
+equal_key(tuple_id tuple, const char *key,
 		const struct key_def *key_def)
 {
 	return tuple_compare_with_key(tuple, key, key_def->part_count,
@@ -93,7 +93,7 @@ mh_hash_field(uint32_t *ph1, uint32_t *pcarry, const char **field,
 }
 
 static inline uint32_t
-tuple_hash(struct tuple *tuple, const struct key_def *key_def)
+tuple_hash(tuple_id tuple, const struct key_def *key_def)
 {
 	const struct key_part *part = key_def->parts;
 	/*
@@ -144,7 +144,7 @@ key_hash(const char *key, const struct key_def *key_def)
 }
 
 #define LIGHT_NAME _index
-#define LIGHT_DATA_TYPE struct tuple *
+#define LIGHT_DATA_TYPE tuple_id
 #define LIGHT_KEY_TYPE const char *
 #define LIGHT_CMP_ARG_TYPE struct key_def *
 #define LIGHT_EQUAL(a, b, c) equal(a, b, c)
@@ -168,38 +168,38 @@ hash_iterator_free(struct iterator *iterator)
 	free(iterator);
 }
 
-struct tuple *
+tuple_id
 hash_iterator_ge(struct iterator *ptr)
 {
 	assert(ptr->free == hash_iterator_free);
 	struct hash_iterator *it = (struct hash_iterator *) ptr;
-	struct tuple **res = light_index_itr_get_and_next(it->hash_table,
+	tuple_id *res = light_index_itr_get_and_next(it->hash_table,
 							  &it->hitr);
-	return res ? *res : 0;
+	return res ? *res : TUPLE_ID_NIL;
 }
 
-struct tuple *
+tuple_id
 hash_iterator_gt(struct iterator *ptr)
 {
 	assert(ptr->free == hash_iterator_free);
 	ptr->next = hash_iterator_ge;
 	struct hash_iterator *it = (struct hash_iterator *) ptr;
-	struct tuple **res = light_index_itr_get_and_next(it->hash_table,
+	tuple_id *res = light_index_itr_get_and_next(it->hash_table,
 							  &it->hitr);
 	if (!res)
-		return 0;
+		return TUPLE_ID_NIL;
 	res = light_index_itr_get_and_next(it->hash_table,
 							  &it->hitr);
-	return res ? *res : 0;
+	return res ? *res : TUPLE_ID_NIL;
 }
 
-static struct tuple *
+static tuple_id
 hash_iterator_eq_next(struct iterator *it __attribute__((unused)))
 {
-	return NULL;
+	return TUPLE_ID_NIL;
 }
 
-static struct tuple *
+static tuple_id
 hash_iterator_eq(struct iterator *it)
 {
 	it->next = hash_iterator_eq_next;
@@ -248,11 +248,11 @@ MemtxHash::bsize() const
         return matras_extent_count(&hash_table->mtable) * HASH_INDEX_EXTENT_SIZE;
 }
 
-struct tuple *
+tuple_id
 MemtxHash::random(uint32_t rnd) const
 {
 	if (hash_table->count == 0)
-		return NULL;
+		return TUPLE_ID_NIL;
 	rnd %= (hash_table->table_size);
 	while (!light_index_pos_valid(hash_table, rnd)) {
 		rnd++;
@@ -261,13 +261,13 @@ MemtxHash::random(uint32_t rnd) const
 	return light_index_get(hash_table, rnd);
 }
 
-struct tuple *
+tuple_id
 MemtxHash::findByKey(const char *key, uint32_t part_count) const
 {
 	assert(key_def->opts.is_unique && part_count == key_def->part_count);
 	(void) part_count;
 
-	struct tuple *ret = NULL;
+	tuple_id ret = TUPLE_ID_NIL;
 	uint32_t h = key_hash(key, key_def);
 	uint32_t k = light_index_find_key(hash_table, h, key);
 	if (k != light_index_end)
@@ -275,15 +275,15 @@ MemtxHash::findByKey(const char *key, uint32_t part_count) const
 	return ret;
 }
 
-struct tuple *
-MemtxHash::replace(struct tuple *old_tuple, struct tuple *new_tuple,
+tuple_id
+MemtxHash::replace(tuple_id old_tuple, tuple_id new_tuple,
 		   enum dup_replace_mode mode)
 {
 	uint32_t errcode;
 
-	if (new_tuple) {
+	if (new_tuple != TUPLE_ID_NIL) {
 		uint32_t h = tuple_hash(new_tuple, key_def);
-		struct tuple *dup_tuple = NULL;
+		tuple_id dup_tuple = TUPLE_ID_NIL;
 		hash_t pos = light_index_replace(hash_table, h, new_tuple, &dup_tuple);
 		if (pos == light_index_end)
 			pos = light_index_insert(hash_table, h, new_tuple);
@@ -302,7 +302,7 @@ MemtxHash::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 
 		if (errcode) {
 			light_index_delete(hash_table, pos);
-			if (dup_tuple) {
+			if (dup_tuple != TUPLE_ID_NIL) {
 				uint32_t pos = light_index_insert(hash_table, h, dup_tuple);
 				if (pos == light_index_end) {
 					panic("Failed to allocate memory in "
@@ -314,11 +314,11 @@ MemtxHash::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 				  space_name(sp));
 		}
 
-		if (dup_tuple)
+		if (dup_tuple != TUPLE_ID_NIL)
 			return dup_tuple;
 	}
 
-	if (old_tuple) {
+	if (old_tuple != TUPLE_ID_NIL) {
 		uint32_t h = tuple_hash(old_tuple, key_def);
 		int res = light_index_delete_value(hash_table, h, old_tuple);
 		assert(res == 0); (void) res;

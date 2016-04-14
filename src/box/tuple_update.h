@@ -41,7 +41,7 @@ enum {
 
 extern "C" {
 typedef void *(*tuple_update_alloc_func)(void *, size_t);
-}
+} /* extern "C" { */
 
 const char *
 tuple_update_execute(tuple_update_alloc_func alloc, void *alloc_ctx,

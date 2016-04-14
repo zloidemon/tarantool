@@ -31,12 +31,12 @@
  * SUCH DAMAGE.
  */
 #include <stddef.h>
+#include <box/tuple_id.h>
 
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-struct tuple;
 struct lua_State;
 struct mpstream;
 struct luaL_serializer;
@@ -45,18 +45,18 @@ struct luaL_serializer;
  * Push tuple on lua stack
  */
 void
-lbox_pushtuple(struct lua_State *L, struct tuple *tuple);
+lbox_pushtuple(struct lua_State *L, tuple_id tuple);
 
 static inline int
-lbox_pushtupleornil(struct lua_State *L, struct tuple *tuple)
+lbox_pushtupleornil(struct lua_State *L, tuple_id tuple)
 {
-	if (tuple == NULL)
+	if (tuple == TUPLE_ID_NIL)
 		return 0;
 	lbox_pushtuple(L, tuple);
 	return 1;
 }
 
-struct tuple *
+tuple_id
 lua_istuple(struct lua_State *L, int narg);
 
 void
@@ -68,7 +68,7 @@ luamp_encode_tuple(struct lua_State *L, struct luaL_serializer *cfg,
 		   struct mpstream *stream, int index);
 
 void
-tuple_to_mpstream(struct tuple *tuple, struct mpstream *stream);
+tuple_to_mpstream(tuple_id tuple, struct mpstream *stream);
 
 void
 box_lua_tuple_init(struct lua_State *L);

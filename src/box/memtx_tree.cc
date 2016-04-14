@@ -46,7 +46,7 @@ struct key_data
 };
 
 int
-tree_index_compare(const tuple *a, const tuple *b, struct key_def *key_def)
+tree_index_compare(tuple_id a, tuple_id b, struct key_def *key_def)
 {
 	int r = tuple_compare(a, b, key_def);
 	if (r == 0 && !key_def->opts.is_unique)
@@ -54,16 +54,16 @@ tree_index_compare(const tuple *a, const tuple *b, struct key_def *key_def)
 	return r;
 }
 int
-tree_index_compare_key(const tuple *a, const struct key_data *key_data,
+tree_index_compare_key(tuple_id a, const struct key_data *key_data,
 		       struct key_def *key_def)
 {
 	return tuple_compare_with_key(a, key_data->key,
 				      key_data->part_count, key_def);
 }
-int tree_index_qcompare(const void* a, const void *b, void *c)
+int tree_index_qcompare(const void *a, const void *b, void *c)
 {
-	return tree_index_compare(*(struct tuple **)a,
-		*(struct tuple **)b, (struct key_def *)c);
+	return tree_index_compare(*(tuple_id *)a,
+		*(tuple_id *)b, (struct key_def *)c);
 }
 
 /* {{{ MemtxTree Iterators ****************************************/
@@ -91,63 +91,67 @@ tree_iterator_free(struct iterator *iterator)
 	free(iterator);
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_dummie(struct iterator *iterator)
 {
 	(void)iterator;
-	return 0;
+	return TUPLE_ID_NIL;
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_fwd(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
-	tuple **res = bps_tree_index_itr_get_elem(it->tree, &it->bps_tree_iter);
+	tuple_id *res = bps_tree_index_itr_get_elem(it->tree,
+						   &it->bps_tree_iter);
 	if (!res)
-		return 0;
+		return TUPLE_ID_NIL;
 	bps_tree_index_itr_next(it->tree, &it->bps_tree_iter);
 	return *res;
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_bwd(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
-	tuple **res = bps_tree_index_itr_get_elem(it->tree, &it->bps_tree_iter);
+	tuple_id *res = bps_tree_index_itr_get_elem(it->tree,
+						    &it->bps_tree_iter);
 	if (!res)
-		return 0;
+		return TUPLE_ID_NIL;
 	bps_tree_index_itr_prev(it->tree, &it->bps_tree_iter);
 	return *res;
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_fwd_check_equality(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
-	tuple **res = bps_tree_index_itr_get_elem(it->tree, &it->bps_tree_iter);
+	tuple_id *res = bps_tree_index_itr_get_elem(it->tree,
+						    &it->bps_tree_iter);
 	if (!res)
-		return 0;
+		return TUPLE_ID_NIL;
 	if (tree_index_compare_key(*res, &it->key_data, it->key_def) != 0) {
 		it->bps_tree_iter = bps_tree_index_invalid_iterator();
-		return 0;
+		return TUPLE_ID_NIL;
 	}
 	bps_tree_index_itr_next(it->tree, &it->bps_tree_iter);
 	return *res;
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_fwd_check_next_equality(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
-	tuple **res = bps_tree_index_itr_get_elem(it->tree, &it->bps_tree_iter);
+	tuple_id *res = bps_tree_index_itr_get_elem(it->tree,
+						    &it->bps_tree_iter);
 	if (!res)
-		return 0;
+		return TUPLE_ID_NIL;
 	bps_tree_index_itr_next(it->tree, &it->bps_tree_iter);
 	iterator->next = tree_iterator_fwd_check_equality;
 	return *res;
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_bwd_skip_one(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
@@ -156,22 +160,23 @@ tree_iterator_bwd_skip_one(struct iterator *iterator)
 	return tree_iterator_bwd(iterator);
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_bwd_check_equality(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
-	tuple **res = bps_tree_index_itr_get_elem(it->tree, &it->bps_tree_iter);
+	tuple_id *res = bps_tree_index_itr_get_elem(it->tree,
+						    &it->bps_tree_iter);
 	if (!res)
-		return 0;
+		return TUPLE_ID_NIL;
 	if (tree_index_compare_key(*res, &it->key_data, it->key_def) != 0) {
 		it->bps_tree_iter = bps_tree_index_invalid_iterator();
-		return 0;
+		return TUPLE_ID_NIL;
 	}
 	bps_tree_index_itr_prev(it->tree, &it->bps_tree_iter);
 	return *res;
 }
 
-static struct tuple *
+static tuple_id
 tree_iterator_bwd_skip_one_check_next_equality(struct iterator *iterator)
 {
 	struct tree_iterator *it = tree_iterator(iterator);
@@ -211,14 +216,14 @@ MemtxTree::bsize() const
 	return bps_tree_index_mem_used(&tree);
 }
 
-struct tuple *
+tuple_id
 MemtxTree::random(uint32_t rnd) const
 {
-	struct tuple **res = bps_tree_index_random(&tree, rnd);
-	return res ? *res : 0;
+	tuple_id *res = bps_tree_index_random(&tree, rnd);
+	return res ? *res : TUPLE_ID_NIL;
 }
 
-struct tuple *
+tuple_id
 MemtxTree::findByKey(const char *key, uint32_t part_count) const
 {
 	assert(key_def->opts.is_unique && part_count == key_def->part_count);
@@ -226,18 +231,18 @@ MemtxTree::findByKey(const char *key, uint32_t part_count) const
 	struct key_data key_data;
 	key_data.key = key;
 	key_data.part_count = part_count;
-	struct tuple **res = bps_tree_index_find(&tree, &key_data);
-	return res ? *res : 0;
+	tuple_id *res = bps_tree_index_find(&tree, &key_data);
+	return res ? *res : TUPLE_ID_NIL;
 }
 
-struct tuple *
-MemtxTree::replace(struct tuple *old_tuple, struct tuple *new_tuple,
+tuple_id
+MemtxTree::replace(tuple_id old_tuple, tuple_id new_tuple,
 		   enum dup_replace_mode mode)
 {
 	uint32_t errcode;
 
-	if (new_tuple) {
-		struct tuple *dup_tuple = NULL;
+	if (new_tuple != TUPLE_ID_NIL) {
+		tuple_id dup_tuple = TUPLE_ID_NIL;
 
 		/* Try to optimistically replace the new_tuple. */
 		int tree_res =
@@ -251,16 +256,16 @@ MemtxTree::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 
 		if (errcode) {
 			bps_tree_index_delete(&tree, new_tuple);
-			if (dup_tuple)
+			if (dup_tuple != TUPLE_ID_NIL)
 				bps_tree_index_insert(&tree, dup_tuple, 0);
 			struct space *sp = space_cache_find(key_def->space_id);
 			tnt_raise(ClientError, errcode, index_name(this),
 				  space_name(sp));
 		}
-		if (dup_tuple)
+		if (dup_tuple != TUPLE_ID_NIL)
 			return dup_tuple;
 	}
-	if (old_tuple) {
+	if (old_tuple != TUPLE_ID_NIL) {
 		bps_tree_index_delete(&tree, old_tuple);
 	}
 	return old_tuple;
@@ -363,27 +368,27 @@ MemtxTree::reserve(uint32_t size_hint)
 {
 	if (size_hint < build_array_alloc_size)
 		return;
-	build_array = (struct tuple**)
-		realloc(build_array, size_hint * sizeof(struct tuple *));
+	build_array = (tuple_id *)
+		realloc(build_array, size_hint * sizeof(tuple_id));
 	build_array_alloc_size = size_hint;
 }
 
 void
-MemtxTree::buildNext(struct tuple *tuple)
+MemtxTree::buildNext(tuple_id tuple)
 {
 	if (!build_array) {
-		build_array = (struct tuple**)malloc(BPS_TREE_EXTENT_SIZE);
+		build_array = (tuple_id *)malloc(BPS_TREE_EXTENT_SIZE);
 		build_array_alloc_size =
-			BPS_TREE_EXTENT_SIZE / sizeof(struct tuple*);
+			BPS_TREE_EXTENT_SIZE / sizeof(tuple_id);
 	}
 	assert(build_array_size <= build_array_alloc_size);
 	if (build_array_size == build_array_alloc_size) {
 		build_array_alloc_size = build_array_alloc_size +
 					 build_array_alloc_size / 2;
-		build_array = (struct tuple**)
+		build_array = (tuple_id *)
 			realloc(build_array,
 				build_array_alloc_size *
-				sizeof(struct tuple *));
+				sizeof(tuple_id));
 	}
 	build_array[build_array_size++] = tuple;
 }
@@ -391,7 +396,7 @@ MemtxTree::buildNext(struct tuple *tuple)
 void
 MemtxTree::endBuild()
 {
-	qsort_arg(build_array, build_array_size, sizeof(struct tuple *), tree_index_qcompare, key_def);
+	qsort_arg(build_array, build_array_size, sizeof(tuple_id), tree_index_qcompare, key_def);
 	bps_tree_index_build(&tree, build_array, build_array_size);
 
 	free(build_array);

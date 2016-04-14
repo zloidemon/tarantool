@@ -160,20 +160,20 @@ Handler::applySnapshotRow(struct space *, struct request *)
 		  "applySnapshotRow");
 }
 
-struct tuple *
+tuple_id
 Handler::executeReplace(struct txn *, struct space *,
                         struct request *)
 {
 	tnt_raise(ClientError, ER_UNSUPPORTED, engine->name, "replace");
 }
 
-struct tuple *
+tuple_id
 Handler::executeDelete(struct txn*, struct space *, struct request *)
 {
 	tnt_raise(ClientError, ER_UNSUPPORTED, engine->name, "delete");
 }
 
-struct tuple *
+tuple_id
 Handler::executeUpdate(struct txn*, struct space *, struct request *)
 {
 	tnt_raise(ClientError, ER_UNSUPPORTED, engine->name, "update");
@@ -211,8 +211,8 @@ Handler::executeSelect(struct txn *, struct space *space,
 	IteratorGuard guard(it);
 	index->initIterator(it, type, key, part_count);
 
-	struct tuple *tuple;
-	while ((tuple = it->next(it)) != NULL) {
+	tuple_id tuple;
+	while ((tuple = it->next(it)) != TUPLE_ID_NIL) {
 		/*
 		 * This is for Sophia, which returns a tuple
 		 * with zero refs from the iterator, expecting

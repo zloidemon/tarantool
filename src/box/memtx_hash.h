@@ -42,12 +42,11 @@ public:
 
 	virtual void reserve(uint32_t size_hint) override;
 	virtual size_t size() const override;
-	virtual struct tuple *random(uint32_t rnd) const override;
-	virtual struct tuple *findByKey(const char *key,
-					uint32_t part_count) const override;
-	virtual struct tuple *replace(struct tuple *old_tuple,
-				      struct tuple *new_tuple,
-				      enum dup_replace_mode mode) override;
+	virtual tuple_id random(uint32_t rnd) const override;
+	virtual tuple_id findByKey(const char *key,
+				   uint32_t part_count) const override;
+	virtual tuple_id replace(tuple_id old_tuple, tuple_id new_tuple,
+				 enum dup_replace_mode mode) override;
 
 	virtual struct iterator *allocIterator() const override;
 	virtual void initIterator(struct iterator *iterator,

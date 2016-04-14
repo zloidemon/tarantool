@@ -35,14 +35,14 @@
 
 struct sysview_iterator;
 
-typedef bool (*sysview_filter_f)(struct space *source, struct tuple *);
+typedef bool (*sysview_filter_f)(struct space *source, tuple_id);
 
 class SysviewIndex: public Index {
 public:
 	SysviewIndex(struct key_def *key_def, uint32_t source_space_id,
 		     uint32_t source_index_id, sysview_filter_f filter);
 	virtual ~SysviewIndex() override;
-	virtual struct tuple *findByKey(const char *key,
+	virtual tuple_id findByKey(const char *key,
 					uint32_t part_count) const override;
 
 	virtual struct iterator *allocIterator() const override;

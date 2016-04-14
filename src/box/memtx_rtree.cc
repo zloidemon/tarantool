@@ -99,7 +99,7 @@ mp_decode_rect_from_key(struct rtree_rect *rect, unsigned dimension,
 }
 
 inline void
-extract_rectangle(struct rtree_rect *rect, const struct tuple *tuple,
+extract_rectangle(struct rtree_rect *rect, tuple_id tuple,
 		  struct key_def *key_def)
 {
 	assert(key_def->part_count == 1);
@@ -125,11 +125,11 @@ index_rtree_iterator_free(struct iterator *i)
 	delete itr;
 }
 
-static struct tuple *
+static tuple_id
 index_rtree_iterator_next(struct iterator *i)
 {
 	struct index_rtree_iterator *itr = (struct index_rtree_iterator *)i;
-	return (struct tuple *)rtree_iterator_next(&itr->impl);
+	return tuple_id_unpack(rtree_iterator_next(&itr->impl));
 }
 
 /* }}} */
@@ -183,7 +183,7 @@ MemtxRTree::bsize() const
 	return rtree_used_size(&m_tree);
 }
 
-struct tuple *
+tuple_id
 MemtxRTree::findByKey(const char *key, uint32_t part_count) const
 {
 	struct rtree_iterator iterator;
@@ -193,26 +193,26 @@ MemtxRTree::findByKey(const char *key, uint32_t part_count) const
 	if (mp_decode_rect_from_key(&rect, m_dimension, key, part_count))
 		assert(false);
 
-	struct tuple *result = NULL;
+	tuple_id result = TUPLE_ID_NIL;
 	if (rtree_search(&m_tree, &rect, SOP_OVERLAPS, &iterator))
-		result = (struct tuple *)rtree_iterator_next(&iterator);
+		result = tuple_id_unpack(rtree_iterator_next(&iterator));
 	rtree_iterator_destroy(&iterator);
 	return result;
 }
 
-struct tuple *
-MemtxRTree::replace(struct tuple *old_tuple, struct tuple *new_tuple,
+tuple_id
+MemtxRTree::replace(tuple_id old_tuple, tuple_id new_tuple,
 		    enum dup_replace_mode)
 {
 	struct rtree_rect rect;
-	if (new_tuple) {
+	if (new_tuple != TUPLE_ID_NIL) {
 		extract_rectangle(&rect, new_tuple, key_def);
-		rtree_insert(&m_tree, &rect, new_tuple);
+		rtree_insert(&m_tree, &rect, tuple_id_pack(new_tuple));
 	}
-	if (old_tuple) {
+	if (old_tuple != TUPLE_ID_NIL) {
 		extract_rectangle(&rect, old_tuple, key_def);
-		if (!rtree_remove(&m_tree, &rect, old_tuple))
-			old_tuple = NULL;
+		if (!rtree_remove(&m_tree, &rect, tuple_id_pack(old_tuple)))
+			old_tuple = TUPLE_ID_NIL;
 	}
 	return old_tuple;
 }

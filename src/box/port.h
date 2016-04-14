@@ -31,12 +31,11 @@
  * SUCH DAMAGE.
  */
 #include "trivia/util.h"
+#include "tuple_id.h"
 
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
-
-struct tuple;
 
 /**
  * A single port represents a destination of box_process output.
@@ -59,7 +58,7 @@ struct tuple;
 
 struct port_entry {
 	struct port_entry *next;
-	struct tuple *tuple;
+	tuple_id tuple;
 };
 
 struct port {
@@ -82,7 +81,7 @@ void
 port_dump(struct port *port, struct obuf *out);
 
 void
-port_add_tuple(struct port *port, struct tuple *tuple);
+port_add_tuple(struct port *port, tuple_id tuple);
 
 void
 port_init(void);

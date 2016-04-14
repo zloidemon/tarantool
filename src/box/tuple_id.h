@@ -1,3 +1,5 @@
+#ifndef TARANTOOL_BOX_TUPLE_ID_H_INCLUDED
+#define TARANTOOL_BOX_TUPLE_ID_H_INCLUDED
 /*
  * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -28,28 +30,38 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "tuple.h"
-#include "iobuf.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
 
-int
-tuple_to_obuf(tuple_id tuple, struct obuf *buf)
+#if defined(__cplusplus)
+extern "C" {
+#endif /* defined(__cplusplus) */
+
+/** \cond public */
+
+struct tuple;
+
+typedef struct tuple *tuple_id;
+
+static const tuple_id TUPLE_ID_NIL = NULL;
+
+inline void *
+tuple_id_pack(tuple_id tupid)
 {
-	const char *data = tuple_id_get_data(tuple);
-	size_t bsize = tuple_id_get_data_size(tuple);
-	if (obuf_dup(buf, data, bsize) != bsize) {
-		diag_set(OutOfMemory, bsize, "tuple_to_obuf", "dup");
-		return -1;
-	}
-	return 0;
+	return (void *)tupid;
 }
 
-ssize_t
-tuple_to_buf(tuple_id tuple, char *buf, size_t size)
+inline tuple_id
+tuple_id_unpack(void *ptr)
 {
-	const char *data = tuple_id_get_data(tuple);
-	size_t bsize = tuple_id_get_data_size(tuple);
-	if (likely(bsize <= size)) {
-		memcpy(buf, data, bsize);
-	}
-	return bsize;
+	return (tuple_id)ptr;
 }
+
+/** \endcond public */
+
+#if defined(__cplusplus)
+} /* extern "C" { */
+#endif /* defined(__cplusplus) */
+
+#endif /* TARANTOOL_BOX_TUPLE_ID_H_INCLUDED */

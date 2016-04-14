@@ -32,18 +32,19 @@
  */
 
 #include "index.h"
+#include "tuple_id.h"
 
 class SophiaIndex: public Index {
 public:
 	SophiaIndex(struct key_def *key_def);
 	virtual ~SophiaIndex() override;
 
-	virtual struct tuple*
-	replace(struct tuple*,
-	        struct tuple*, enum dup_replace_mode) override;
+	virtual tuple_id
+	replace(tuple_id,
+		tuple_id, enum dup_replace_mode);
 
-	virtual struct tuple*
-	findByKey(const char *key, uint32_t) const override;
+	virtual tuple_id
+	findByKey(const char *key, uint32_t) const;
 
 	virtual struct iterator*
 	allocIterator() const;
