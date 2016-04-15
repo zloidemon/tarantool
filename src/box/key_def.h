@@ -48,6 +48,7 @@ extern "C" {
 enum {
 	BOX_ENGINE_MAX = 3, /* + 1 to the actual number of engines */
 	BOX_SPACE_MAX = INT32_MAX,
+	BOX_CRT_STMT_MAX = 4000,
 	BOX_FUNCTION_MAX = 32000,
 	BOX_INDEX_MAX = 128,
 	BOX_NAME_MAX = 32,
@@ -304,8 +305,13 @@ struct space_opts {
 	 * - changes are not part of a snapshot
 	 */
 	bool temporary;
-    /** The space is actially SQL view */
-    bool view;
+	/* The space is actially SQL view */
+	bool view;
+	/**
+	 * SQL create stament for that space
+	 * not null only in if space created via SQL.
+	 */
+	char crt_stmt[BOX_CRT_STMT_MAX + 1];
 };
 
 extern const struct space_opts space_opts_default;

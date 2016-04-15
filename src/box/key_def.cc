@@ -310,12 +310,14 @@ key_def_set_part(struct key_def *def, uint32_t part_no,
 
 const struct space_opts space_opts_default = {
 	/* .temporary = */ false,
-    /* view = */ false,
+	/* view       = */ false,
+	/* crt_stmt   = */ ""
 };
 
 const struct opt_def space_opts_reg[] = {
 	OPT_DEF("temporary", MP_BOOL, struct space_opts, temporary),
 	OPT_DEF("view", MP_BOOL, struct space_opts, view),
+	OPT_DEF("crt_stmt", MP_STR, struct space_opts, crt_stmt),
 	{ NULL, MP_NIL, 0, 0 }
 };
 

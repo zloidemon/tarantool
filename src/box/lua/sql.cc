@@ -134,6 +134,13 @@ int
 insert_new_table_as_space(Table *table);
 
 /**
+ * Insert new struct Table object into _space as view after converting it
+ * into msgpuck.
+ */
+int
+insert_new_view_as_space(Table *table, char * crt_stmt);
+
+/**
  * Insert new struct SIndex object into _space after converting it
  * into msgpuck.
  */
@@ -146,7 +153,7 @@ insert_new_sindex_as_index(SIndex *index);
  */
 Table *
 get_trntl_table_from_tuple(box_tuple_t *tpl,sqlite3 *db,
-	Schema *pSchema, bool *is_temp = NULL);
+	Schema *pSchema, bool *is_temp = NULL, bool *is_view = NULL);
 
 /**
  * This function converts index from msgpuck tuple to
@@ -524,10 +531,11 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 	sqlite3 *db = get_global_db();
 	Hash *tblHash = &db->aDb[0].pSchema->tblHash;
 	Schema *pSchema = db->aDb[0].pSchema;
-	bool is_temp;
+	bool is_temp, is_view;
 	if (old_tuple != NULL) {
 		say_debug("%s(): old_tuple != NULL\n", __func_name);
-		Table *table = get_trntl_table_from_tuple(old_tuple, db, pSchema, &is_temp);
+		Table *table = get_trntl_table_from_tuple(old_tuple, db,
+		pSchema, &is_temp, &is_view);
 		if (!table) {
 			say_debug("%s(): error while getting table\n", __func_name);
 			return;
@@ -543,13 +551,15 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 			sqlite3DbFree(db, table);
 			return;
 		}
+		
 		sqlite3HashInsert(tblHash, table->zName, NULL);
 		sqlite3DbFree(db, table);
 		sqlite3DbFree(db, schema_table);
 	}
 	if (new_tuple != NULL) {
 		say_debug("%s(): new_tuple != NULL\n", __func_name);
-		Table *table = get_trntl_table_from_tuple(new_tuple, db, pSchema, &is_temp);
+		Table *table = get_trntl_table_from_tuple(new_tuple, db,
+		pSchema, &is_temp, &is_view);
 		if (is_temp) {
 			tblHash = &db->aDb[1].pSchema->tblHash;
 			pSchema = db->aDb[1].pSchema;
@@ -894,6 +904,94 @@ string_contains(const char *src, int len, const char *sub, int sub_len) {
 }
 
 char *
+make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
+	char *msg_data, *it;
+	int space_id = get_space_id_from(table->tnum);
+	int msg_size = 5 + mp_sizeof_uint(space_id);
+	struct credentials *cred = current_user();
+	const char *engine = "memtx";
+	int name_len = strlen("name");
+	int type_len = strlen("type");
+	int engine_len = strlen("memtx");
+	int temporary_len = strlen("temporary");
+	int view_len = strlen("view");
+	int table_name_len = strlen(table->zName);
+	int crt_stmt_len = strlen(crt_stmt);
+	int stmt_len = strlen("crt_stmt");
+	int has_crt_stmt = (crt_stmt != 0);
+	Column *cur;
+	int i;
+	bool is_temp = sqlite3SchemaToIndex(get_global_db(), table->pSchema);
+	bool is_view = (table->pSelect != 0);
+	int flags_cnt = (int)is_temp + is_view + has_crt_stmt;
+	msg_size += mp_sizeof_uint(cred->uid);
+	msg_size += mp_sizeof_str(table_name_len);
+	msg_size += mp_sizeof_str(engine_len);
+	msg_size += mp_sizeof_uint(0);
+	msg_size += mp_sizeof_map(flags_cnt);
+	//size of flags
+	if (is_temp) {
+		msg_size += mp_sizeof_str(temporary_len)
+			+ mp_sizeof_bool(true);
+	}
+	if (is_view) {
+		msg_size += mp_sizeof_str(view_len)
+			+ mp_sizeof_bool(true);	
+	}
+	if (crt_stmt) {
+		msg_size += mp_sizeof_str(stmt_len)
+				+ mp_sizeof_str(crt_stmt_len);
+	}
+	//sizeof parts
+	msg_size += 5;
+	msg_size += 5; // array of maps
+	msg_size += (mp_sizeof_map(2) + mp_sizeof_str(name_len) +\
+		mp_sizeof_str(type_len)) * table->nCol;
+	for (i = 0; i < table->nCol; ++i) {
+		cur = table->aCol + i;
+		msg_size += mp_sizeof_str(strlen(cur->zName));
+		msg_size += mp_sizeof_str(3); //strlen of "num" of "str"
+	}
+	msg_data = new char[msg_size];
+	it = msg_data;
+	it = mp_encode_array(it, 7);
+	it = mp_encode_uint(it, space_id); // space id
+	it = mp_encode_uint(it, cred->uid); // owner id
+	it = mp_encode_str(it, table->zName, table_name_len); // space name
+	it = mp_encode_str(it, engine, engine_len); // space engine
+	it = mp_encode_uint(it, 0); // field count
+	
+	// flags
+	it = mp_encode_map(it, flags_cnt);
+	if (is_temp) {	
+		it = mp_encode_str(it, "temporary", temporary_len);
+		it = mp_encode_bool(it, true);
+	}
+	if (is_view) {
+		it = mp_encode_str(it, "view", view_len);
+		it = mp_encode_bool(it, true);	
+	}
+	if (crt_stmt) {
+		it = mp_encode_str(it, "crt_stmt", stmt_len);
+		it = mp_encode_str(it, crt_stmt, crt_stmt_len);
+	}
+	it = mp_encode_array(it, table->nCol);
+	for (i = 0; i < table->nCol; ++i) {
+		cur = table->aCol + i;
+		it = mp_encode_map(it, 2);
+			it = mp_encode_str(it, "name", name_len);
+			it = mp_encode_str(it, cur->zName, strlen(cur->zName));
+			it = mp_encode_str(it, "type", type_len);
+			if ((cur->affinity == SQLITE_AFF_REAL)
+				|| (cur->affinity == SQLITE_AFF_NUMERIC)
+				|| (cur->affinity == SQLITE_AFF_INTEGER)) {
+				it = mp_encode_str(it, "num", 3);
+			} else it = mp_encode_str(it, "str", 3);
+	}
+	size = it - msg_data;
+	return msg_data;
+}
+char *
 make_msgpuck_from(const Table *table, int &size) {
 	char *msg_data, *it;
 	int space_id = get_space_id_from(table->tnum);
@@ -1126,6 +1224,30 @@ insert_new_table_as_space(Table *table) {
 }
 
 int
+insert_new_view_as_space(Table *table, char *crt_stmt) {
+	static const char *__func_name = "insert_new_view_as_view";
+	char *msg_data;
+	int msg_size;
+	int id_max = get_max_id_of_space();
+	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
+	int rc;
+	sqlite3 *db;
+	if (id_max < 0) {
+		say_debug("%s(): error while getting max id\n", __func_name);
+		return -1;
+	}
+	id_max += 5;
+	table->tnum = make_space_id(id_max);
+	msg_data = make_msgpuck_from((const Table *)table, msg_size, crt_stmt);
+	rc = box_insert(BOX_SPACE_ID, msg_data, msg_data + msg_size, NULL);
+	delete[] msg_data;
+	if (rc) {
+		db = get_global_db();
+	}
+	return rc;
+}
+
+int
 insert_new_sindex_as_index(SIndex *index) {
 	static const char *__func_name = "insert_new_sindex_as_index";
 	char *msg_data;
@@ -1147,7 +1269,7 @@ insert_new_sindex_as_index(SIndex *index) {
 
 Table *
 get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
-	Schema *pSchema, bool *is_temp)
+	Schema *pSchema, bool *is_temp, bool *is_view)
 {
 	static const char *__func_name = "get_trntl_table_from_tuple";
 
@@ -1206,25 +1328,42 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
 
 	//Get flags
+	if (is_temp) *is_temp = false;
+	if (is_view) *is_view = false;
+
 	data = box_tuple_field(tpl, 5);
 	uint32_t map_size = mp_decode_map(&data);
-	if (map_size > 1) {
-		say_debug("%s(): flags must be map of size 1 or 0\n", __func_name);
-		return NULL;
-	}
-	if (map_size) {
+	Vdbe *v;
+	for (uint32_t i = 0; i < map_size; ++i) {
 		MValue name = MValue::FromMSGPuck(&data);
 		MValue value = MValue::FromMSGPuck(&data);
-		if (!strcmp(name.GetStr(), "temporary") && value.GetBool()) {
+		const char *pname = name.GetStr();
+		if (!strcmp(pname, "temporary") && value.GetBool()) {
 			if (is_temp) *is_temp = true;
-		} else if (is_temp) *is_temp = false;
-	} else {
-		if (is_temp) *is_temp = false;
+		}
+		if (!strcmp(pname, "view") && value.GetBool()) {
+			if (is_view) *is_view = true;
+		}
+		if (!strcmp(pname, "crt_stmt")) {
+			sqlite3_stmt *stmt;
+			const char *pTail;
+			const char *z_sql = value.GetStr();
+			uint32_t len = strlen(z_sql);
+			sqlite3 *db = get_global_db();
+			int rc = sqlite3_prepare_v2(db, z_sql,
+					len, &stmt, &pTail);
+			if (!db->init.busy) {
+				v = (Vdbe *)stmt;
+				(void) rc;
+				Parse *pParse = v->pParse;
+				table->pSelect = sqlite3SelectDup(db,
+							pParse->pNewTable->pSelect, 0);
+			}
+			sqlite3_finalize(stmt);
+		}
 	}
-
 	//Get space format
 	data = box_tuple_field(tpl, 6);
-
 	uint32_t len = mp_decode_array(&data);
 
 	SmartPtr<Column> cols((Column *)sqlite3Malloc(len * sizeof(Column)),
@@ -1826,7 +1965,9 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 		if (space_iterator.IsEnd()) break;
 		tpl = space_iterator.GetTuple();
 		bool is_temp;
-		SmartPtr<Table> table(get_trntl_table_from_tuple(tpl, db, pSchema, &is_temp),
+		bool is_view;
+		SmartPtr<Table> table(get_trntl_table_from_tuple(tpl, db,
+					pSchema, &is_temp, &is_view),
 			[](Table *ptr){
 				sqlite3 *db = get_global_db();
 				int i;
@@ -1900,9 +2041,15 @@ __get_trntl_spaces_index_bad:
 			return;
 		} while (index_iterator.InProcess());
 		taked = table.take_away();
-		sqlite3HashInsert(tblHash, taked->zName, taked);
-		if (!insert_into_master(taked)) {
-			say_debug("%s(): table %s was not inserted into master\n", __func_name, taked->zName);
+		if (! (db->init.busy && is_view) ) {
+			/**
+			  * For view insertion in inmemory representation made
+			  * in sqlite3EndTable
+			  */
+			sqlite3HashInsert(tblHash, taked->zName, taked);
+			if (!insert_into_master(taked)) {
+				say_debug("%s(): table %s was not inserted into master\n", __func_name, taked->zName);
+			}
 		}
 	} while (space_iterator.InProcess());
 	return;
@@ -2249,6 +2396,15 @@ trntl_nested_insert_into_space(int argc, void *argv_) {
 		rc = insert_new_sindex_as_index(index);
 		if (rc) {
 			say_debug("%s(): error while insering new sindex as index\n", __func_name);
+			return SQLITE_ERROR;
+		}
+	} else if (!strcmp(name, "_view")) {
+		Table *table = (Table *)argv[2];
+		char *crt_stmt = (char *)argv[3];
+		rc = insert_new_view_as_space(table, crt_stmt);
+		//TODO: free table memory
+		if (rc) {
+			say_debug("%s(): error while inserting new view as space\n", __func_name);
 			return SQLITE_ERROR;
 		}
 	}
