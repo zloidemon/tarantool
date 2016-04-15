@@ -33,6 +33,99 @@
 
 /* {{{ tuple_compare */
 
+/**
+ * @brief Compare two tuple fields using using field type definition
+ * @param field_a field
+ * @param field_b field
+ * @param field_type field type definition
+ * @retval 0  if field_a == field_b
+ * @retval <0 if field_a < field_b
+ * @retval >0 if field_a > field_b
+ */
+static inline int
+tuple_compare_field(const char *field_a, const char *field_b,
+		    enum field_type type)
+{
+	switch (type) {
+	case NUM:
+		return mp_compare_uint(field_a, field_b);
+	case STRING:
+	{
+		uint32_t size_a = mp_decode_strl(&field_a);
+		uint32_t size_b = mp_decode_strl(&field_b);
+		const char *a = field_a;
+		const char *b = field_b;
+		int r = memcmp(a, b, MIN(size_a, size_b));
+		if (r == 0)
+			r = size_a < size_b ? -1 : size_a > size_b;
+		return r;
+	}
+	default:
+	{
+		assert(false);
+		return 0;
+	} /* end case */
+	} /* end switch */
+}
+
+static int
+tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		      const struct key_def *key_def)
+{
+	if (key_def->part_count == 1 && key_def->parts[0].fieldno == 0) {
+		const char *a = tuple_a->data;
+		const char *b = tuple_b->data;
+		mp_decode_array(&a);
+		mp_decode_array(&b);
+		return tuple_compare_field(a, b, key_def->parts[0].type);
+	}
+
+	const struct key_part *part = key_def->parts;
+	const struct key_part *end = part + key_def->part_count;
+	struct tuple_format *format_a = tuple_ptr_format(tuple_a);
+	struct tuple_format *format_b = tuple_ptr_format(tuple_b);
+	const char *field_a;
+	const char *field_b;
+	int r = 0;
+
+	for (; part < end; part++) {
+		field_a = tuple_ptr_field(format_a, tuple_a, part->fieldno);
+		field_b = tuple_ptr_field(format_b, tuple_b, part->fieldno);
+		assert(field_a != NULL && field_b != NULL);
+		if ((r = tuple_compare_field(field_a, field_b, part->type)))
+			break;
+	}
+	return r;
+}
+
+static int
+tuple_compare_with_key_default(const struct tuple *tuple, const char *key,
+			       uint32_t part_count, const struct key_def *key_def)
+{
+	assert(key != NULL || part_count == 0);
+	assert(part_count <= key_def->part_count);
+	struct tuple_format *format = tuple_ptr_format(tuple);
+	if (likely(part_count == 1)) {
+		const struct key_part *part = key_def->parts;
+		const char *field = tuple_ptr_field(format, tuple,
+						    part->fieldno);
+		return tuple_compare_field(field, key, part->type);
+	}
+
+	const struct key_part *part = key_def->parts;
+	const struct key_part *end = part + MIN(part_count, key_def->part_count);
+	int r = 0; /* Part count can be 0 in wildcard searches. */
+	for (; part < end; part++) {
+		const char *field = tuple_ptr_field(format, tuple,
+						    part->fieldno);
+		r = tuple_compare_field(field, key, part->type);
+		if (r != 0)
+			break;
+		mp_next(&key);
+	}
+	return r;
+}
+
 template <int TYPE>
 static inline int
 field_compare(const char **field_a, const char **field_b);

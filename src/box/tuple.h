@@ -737,19 +737,6 @@ tuple_upsert(struct tuple_format *new_format,
 	     const char *expr, const char *expr_end, int field_base);
 
 /**
- * @brief Compare two tuple fields using using field type definition
- * @param field_a field
- * @param field_b field
- * @param field_type field type definition
- * @retval 0  if field_a == field_b
- * @retval <0 if field_a < field_b
- * @retval >0 if field_a > field_b
- */
-int
-tuple_compare_field(const char *field_a, const char *field_b,
-		    enum field_type type);
-
-/**
  * @brief Compare two tuples using field by field using key definition
  * @param tuple_a tuple
  * @param tuple_b tuple
@@ -758,9 +745,14 @@ tuple_compare_field(const char *field_a, const char *field_b,
  * @retval <0 if key_fields(tuple_a) < key_fields(tuple_b)
  * @retval >0 if key_fields(tuple_a) > key_fields(tuple_b)
  */
-int
-tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
-		      const struct key_def *key_def);
+inline int
+tuple_compare(tuple_id tupid_a, tuple_id tupid_b,
+	      const struct key_def *key_def)
+{
+	struct tuple *tuple_a = tuple_id_get(tupid_a);
+	struct tuple *tuple_b = tuple_id_get(tupid_b);
+	return key_def->tuple_compare(tuple_a, tuple_b, key_def);
+}
 
 /**
  * @brief Compare two tuples field by field for duplicate using key definition
@@ -795,11 +787,6 @@ tuple_compare_dup(tuple_id tupid_a, tuple_id tupid_b,
  * @retval <0 if key_fields(tuple_a) < parts(key)
  * @retval >0 if key_fields(tuple_a) > parts(key)
  */
-int
-tuple_compare_with_key_default(const struct tuple *tuple_a, const char *key,
-			       uint32_t part_count, const struct key_def *key_def);
-
-
 inline int
 tuple_compare_with_key(tuple_id tupid, const char *key,
 		       uint32_t part_count, const struct key_def *key_def)
@@ -807,16 +794,6 @@ tuple_compare_with_key(tuple_id tupid, const char *key,
 	struct tuple *tuple = tuple_id_get(tupid);
 	return key_def->tuple_compare_with_key(tuple, key, part_count, key_def);
 }
-
-inline int
-tuple_compare(tuple_id tupid_a, tuple_id tupid_b,
-	      const struct key_def *key_def)
-{
-	struct tuple *tuple_a = tuple_id_get(tupid_a);
-	struct tuple *tuple_b = tuple_id_get(tupid_b);
-	return key_def->tuple_compare(tuple_a, tuple_b, key_def);
-}
-
 
 /** These functions are implemented in tuple_convert.cc. */
 
