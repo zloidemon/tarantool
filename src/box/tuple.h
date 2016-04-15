@@ -357,19 +357,19 @@ tuple_alloc(struct tuple_format *format, size_t size);
 void
 tuple_init_field_map(struct tuple_format *format, tuple_id tupid);
 
-/**
- * Free the tuple.
- * @pre tuple->refs  == 0
- */
 void
-tuple_delete(tuple_id tupid);
+tuple_ptr_delete(struct tuple *tuple);
 
 /**
  * Free the tuple, for tuple.h private use.
  * @pre tuple->refs  == 0
  */
-void
-tuple_delete_private(struct tuple *tuple);
+inline void
+tuple_delete(tuple_id tupid)
+{
+	struct tuple *tuple = tuple_id_get(tupid);
+	tuple_ptr_delete(tuple);
+}
 
 /**
  * Check tuple data correspondence to space format;
@@ -392,6 +392,15 @@ tuple_validate_raw(struct tuple_format *format, const char *data);
 void
 tuple_ref_exception();
 
+inline void
+tuple_ptr_ref(struct tuple *tuple)
+{
+	if (tuple->refs + 1 > TUPLE_REF_MAX)
+		tuple_ref_exception();
+
+	tuple->refs++;
+}
+
 /**
  * Increment tuple reference counter.
  * Throws if overflow detected.
@@ -401,11 +410,18 @@ tuple_ref_exception();
 inline void
 tuple_ref(tuple_id tupid)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
-	if (tuple->refs + 1 > TUPLE_REF_MAX)
-		tuple_ref_exception();
+	return tuple_ptr_ref(tuple_id_get(tupid));
+}
 
-	tuple->refs++;
+inline void
+tuple_ptr_unref(struct tuple *tuple)
+{
+	assert(tuple->refs - 1 >= 0);
+
+	tuple->refs--;
+
+	if (tuple->refs == 0)
+		tuple_ptr_delete(tuple);
 }
 
 /**
@@ -416,13 +432,7 @@ tuple_ref(tuple_id tupid)
 inline void
 tuple_unref(tuple_id tupid)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
-	assert(tuple->refs - 1 >= 0);
-
-	tuple->refs--;
-
-	if (tuple->refs == 0)
-		tuple_delete_private(tuple);
+	return tuple_ptr_unref(tuple_id_get(tupid));
 }
 
 /** Make tuple references exception-friendly in absence of @finally. */
@@ -451,10 +461,9 @@ struct TupleRefNil {
 * @param tuple tuple
 * @return tuple format instance
 */
-static inline struct tuple_format *
-tuple_format(tuple_id tupid)
+inline struct tuple_format *
+tuple_ptr_format(const struct tuple *tuple)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
 	struct tuple_format *format =
 		tuple_format_by_id(tuple->format_id);
 	assert(tuple_format_id(format) == tuple->format_id);
@@ -502,10 +511,9 @@ tuple_field_raw(const char *data, uint32_t bsize, uint32_t i)
  * @returns field data if field exists or NULL
  */
 inline const char *
-tuple_field_old(const struct tuple_format *format,
-		tuple_id tupid, uint32_t i)
+tuple_ptr_field(const struct tuple_format *format,
+		const struct tuple *tuple, uint32_t i)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
 	if (likely(i < format->field_count)) {
 		/* Indexed field */
 
@@ -534,9 +542,10 @@ tuple_field_old(const struct tuple_format *format,
  * @param len pointer where the len of the field will be stored
  */
 static inline const char *
-tuple_field(tuple_id tuple, uint32_t i)
+tuple_field(tuple_id tupid, uint32_t i)
 {
-	return tuple_field_old(tuple_format(tuple), tuple, i);
+	struct tuple *tuple = tuple_id_get(tupid);
+	return tuple_ptr_field(tuple_ptr_format(tuple), tuple, i);
 }
 
 /**
@@ -611,6 +620,20 @@ struct tuple_iterator {
 };
 
 /**
+ * @copydoc tuple_rewind
+ */
+inline void
+tuple_ptr_rewind(struct tuple_iterator *it, struct tuple *tuple)
+{
+	it->tuple = tuple;
+	it->data_start = tuple->data;
+	it->data_end = it->data_start + tuple->bsize;
+	it->field_count = mp_decode_array(&it->data_start);
+	it->pos = it->data_start;
+	it->fieldno = 0;
+}
+
+/**
  * @brief Initialize an iterator over tuple fields
  *
  * A workflow example:
@@ -630,13 +653,7 @@ struct tuple_iterator {
 inline void
 tuple_rewind(struct tuple_iterator *it, tuple_id tupid)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
-	it->tuple = tuple;
-	it->data_start = tuple->data;
-	it->data_end = it->data_start + tuple->bsize;
-	it->field_count = mp_decode_array(&it->data_start);
-	it->pos = it->data_start;
-	it->fieldno = 0;
+	return tuple_ptr_rewind(it, tuple_id_get(tupid));
 }
 
 /**
@@ -742,7 +759,7 @@ tuple_compare_field(const char *field_a, const char *field_b,
  * @retval >0 if key_fields(tuple_a) > key_fields(tuple_b)
  */
 int
-tuple_compare_default(tuple_id tuple_a, tuple_id tuple_b,
+tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		      const struct key_def *key_def);
 
 /**
@@ -755,9 +772,18 @@ tuple_compare_default(tuple_id tuple_a, tuple_id tuple_b,
  * @retval <0 if key_fields(tuple_a) <= key_fields(tuple_b)
  * @retval >0 if key_fields(tuple_a > key_fields(tuple_b)
  */
-int
-tuple_compare_dup(tuple_id tuple_a, tuple_id tuple_b,
-		  const struct key_def *key_def);
+static inline int
+tuple_compare_dup(tuple_id tupid_a, tuple_id tupid_b,
+		  const struct key_def *key_def)
+{
+	struct tuple *tuple_a = tuple_id_get(tupid_a);
+	struct tuple *tuple_b = tuple_id_get(tupid_b);
+	int r = key_def->tuple_compare(tuple_a, tuple_b, key_def);
+	if (r == 0)
+		r = tuple_a < tuple_b ? -1 : tuple_a > tuple_b;
+
+	return r;
+}
 
 /**
  * @brief Compare a tuple with a key field by field using key definition
@@ -770,21 +796,24 @@ tuple_compare_dup(tuple_id tuple_a, tuple_id tuple_b,
  * @retval >0 if key_fields(tuple_a) > parts(key)
  */
 int
-tuple_compare_with_key_default(tuple_id tuple_a, const char *key,
+tuple_compare_with_key_default(const struct tuple *tuple_a, const char *key,
 			       uint32_t part_count, const struct key_def *key_def);
 
 
 inline int
-tuple_compare_with_key(tuple_id tuple, const char *key,
+tuple_compare_with_key(tuple_id tupid, const char *key,
 		       uint32_t part_count, const struct key_def *key_def)
 {
+	struct tuple *tuple = tuple_id_get(tupid);
 	return key_def->tuple_compare_with_key(tuple, key, part_count, key_def);
 }
 
 inline int
-tuple_compare(tuple_id tuple_a, tuple_id tuple_b,
+tuple_compare(tuple_id tupid_a, tuple_id tupid_b,
 	      const struct key_def *key_def)
 {
+	struct tuple *tuple_a = tuple_id_get(tupid_a);
+	struct tuple *tuple_b = tuple_id_get(tupid_b);
 	return key_def->tuple_compare(tuple_a, tuple_b, key_def);
 }
 

@@ -32,6 +32,7 @@
  */
 #include <stdint.h>
 #include "user_def.h"
+#include "tuple_id.h"
 #include "small/region.h"
 
 #if defined(__cplusplus)

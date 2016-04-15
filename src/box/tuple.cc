@@ -60,127 +60,6 @@ static struct mempool tuple_iterator_pool;
  */
 tuple_id box_tuple_last;
 
-/**
- * Some overloads, as in tuple.h, but with struct tuple * instead of tuple_id
- */
-
-/**
-* @brief Return a tuple format instance
-* @param tuple tuple
-* @return tuple format instance
-*/
-static inline struct tuple_format *
-tuple_format_private(const struct tuple *tuple)
-{
-	struct tuple_format *format =
-		tuple_format_by_id(tuple->format_id);
-	assert(tuple_format_id(format) == tuple->format_id);
-	return format;
-}
-
-/**
- * Get a field from tuple by index.
- * Returns a pointer to msgpacked field.
- *
- * @pre field < tuple->field_count.
- * @returns field data if field exists or NULL
- */
-inline const char *
-tuple_field_old_private(const struct tuple_format *format,
-		const struct tuple *tuple, uint32_t i)
-{
-	if (likely(i < format->field_count)) {
-		/* Indexed field */
-
-		if (i == 0) {
-			const char *pos = tuple->data;
-			mp_decode_array(&pos);
-			return pos;
-		}
-
-		if (format->fields[i].offset_slot != INT32_MAX) {
-			uint32_t *field_map = (uint32_t *) tuple;
-			int32_t slot = format->fields[i].offset_slot;
-			return tuple->data + field_map[slot];
-		}
-	}
-	ERROR_INJECT(ERRINJ_TUPLE_FIELD, return NULL);
-	return tuple_field_raw(tuple->data, tuple->bsize, i);
-}
-
-static inline const char *
-tuple_field_private(const struct tuple *tuple, uint32_t i)
-{
-	return tuple_field_old_private(tuple_format_private(tuple), tuple, i);
-}
-
-/**
- * Increment tuple reference counter.
- * Throws if overflow detected.
- *
- * @pre tuple->refs + count >= 0
- */
-static inline void
-tuple_ref_private(struct tuple *tuple)
-{
-	if (tuple->refs + 1 > TUPLE_REF_MAX)
-		tuple_ref_exception();
-
-	tuple->refs++;
-}
-
-/**
- * Free the tuple.
- * @pre tuple->refs  == 0
- */
-void
-tuple_delete_private(struct tuple *tuple)
-{
-	say_debug("tuple_delete(%p)", tuple);
-	assert(tuple->refs == 0);
-	struct tuple_format *format = tuple_format(tuple);
-	size_t total = sizeof(struct tuple) + tuple->bsize + format->field_map_size;
-	char *ptr = (char *) tuple - format->field_map_size;
-	tuple_format_ref(format, -1);
-	if (!memtx_alloc.is_delayed_free_mode || tuple->version == snapshot_version)
-		smfree(&memtx_alloc, ptr, total);
-	else
-		smfree_delayed(&memtx_alloc, ptr, total);
-}
-
-/**
- * Decrement tuple reference counter. If it has reached zero, free the tuple.
- *
- * @pre tuple->refs + count >= 0
- */
-static inline void
-tuple_unref_private(struct tuple *tuple)
-{
-	assert(tuple->refs - 1 >= 0);
-
-	tuple->refs--;
-
-	if (tuple->refs == 0)
-		tuple_delete_private(tuple);
-}
-
-/**
- * @brief Initialize an iterator over tuple fields
-
- * @param[out] it tuple iterator
- * @param[in]  tuple tuple
- */
-inline void
-tuple_rewind_private(struct tuple_iterator *it, struct tuple *tuple)
-{
-	it->tuple = tuple;
-	it->data_start = tuple->data;
-	it->data_end = it->data_start + tuple->bsize;
-	it->field_count = mp_decode_array(&it->data_start);
-	it->pos = it->data_start;
-	it->fieldno = 0;
-}
-
 /*
  * Validate a new tuple format and initialize tuple-local
  * format data.
@@ -305,15 +184,19 @@ tuple_alloc(struct tuple_format *format, size_t size)
 	return tuple_id_create(tuple);
 }
 
-/**
- * Free the tuple.
- * @pre tuple->refs  == 0
- */
 void
-tuple_delete(tuple_id tupid)
+tuple_ptr_delete(struct tuple *tuple)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
-	tuple_delete_private(tuple);
+	say_debug("tuple_delete(%p)", tuple);
+	assert(tuple->refs == 0);
+	struct tuple_format *format = tuple_ptr_format(tuple);
+	size_t total = sizeof(struct tuple) + tuple->bsize + format->field_map_size;
+	char *ptr = (char *) tuple - format->field_map_size;
+	tuple_format_ref(format, -1);
+	if (!memtx_alloc.is_delayed_free_mode || tuple->version == snapshot_version)
+		smfree(&memtx_alloc, ptr, total);
+	else
+		smfree_delayed(&memtx_alloc, ptr, total);
 }
 
 /**
@@ -549,11 +432,9 @@ tuple_compare_field(const char *field_a, const char *field_b,
 }
 
 int
-tuple_compare_default(tuple_id tupid_a, tuple_id tupid_b,
+tuple_compare_default(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		      const struct key_def *key_def)
 {
-	struct tuple *tuple_a = tuple_id_get(tupid_a);
-	struct tuple *tuple_b = tuple_id_get(tupid_b);
 	if (key_def->part_count == 1 && key_def->parts[0].fieldno == 0) {
 		const char *a = tuple_a->data;
 		const char *b = tuple_b->data;
@@ -564,17 +445,15 @@ tuple_compare_default(tuple_id tupid_a, tuple_id tupid_b,
 
 	const struct key_part *part = key_def->parts;
 	const struct key_part *end = part + key_def->part_count;
-	struct tuple_format *format_a = tuple_format(tuple_a);
-	struct tuple_format *format_b = tuple_format(tuple_b);
+	struct tuple_format *format_a = tuple_ptr_format(tuple_a);
+	struct tuple_format *format_b = tuple_ptr_format(tuple_b);
 	const char *field_a;
 	const char *field_b;
 	int r = 0;
 
 	for (; part < end; part++) {
-		field_a = tuple_field_old_private(format_a, tuple_a,
-						  part->fieldno);
-		field_b = tuple_field_old_private(format_b, tuple_b,
-						  part->fieldno);
+		field_a = tuple_ptr_field(format_a, tuple_a, part->fieldno);
+		field_b = tuple_ptr_field(format_b, tuple_b, part->fieldno);
 		assert(field_a != NULL && field_b != NULL);
 		if ((r = tuple_compare_field(field_a, field_b, part->type)))
 			break;
@@ -583,26 +462,15 @@ tuple_compare_default(tuple_id tupid_a, tuple_id tupid_b,
 }
 
 int
-tuple_compare_dup(tuple_id tuple_a, tuple_id tuple_b,
-		  const struct key_def *key_def)
-{
-	int r = key_def->tuple_compare(tuple_a, tuple_b, key_def);
-	if (r == 0)
-		r = tuple_a < tuple_b ? -1 : tuple_a > tuple_b;
-
-	return r;
-}
-
-int
-tuple_compare_with_key_default(const tuple_id tuple, const char *key,
+tuple_compare_with_key_default(const struct tuple *tuple, const char *key,
 			       uint32_t part_count, const struct key_def *key_def)
 {
 	assert(key != NULL || part_count == 0);
 	assert(part_count <= key_def->part_count);
-	struct tuple_format *format = tuple_format(tuple);
+	struct tuple_format *format = tuple_ptr_format(tuple);
 	if (likely(part_count == 1)) {
 		const struct key_part *part = key_def->parts;
-		const char *field = tuple_field_old(format, tuple,
+		const char *field = tuple_ptr_field(format, tuple,
 						    part->fieldno);
 		return tuple_compare_field(field, key, part->type);
 	}
@@ -611,7 +479,7 @@ tuple_compare_with_key_default(const tuple_id tuple, const char *key,
 	const struct key_part *end = part + MIN(part_count, key_def->part_count);
 	int r = 0; /* Part count can be 0 in wildcard searches. */
 	for (; part < end; part++) {
-		const char *field = tuple_field_old(format, tuple,
+		const char *field = tuple_ptr_field(format, tuple,
 						    part->fieldno);
 		r = tuple_compare_field(field, key, part->type);
 		if (r != 0)
@@ -772,10 +640,11 @@ box_tuple_to_buf(const box_tuple_t tuple, char *buf, size_t size)
 }
 
 box_tuple_format_t *
-box_tuple_format(const box_tuple_t tuple)
+box_tuple_format(const box_tuple_t tupid)
 {
-	assert(tuple != TUPLE_ID_NIL);
-	return tuple_format(tuple);
+	assert(tupid != TUPLE_ID_NIL);
+	struct tuple *tuple = tuple_id_get(tupid);
+	return tuple_ptr_format(tuple);
 }
 
 const char *
@@ -800,15 +669,15 @@ box_tuple_iterator(box_tuple_t tupid)
 	}
 
 	struct tuple *tuple = tuple_id_get(tupid);
-	tuple_ref_private(tuple);
-	tuple_rewind_private(it, tuple);
+	tuple_ptr_ref(tuple);
+	tuple_ptr_rewind(it, tuple);
 	return it;
 }
 
 void
 box_tuple_iterator_free(box_tuple_iterator_t *it)
 {
-	tuple_unref_private(it->tuple);
+	tuple_ptr_unref(it->tuple);
 	mempool_free(&tuple_iterator_pool, it);
 }
 
@@ -821,7 +690,7 @@ box_tuple_position(box_tuple_iterator_t *it)
 void
 box_tuple_rewind(box_tuple_iterator_t *it)
 {
-	tuple_rewind_private(it, it->tuple);
+	tuple_ptr_rewind(it, it->tuple);
 }
 
 const char *
