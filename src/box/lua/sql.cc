@@ -414,6 +414,12 @@ int
 trntl_cursor_close(void *self, BtCursor *pCur);
 
 /**
+ * Count of tuples in index on that pCur is pointing.
+ */
+int
+trntl_cursor_count(void *self, BtCursor *pCur, i64 *pnEntry);
+
+/**
  * Move TarantoolCursor in pCur to first record that <= than pIdxKey -
  * unpacked sqlite btree cell with some data.
  *
@@ -1784,6 +1790,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_data_fetch = trntl_cursor_data_fetch;
 	ob->trntl_cursor_next = trntl_cursor_next;
 	ob->trntl_cursor_close = trntl_cursor_close;
+	ob->trntl_cursor_count = trntl_cursor_count;
 	ob->check_num_on_tarantool_id = check_num_on_tarantool_id;
 	ob->trntl_cursor_move_to_unpacked = trntl_cursor_move_to_unpacked;
 	ob->trntl_cursor_key_size = trntl_cursor_key_size;
@@ -2174,6 +2181,12 @@ trntl_cursor_close(void *self_, BtCursor *pCur) {
 	}
 	remove_cursor_from_global(self, pCur);
 	return SQLITE_OK;
+}
+
+int
+trntl_cursor_count(void * /*self_*/, BtCursor *pCur, i64 *pnEntry) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.Count(pnEntry);
 }
 
 int
