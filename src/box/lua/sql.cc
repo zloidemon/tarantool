@@ -2096,7 +2096,7 @@ trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 	}
 	if (sql_index == NULL) {
 		say_debug("%s(): sql_index not found, space_id = %d, index_id = %d\n", __func_name, space_id, index_id);
-		delete[] c;
+		delete c;
 		delete[] c->key;
 		return SQLITE_ERROR;
 	}
