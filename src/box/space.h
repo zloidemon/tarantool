@@ -37,7 +37,6 @@
 #include "small/rlist.h"
 #include "box.h"
 
-
 struct space {
 	struct access access[BOX_USER_MAX];
 	/**

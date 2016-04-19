@@ -21,7 +21,7 @@ macro(trnsqlite_build)
     set(sqlite_src ${SQLITE_BUILD_DIRECTORY}/sqlite3.c)
      
     add_library(trnsqlite SHARED ${sqlite_src})
-    SET_TARGET_PROPERTIES(trnsqlite PROPERTIES COMPILE_FLAGS "-fPIC -DSQLITE_PRIVATE=\"\" -DSQLITE_TEST=1 -DSQLITE_CORE")
+    SET_TARGET_PROPERTIES(trnsqlite PROPERTIES COMPILE_FLAGS "-fPIC -DSQLITE_PRIVATE=\"\" -DSQLITE_TEST=1 -DSQLITE_CORE=1")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -g")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
 	include_directories(${SQLITE_BUILD_DIRECTORY}/tsrc)

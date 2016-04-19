@@ -30,6 +30,7 @@
  */
 
 #include "sql_tarantool_cursor.h"
+#include "space_iterator.h"
 
 int GetSerialTypeNum(u64 number) {
 	if (number == 0) return 8;
@@ -132,7 +133,11 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 		MValue *val = fields + i;
 		serial_types[i] = 0;
 		switch(val->GetType()) {
-			case MP_NIL: break;
+			case MP_NIL: {
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
+			}
 			case MP_UINT: {
 				serial_types[i] = GetSerialTypeNum(val->GetUint64());
 				header_size += sqlite3VarintLen(serial_types[i]);
@@ -176,9 +181,9 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 				break;
 			}
 			default: {
-				delete[] fields;
-				delete[] serial_types;
-				return false;
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
 			}
 		}
 	}
@@ -281,7 +286,11 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 		MValue *val = fields + i;
 		serial_types[i] = 0;
 		switch(val->GetType()) {
-			case MP_NIL: break;
+			case MP_NIL: {
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
+			}
 			case MP_UINT: {
 				serial_types[i] = GetSerialTypeNum(val->GetUint64());
 				header_size += sqlite3VarintLen(serial_types[i]);
@@ -325,9 +334,9 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 				break;
 			}
 			default: {
-				delete[] fields;
-				delete[] serial_types;
-				return false;
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
 			}
 		}
 	}
@@ -413,7 +422,14 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 		switch(vals[i].GetType()) {
 			case MP_NIL: msg_size += mp_sizeof_nil(); break;
 			case MP_UINT: msg_size += mp_sizeof_uint(vals[i].GetUint64()); break;
-			case MP_INT: msg_size += mp_sizeof_int(vals[i].GetInt64()); break;
+			case MP_INT: {
+				if (vals[i].GetInt64() >= 0) {
+					msg_size += mp_sizeof_uint(vals[i].GetInt64());
+				} else {
+					msg_size += mp_sizeof_int(vals[i].GetInt64());
+				}
+				break;
+			}
 			case MP_STR: msg_size += mp_sizeof_str(vals[i].Size()); break;
 			case MP_BIN: msg_size += mp_sizeof_bin(vals[i].Size()); break;
 			case MP_DOUBLE: msg_size += mp_sizeof_double(vals[i].GetDouble()); break;
@@ -459,7 +475,14 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 		switch(vals[j].GetType()) {
 			case MP_NIL: it = mp_encode_nil(it); break;
 			case MP_UINT: it = mp_encode_uint(it, vals[j].GetUint64()); break;
-			case MP_INT: it = mp_encode_int(it, vals[j].GetInt64()); break;
+			case MP_INT: {
+				if (vals[i].GetInt64() >= 0) {
+					it = mp_encode_uint(it, vals[j].GetInt64());
+				} else {
+					it = mp_encode_int(it, vals[j].GetInt64());
+				}
+				break;
+			}
 			case MP_DOUBLE: it = mp_encode_double(it, vals[j].GetDouble()); break;
 			case MP_STR: it = mp_encode_str(it, vals[j].GetStr(), vals[j].Size()); break;
 			case MP_BIN: it = mp_encode_bin(it, vals[j].GetBin(), vals[j].Size()); break;
@@ -515,7 +538,7 @@ int TarantoolCursor::MoveToLast(int *pRes) {
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
 	int len = box_index_len(space_id, index_id);
 	int rc;
-	for (int i = 0; i < len - 1; ++i) {
+	for (int i = 0; i < len; ++i) {
 		rc = box_iterator_next(it, &tpl);
 		if (rc) {
 			say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
@@ -626,6 +649,11 @@ int TarantoolCursor::DeleteCurrent() {
 	type = ITER_GE;
 	it = box_index_iterator(space_id, index_id, type, msg_begin, msg_end);
 	return rc;
+}
+
+int TarantoolCursor::Count(i64 *pnEntry) {
+	*pnEntry = box_index_len(space_id, index_id);
+	return SQLITE_OK;
 }
 
 int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare) {

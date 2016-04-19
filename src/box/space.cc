@@ -281,5 +281,4 @@ space_truncate(struct space *space)
 	}
 }
 
-
 /* vim: set fm=marker */

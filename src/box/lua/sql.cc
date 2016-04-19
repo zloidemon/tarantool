@@ -421,6 +421,12 @@ int
 trntl_cursor_close(void *self, BtCursor *pCur);
 
 /**
+ * Count of tuples in index on that pCur is pointing.
+ */
+int
+trntl_cursor_count(void *self, BtCursor *pCur, i64 *pnEntry);
+
+/**
  * Move TarantoolCursor in pCur to first record that <= than pIdxKey -
  * unpacked sqlite btree cell with some data.
  *
@@ -534,9 +540,18 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 	bool is_temp, is_view;
 	if (old_tuple != NULL) {
 		say_debug("%s(): old_tuple != NULL\n", __func_name);
-		Table *table = get_trntl_table_from_tuple(old_tuple, db,
-		pSchema, &is_temp, &is_view);
-		if (!table) {
+		auto table_deleter = [](Table *ptr){
+			sqlite3DbFree(get_global_db(), ptr->zName);
+			for (int i = 0; i < ptr->nCol; ++i) {
+				sqlite3DbFree(get_global_db(), ptr->aCol[i].zName);
+				sqlite3DbFree(get_global_db(), ptr->aCol[i].zType);
+			}
+			sqlite3DbFree(get_global_db(), ptr->aCol);
+			sqlite3DbFree(get_global_db(), ptr);
+		};
+		SmartPtr<Table> table(get_trntl_table_from_tuple(old_tuple, db, pSchema, &is_temp),
+			table_deleter);
+		if (!table.get()) {
 			say_debug("%s(): error while getting table\n", __func_name);
 			return;
 		}
@@ -545,16 +560,14 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 			pSchema = db->aDb[1].pSchema;
 			table->pSchema = pSchema;
 		}
-		Table *schema_table = (Table *)sqlite3HashFind(tblHash, table->zName);
-		if (!schema_table) {
+		SmartPtr<Table> schema_table((Table *)sqlite3HashFind(tblHash, table->zName),
+			table_deleter);
+		if (!schema_table.get()) {
 			say_debug("%s(): table was not found\n", __func_name);
-			sqlite3DbFree(db, table);
 			return;
 		}
 		
 		sqlite3HashInsert(tblHash, table->zName, NULL);
-		sqlite3DbFree(db, table);
-		sqlite3DbFree(db, schema_table);
 	}
 	if (new_tuple != NULL) {
 		say_debug("%s(): new_tuple != NULL\n", __func_name);
@@ -631,12 +644,18 @@ on_commit_index(struct trigger * /*trigger*/, void * event) {
 			}
 		}
 		remove_old_index_from_self(self, cur);
+		for (int i = 0; i < table->nCol; ++i) {
+			sqlite3DbFree(db, index->azColl[i]);
+		}
 		sqlite3DbFree(db, index);
 		if (!ok) {
 			say_debug("%s(): index was not found in sql schema\n", __func_name);
 			return;
 		}
 		sqlite3HashInsert(idxHash, cur->zName, NULL);
+		for (int i = 0; i < table->nCol; ++i) {
+			sqlite3DbFree(db, cur->azColl[i]);
+		}
 		sqlite3DbFree(db, cur);
 	}
 	if (new_tuple != NULL) {
@@ -651,8 +670,13 @@ on_commit_index(struct trigger * /*trigger*/, void * event) {
 			idxHash = &db->aDb[1].pSchema->idxHash;
 		}
 		Table *table = index->pTable;
-		index->pNext = table->pIndex;
-		table->pIndex = index;
+		if (table->pIndex == NULL) {
+			table->pIndex = index;
+		} else {
+			SIndex *last = table->pIndex;
+			for (; last->pNext; last = last->pNext) {}
+			last->pNext = index;
+		}
 		sqlite3HashInsert(idxHash, index->zName, index);
 		add_new_index_to_self(self, index);
 	}
@@ -912,7 +936,7 @@ make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
 	const char *engine = "memtx";
 	int name_len = strlen("name");
 	int type_len = strlen("type");
-	int engine_len = strlen("memtx");
+	int engine_len = strlen(engine);
 	int temporary_len = strlen("temporary");
 	int view_len = strlen("view");
 	int table_name_len = strlen(table->zName);
@@ -1202,24 +1226,19 @@ int get_max_id_of_index(int space_id) {
 int
 insert_new_table_as_space(Table *table) {
 	static const char *__func_name = "insert_new_table_as_space";
-	char *msg_data;
+	SmartPtr<char> msg_data;
 	int msg_size;
 	int id_max = get_max_id_of_space();
 	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
 	int rc;
-	sqlite3 *db;
 	if (id_max < 0) {
 		say_debug("%s(): error while getting max id\n", __func_name);
 		return -1;
 	}
 	id_max += 5;
 	table->tnum = make_space_id(id_max);
-	msg_data = make_msgpuck_from((const Table *)table, msg_size);
-	rc = box_insert(BOX_SPACE_ID, msg_data, msg_data + msg_size, NULL);
-	delete[] msg_data;
-	if (rc) {
-		db = get_global_db();
-	}
+	msg_data.reset(make_msgpuck_from((const Table *)table, msg_size));
+	rc = box_insert(BOX_SPACE_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
 }
 
@@ -1250,7 +1269,7 @@ insert_new_view_as_space(Table *table, char *crt_stmt) {
 int
 insert_new_sindex_as_index(SIndex *index) {
 	static const char *__func_name = "insert_new_sindex_as_index";
-	char *msg_data;
+	SmartPtr<char> msg_data;
 	int msg_size;
 	int space_id = get_space_id_from(index->pTable->tnum);
 	int id_max = get_max_id_of_index(space_id);
@@ -1261,9 +1280,8 @@ insert_new_sindex_as_index(SIndex *index) {
 	}
 	id_max++;
 	index->tnum = make_index_id(space_id, id_max);
-	msg_data = make_msgpuck_from((const SIndex *)index, msg_size);
-	rc = box_insert(BOX_INDEX_ID, msg_data, msg_data + msg_size, NULL);
-	delete[] msg_data;
+	msg_data.reset(make_msgpuck_from((const SIndex *)index, msg_size));
+	rc = box_insert(BOX_INDEX_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
 }
 
@@ -1317,7 +1335,10 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		return NULL;
 	}
 
-	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){sqlite3_free(ptr);});
+	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){
+		sqlite3_free(ptr->zName);
+		sqlite3_free(ptr);
+	});
 	table->tnum = make_space_id(tbl_id.GetUint64());
 	if (db->mallocFailed) {
 		say_debug("%s(): error while allocating memory for table\n", __func_name);
@@ -1414,8 +1435,8 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		int affinity;
 		switch(c) {
 			case 'n': case 'N': {
-				sql_type = "REAL";
-				affinity = SQLITE_AFF_REAL;
+				sql_type = "INT";
+				affinity = SQLITE_AFF_INTEGER;
 				break;
 			}
 			case 's': case 'S': {
@@ -1442,7 +1463,28 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		memcpy(cur->zType, sql_type, len);
 		cur->affinity = affinity;
 	}
-	table->nRowLogEst = box_index_len(tbl_id.GetUint64(), 0);
+	char key[128], *key_end;
+	key_end = mp_encode_array(key, 1);
+	key_end = mp_encode_uint(key_end, tbl_id.GetUint64());
+	int index_len = 0;
+	void *argv[1];
+	argv[0] = (void *)&index_len;
+	SpaceIterator::SIteratorCallback callback =
+	[](box_tuple_t *tpl, int, void **argv) -> int
+	{
+		int *index_len = (int *)argv[0];
+		const char *data = box_tuple_field(tpl, 0);
+		MValue space_id = MValue::FromMSGPuck(&data);
+		data = box_tuple_field(tpl, 1);
+		MValue index_id = MValue::FromMSGPuck(&data);
+		*index_len = box_index_len(space_id.GetUint64(),
+			index_id.GetUint64());
+		return 1;
+	};
+	SpaceIterator iterator(1, argv, callback, BOX_INDEX_ID,
+		0, key, key_end, ITER_EQ);
+	iterator.IterateOver();
+	table->nRowLogEst = index_len;
 	table->szTabRow = ESTIMATED_ROW_SIZE;
 	table->aCol = cols.take_away();
 	table->nCol = nCol;
@@ -1929,6 +1971,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_data_fetch = trntl_cursor_data_fetch;
 	ob->trntl_cursor_next = trntl_cursor_next;
 	ob->trntl_cursor_close = trntl_cursor_close;
+	ob->trntl_cursor_count = trntl_cursor_count;
 	ob->check_num_on_tarantool_id = check_num_on_tarantool_id;
 	ob->trntl_cursor_move_to_unpacked = trntl_cursor_move_to_unpacked;
 	ob->trntl_cursor_key_size = trntl_cursor_key_size;
@@ -1943,6 +1986,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->set_global_db = set_global_db;
 	ob->space_truncate_by_id = space_truncate_by_id;
 	ob->remove_and_free_sindex = remove_and_free_sindex;
+	ob->space_truncate_by_id = space_truncate_by_id;
 }
 
 void
@@ -2015,10 +2059,13 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 			}
 
 			sqlite3HashInsert(idxHash, index->zName, index);
-			if (table->pIndex) {
-				index->pNext = table->pIndex;
+			if (!table->pIndex) {
+				table->pIndex = index;
+			} else {
+				SIndex *last = table->pIndex;
+				for (; last->pNext; last = last->pNext) {}
+				last->pNext = index;
 			}
-			table->pIndex = index;
 			if (!insert_into_master(index)) {
 				say_debug("%s(): error while inserting index into master,"\
 					" index name = %s, table name = %s\n",
@@ -2102,7 +2149,6 @@ space_truncate_by_id(int space_id) {
 	struct space *space = space_by_id(get_space_id_from(space_id));
 	space_truncate(space);
 }
-
 
 int init_schema_with_table(void *self_, Table *table) {
 	static const char *__func_name = "init_schema_with_table";
@@ -2308,7 +2354,10 @@ remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor) {
 	}
 	delete[] self->cursors;
 	self->cnt_cursors--;
-	self->cursors = new_cursors;
+	if (self->cnt_cursors)
+		self->cursors = new_cursors;
+	else
+		self->cursors = nullptr;
 	delete c;
 	sqlite3_free(cursor->pKey);
 	cursor->pKey = 0;
@@ -2325,6 +2374,12 @@ trntl_cursor_close(void *self_, BtCursor *pCur) {
 	}
 	remove_cursor_from_global(self, pCur);
 	return SQLITE_OK;
+}
+
+int
+trntl_cursor_count(void * /*self_*/, BtCursor *pCur, i64 *pnEntry) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.Count(pnEntry);
 }
 
 int
@@ -2386,7 +2441,6 @@ trntl_nested_insert_into_space(int argc, void *argv_) {
 	if (!strcmp(name, "_space")) {
 		Table *table = (Table *)argv[2];
 		rc = insert_new_table_as_space(table);
-		//TODO: free table memory
 		if (rc) {
 			say_debug("%s(): error while inserting new table as space\n", __func_name);
 			return SQLITE_ERROR;
