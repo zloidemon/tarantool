@@ -65,6 +65,8 @@ extern "C" {
 #define GetLastErrMsg box_error_message(box_error_last())
 
 static const char *sqlitelib_name = "sqlite";
+static trigger *on_index_commit_trigger;
+static trigger *on_space_commit_trigger;
 
 /**
  * Structure for linking BtCursor (sqlite) with
@@ -723,6 +725,7 @@ connect_triggers() {
 	*alter_space_on_replace_space = {
 		RLIST_LINK_INITIALIZER, on_replace_space, NULL, NULL
 	};
+	on_space_commit_trigger = alter_space_on_replace_space;
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_space, link);
 
 	/* _index */
@@ -732,6 +735,7 @@ connect_triggers() {
 	*alter_space_on_replace_index = {
 		RLIST_LINK_INITIALIZER, on_replace_index, NULL, NULL
 	};
+	on_index_commit_trigger = alter_space_on_replace_index;
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_index, link);
 }
 
@@ -844,6 +848,8 @@ lua_sqlite_close(struct lua_State *L)
 {
 	sqlite3 *db = lua_check_sqliteconn(L, 1);
 	sqlite3_close(db);
+	rlist_del((rlist *) on_space_commit_trigger);
+	rlist_del((rlist *) on_index_commit_trigger);
 	return 0;
 }
 
@@ -1373,11 +1379,15 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 			sqlite3 *db = get_global_db();
 			int rc = sqlite3_prepare_v2(db, z_sql,
 					len, &stmt, &pTail);
+			if (rc) {
+				say_debug("%s(): error while parsing create statement for view\n", __func_name);
+				return NULL;
+			}
 			if (!db->init.busy) {
 				v = (Vdbe *)stmt;
 				(void) rc;
 				Parse *pParse = v->pParse;
-				table->pSelect = sqlite3SelectDup(db,
+				table->pSelect = sqlite3SelectDup(0,
 							pParse->pNewTable->pSelect, 0);
 			}
 			sqlite3_finalize(stmt);
@@ -2013,6 +2023,7 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 		SmartPtr<Table> table(get_trntl_table_from_tuple(tpl, db,
 					pSchema, &is_temp, &is_view),
 			[](Table *ptr){
+				if (!ptr) return;
 				sqlite3 *db = get_global_db();
 				int i;
 				sqlite3_free(ptr->zName);
