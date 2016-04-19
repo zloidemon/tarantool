@@ -31,7 +31,7 @@ do_test insert1-0.2 {
 
 do_test insert1-0.3 {
 	catchsql {INSERT INTO test values (1)}
-} {1 {UNIQUE constraint failed: test.id}}
+} {1 {unknown error}}
 
 execsql {INSERT INTO test SELECT id from test3 id where id > 4}
 
