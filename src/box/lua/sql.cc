@@ -661,8 +661,13 @@ on_commit_index(struct trigger * /*trigger*/, void * event) {
 			idxHash = &db->aDb[1].pSchema->idxHash;
 		}
 		Table *table = index->pTable;
-		index->pNext = table->pIndex;
-		table->pIndex = index;
+		if (table->pIndex == NULL) {
+			table->pIndex = index;
+		} else {
+			SIndex *last = table->pIndex;
+			for (; last->pNext; last = last->pNext) {}
+			last->pNext = index;
+		}
 		sqlite3HashInsert(idxHash, index->zName, index);
 		add_new_index_to_self(self, index);
 	}
@@ -1303,7 +1308,28 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		memcpy(cur->zType, sql_type, len);
 		cur->affinity = affinity;
 	}
-	table->nRowLogEst = box_index_len(tbl_id.GetUint64(), 0);
+	char key[128], *key_end;
+	key_end = mp_encode_array(key, 1);
+	key_end = mp_encode_uint(key_end, tbl_id.GetUint64());
+	int index_len = 0;
+	void *argv[1];
+	argv[0] = (void *)&index_len;
+	SpaceIterator::SIteratorCallback callback =
+	[](box_tuple_t *tpl, int, void **argv) -> int
+	{
+		int *index_len = (int *)argv[0];
+		const char *data = box_tuple_field(tpl, 0);
+		MValue space_id = MValue::FromMSGPuck(&data);
+		data = box_tuple_field(tpl, 1);
+		MValue index_id = MValue::FromMSGPuck(&data);
+		*index_len = box_index_len(space_id.GetUint64(),
+			index_id.GetUint64());
+		return 1;
+	};
+	SpaceIterator iterator(1, argv, callback, BOX_INDEX_ID,
+		0, key, key_end, ITER_EQ);
+	iterator.IterateOver();
+	table->nRowLogEst = index_len;
 	table->szTabRow = ESTIMATED_ROW_SIZE;
 	table->aCol = cols.take_away();
 	table->nCol = nCol;
@@ -1875,10 +1901,13 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 			}
 
 			sqlite3HashInsert(idxHash, index->zName, index);
-			if (table->pIndex) {
-				index->pNext = table->pIndex;
+			if (!table->pIndex) {
+				table->pIndex = index;
+			} else {
+				SIndex *last = table->pIndex;
+				for (; last->pNext; last = last->pNext) {}
+				last->pNext = index;
 			}
-			table->pIndex = index;
 			if (!insert_into_master(index)) {
 				say_debug("%s(): error while inserting index into master,"\
 					" index name = %s, table name = %s\n",
