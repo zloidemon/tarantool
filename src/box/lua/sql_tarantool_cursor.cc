@@ -30,6 +30,7 @@
  */
 
 #include "sql_tarantool_cursor.h"
+#include "space_iterator.h"
 
 int GetSerialTypeNum(u64 number) {
 	if (number == 0) return 8;
@@ -180,9 +181,9 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 				break;
 			}
 			default: {
-				delete[] fields;
-				delete[] serial_types;
-				return false;
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
 			}
 		}
 	}
@@ -333,9 +334,9 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 				break;
 			}
 			default: {
-				delete[] fields;
-				delete[] serial_types;
-				return false;
+				serial_types[i] = 0;
+				header_size += 1;
+				break;
 			}
 		}
 	}
@@ -537,7 +538,7 @@ int TarantoolCursor::MoveToLast(int *pRes) {
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
 	int len = box_index_len(space_id, index_id);
 	int rc;
-	for (int i = 0; i < len - 1; ++i) {
+	for (int i = 0; i < len; ++i) {
 		rc = box_iterator_next(it, &tpl);
 		if (rc) {
 			say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
@@ -648,6 +649,11 @@ int TarantoolCursor::DeleteCurrent() {
 	type = ITER_GE;
 	it = box_index_iterator(space_id, index_id, type, msg_begin, msg_end);
 	return rc;
+}
+
+int TarantoolCursor::Count(i64 *pnEntry) {
+	*pnEntry = box_index_len(space_id, index_id);
+	return SQLITE_OK;
 }
 
 int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare) {

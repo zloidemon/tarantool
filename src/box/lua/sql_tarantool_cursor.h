@@ -89,6 +89,7 @@ public:
 		i64 nKey, const void *pData, int nData, int nZero, int appendBias,
 		int seekResult);
 	int DeleteCurrent();
+	int Count(i64 *pnEntry);
 	~TarantoolCursor();
 };
 
