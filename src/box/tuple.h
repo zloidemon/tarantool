@@ -620,10 +620,11 @@ struct tuple_iterator {
 };
 
 /**
- * @copydoc tuple_rewind
+ * @copydoc tuple_iterator_init
+ * Don't use is outside tuple.h/cc
  */
 inline void
-tuple_ptr_rewind(struct tuple_iterator *it, struct tuple *tuple)
+tuple_ptr_iterator_init(struct tuple_iterator *it, struct tuple *tuple)
 {
 	it->tuple = tuple;
 	it->data_start = tuple->data;
@@ -639,7 +640,7 @@ tuple_ptr_rewind(struct tuple_iterator *it, struct tuple *tuple)
  * A workflow example:
  * @code
  * struct tuple_iterator it;
- * tuple_rewind(&it, tuple);
+ * tuple_iterator_init(&it, tuple);
  * const char *field;
  * uint32_t len;
  * while ((field = tuple_next(&it, &len)))
@@ -651,9 +652,45 @@ tuple_ptr_rewind(struct tuple_iterator *it, struct tuple *tuple)
  * @param[in]  tuple tuple
  */
 inline void
-tuple_rewind(struct tuple_iterator *it, tuple_id tupid)
+tuple_iterator_init(struct tuple_iterator *it, tuple_id tupid)
 {
-	return tuple_ptr_rewind(it, tuple_id_get(tupid));
+	return tuple_ptr_iterator_init(it, tuple_id_get(tupid));
+}
+
+
+/**
+ * @copydoc tuple_rewind
+ * Don't use is outside tuple.h/cc
+ */
+inline void
+tuple_ptr_rewind(struct tuple_iterator *it)
+{
+	it->pos = it->data_start;
+	it->fieldno = 0;
+}
+
+/**
+ * @brief Rewind the iterator to the first field
+ *
+ * A workflow example:
+ * @code
+ * struct tuple_iterator it;
+ * tuple_iterator_init(&it, tuple);
+ * ... using tuple_next or tuple_seek
+ * const char *field;
+ * uint32_t len;
+ * tuple_rewind(&it);
+ * while ((field = tuple_next(&it, &len)))
+ *	lua_pushlstring(L, field, len);
+ *
+ * @endcode
+ *
+ * @param[out] it tuple iterator
+ */
+inline void
+tuple_iterator_init(struct tuple_iterator *it)
+{
+	return tuple_ptr_rewind(it);
 }
 
 /**

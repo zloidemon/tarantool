@@ -670,7 +670,7 @@ box_tuple_iterator(box_tuple_t tupid)
 
 	struct tuple *tuple = tuple_id_get(tupid);
 	tuple_ptr_ref(tuple);
-	tuple_ptr_rewind(it, tuple);
+	tuple_ptr_iterator_init(it, tuple);
 	return it;
 }
 
@@ -690,7 +690,7 @@ box_tuple_position(box_tuple_iterator_t *it)
 void
 box_tuple_rewind(box_tuple_iterator_t *it)
 {
-	tuple_ptr_rewind(it, it->tuple);
+	tuple_ptr_rewind(it);
 }
 
 const char *
