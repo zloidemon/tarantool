@@ -16,12 +16,12 @@ box.space._space:select{}
 - - [272, 1, '_schema', 'memtx', 0, {}, [{'type': 'str', 'name': 'key'}]]
   - [280, 1, '_space', 'memtx', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'owner',
         'type': 'num'}, {'name': 'name', 'type': 'str'}, {'name': 'engine', 'type': 'str'},
-      {'name': 'field_count', 'type': 'num'}, {'name': 'flags', 'type': 'str'}, {
-        'name': 'format', 'type': '*'}]]
+      {'name': 'field_count', 'type': 'num'}, {'name': 'flags', 'type': 'array'},
+      {'name': 'format', 'type': '*'}]]
   - [281, 1, '_vspace', 'sysview', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'owner',
         'type': 'num'}, {'name': 'name', 'type': 'str'}, {'name': 'engine', 'type': 'str'},
-      {'name': 'field_count', 'type': 'num'}, {'name': 'flags', 'type': 'str'}, {
-        'name': 'format', 'type': '*'}]]
+      {'name': 'field_count', 'type': 'num'}, {'name': 'flags', 'type': 'array'},
+      {'name': 'format', 'type': '*'}]]
   - [288, 1, '_index', 'memtx', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'iid',
         'type': 'num'}, {'name': 'name', 'type': 'str'}, {'name': 'type', 'type': 'str'},
       {'name': 'opts', 'type': 'array'}, {'name': 'parts', 'type': 'array'}]]

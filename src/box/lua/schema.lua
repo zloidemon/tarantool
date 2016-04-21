@@ -11,9 +11,11 @@ local builtin = ffi.C
 
 -- performance fixup for hot functions
 local tuple_encode = box.tuple.encode
+local tuple_encode_2 = box.tuple.encode_2
 local tuple_bless = box.tuple.bless
 local is_tuple = box.tuple.is
-assert(tuple_encode ~= nil and tuple_bless ~= nil and is_tuple ~= nil)
+assert(tuple_encode ~= nil and tuple_bless ~= nil and is_tuple ~= nil and
+       tuple_encode_2 ~= nil)
 
 ffi.cdef[[
     struct space *space_by_id(uint32_t id);
@@ -83,6 +85,29 @@ ffi.cdef[[
                const char *key, const char *key_end);
     void password_prepare(const char *password, int len,
                           char *out, int out_len);
+
+
+    int
+    box_update(uint32_t space_id, uint32_t index_id, const char *key,
+               const char *key_end, const char *ops, const char *ops_end,
+               int index_base, box_tuple_t **result);
+
+    int
+    box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
+               const char *tuple_end, const char *ops, const char *ops_end,
+               int index_base, box_tuple_t **result);
+
+    int
+    box_delete(uint32_t space_id, uint32_t index_id, const char *key,
+               const char *key_end, box_tuple_t **result);
+
+    int
+    box_insert(uint32_t space_id, const char *tuple, const char *tuple_end,
+               box_tuple_t **result);
+
+    int
+    box_replace(uint32_t space_id, const char *tuple, const char *tuple_end,
+                box_tuple_t **result);
 ]]
 
 local function user_or_role_resolve(user)
@@ -290,7 +315,7 @@ box.schema.space.create = function(name, options)
         end
     end
     _space:insert{id, uid, name, options.engine, options.field_count,
-        extra_options, format}
+                  extra_options, format}
     return box.space[id], "created"
 end
 
@@ -609,7 +634,7 @@ local iterator_gen = function(param, state)
         information.
     --]]
     if not ffi.istype(iterator_t, state) then
-        error('usage: next(param, state)')
+        error('Usage: next(param, state)')
     end
     -- next() modifies state in-place
     if builtin.box_iterator_next(state, ptuple) ~= 0 then
@@ -844,10 +869,45 @@ function box.schema.space.bless(space)
             offset, limit, key)
     end
 
-    index_mt.update = function(index, key, ops)
+    index_mt.update_ffi = function(index, key, ops)
+        if not (is_tuple(ops) or type(ops) == 'table') then
+            box.error(box.error.PROC_LUA, "Usage: :update(key, operations)")
+        end
+        local key, key_end, ops, ops_end = tuple_encode_2(key, ops)
+        if builtin.box_update(index.space_id, index.id, key, key_end,
+                              ops, ops_end, 1, ptuple) ~= 0 then
+            box.error()
+        elseif ptuple[0] ~= nil then
+            return tuple_bless(ptuple[0])
+        else
+            return
+        end
+    end
+    index_mt.update_luac = function(index, key, ops)
         return internal.update(index.space_id, index.id, keify(key), ops);
     end
-    index_mt.upsert = function(index, tuple_key, ops, deprecated)
+    index_mt.upsert_ffi = function(index, tuple_key, ops, deprecated)
+        if not (is_tuple(tuple_key) or type(tuple_key) == 'table') or
+           not (is_tuple(ops) or type(ops) == 'table') then
+            box.error(box.error.PROC_LUA, "Usage: :upsert(tuple, operations)")
+        end
+        if deprecated ~= nil then
+            local msg = "Error: extra argument in upsert call: "
+            msg = msg .. tostring(deprecated)
+            msg = msg .. ". Usage :upsert(tuple, operations)"
+            box.error(box.error.PROC_LUA, msg)
+        end
+        local key, key_end, ops, ops_end = tuple_encode_2(tuple_key, ops)
+        if builtin.box_upsert(index.space_id, index.id, key, key_end,
+                              ops, ops_end, 1, ptuple) ~= 0 then
+            box.error()
+        elseif ptuple[0] ~= nil then
+            return tuple_bless(ptuple[0])
+        else
+            return
+        end
+    end
+    index_mt.upsert_luac = function(index, tuple_key, ops, deprecated)
         if deprecated ~= nil then
             local msg = "Error: extra argument in upsert call: "
             msg = msg .. tostring(deprecated)
@@ -856,7 +916,18 @@ function box.schema.space.bless(space)
         end
         return internal.upsert(index.space_id, index.id, tuple_key, ops);
     end
-    index_mt.delete = function(index, key)
+    index_mt.delete_ffi = function(index, key)
+        local key, key_end = tuple_encode(key)
+        if builtin.box_delete(index.space_id, index.id, key, key_end,
+                              ptuple) ~= 0 then
+            box.error()
+        elseif ptuple[0] ~= nil then
+            return tuple_bless(ptuple[0])
+        else
+            return
+        end
+    end
+    index_mt.delete_luac = function(index, key)
         return internal.delete(index.space_id, index.id, keify(key));
     end
     index_mt.drop = function(index)
@@ -865,7 +936,7 @@ function box.schema.space.bless(space)
     index_mt.rename = function(index, name)
         return box.schema.index.rename(index.space_id, index.id, name)
     end
-    index_mt.alter= function(index, options)
+    index_mt.alter = function(index, options)
         if index.id == nil or index.space_id == nil then
             box.error(box.error.PROC_LUA, "Usage: index:alter{opts}")
         end
@@ -878,6 +949,18 @@ function box.schema.space.bless(space)
     for _, op in ipairs(read_ops) do
         if read_yields then
             -- use Lua/C implmenetation
+            index_mt[op] = index_mt[op .. "_luac"]
+        else
+            -- use FFI implementation
+            index_mt[op] = index_mt[op .. "_ffi"]
+        end
+    end
+    -- true if write operations may yield
+    local write_yields = space.engine == 'sophia' or box.cfg.wal_mode ~= 'none' or space.id < 512
+    local write_ops_index = {'update', 'upsert', 'delete'}
+    for _, op in ipairs(write_ops_index) do
+        if write_yields then
+            -- use Lua/C implementation
             index_mt[op] = index_mt[op .. "_luac"]
         else
             -- use FFI implementation
@@ -902,6 +985,39 @@ function box.schema.space.bless(space)
     end
     space_mt.__newindex = index_mt.__newindex
 
+    space_mt.insert_ffi = function(space, tuple)
+        if not (is_tuple(tuple) or type(tuple) == 'table') then
+            box.error(box.error.ILLEGAL_PARAMS, "tuple should be a table")
+        end
+        local tuple, tuple_end = tuple_encode(tuple)
+        if builtin.box_insert(space.id, tuple, tuple_end, ptuple) ~= 0 then
+            box.error()
+        elseif ptuple[0] ~= nil then
+            return tuple_bless(ptuple[0])
+        else
+            return
+        end
+    end
+    space_mt.insert_luac = function(space, tuple)
+        return internal.insert(space.id, tuple);
+    end
+    space_mt.replace_ffi = function(space, tuple)
+        if not (is_tuple(tuple) or type(tuple) == 'table') then
+            box.error(box.error.ILLEGAL_PARAMS, "tuple should be a table")
+        end
+        local tuple, tuple_end = tuple_encode(tuple)
+        if builtin.box_replace(space.id, tuple, tuple_end, ptuple) ~= 0 then
+            box.error()
+        elseif ptuple[0] ~= nil then
+            return tuple_bless(ptuple[0])
+        else
+            return
+        end
+    end
+    space_mt.replace_luac = function(space, tuple)
+        return internal.replace(space.id, tuple);
+    end
+
     space_mt.get = function(space, key)
         check_index(space, 0)
         return space.index[0]:get(key)
@@ -910,13 +1026,6 @@ function box.schema.space.bless(space)
         check_index(space, 0)
         return space.index[0]:select(key, opts)
     end
-    space_mt.insert = function(space, tuple)
-        return internal.insert(space.id, tuple);
-    end
-    space_mt.replace = function(space, tuple)
-        return internal.replace(space.id, tuple);
-    end
-    space_mt.put = space_mt.replace; -- put is an alias for replace
     space_mt.update = function(space, key, ops)
         check_index(space, 0)
         return space.index[0]:update(key, ops)
@@ -1014,6 +1123,18 @@ function box.schema.space.bless(space)
         builtin.space_run_triggers(s, yesno)
     end
     space_mt.__index = space_mt
+
+    local write_ops_space = {'insert', 'replace'}
+    for _, op in ipairs(write_ops_space) do
+        if write_yields then
+            -- use Lua/C implementation
+            space_mt[op] = space_mt[op .. "_luac"]
+        else
+            -- use FFI implementation
+            space_mt[op] = space_mt[op .. "_ffi"]
+        end
+    end
+    space_mt.put = space_mt.replace; -- put is an alias for replace
 
     setmetatable(space, space_mt)
     if type(space.index) == 'table' and space.enabled then

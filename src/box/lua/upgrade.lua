@@ -268,7 +268,7 @@ local function upgrade_space_format_to_1_6_8()
         format[3] = {name='name', type='str'}
         format[4] = {name='engine', type='str'}
         format[5] = {name='field_count', type='num'}
-        format[6] = {name='flags', type='str'}
+        format[6] = {name='flags', type='array'}
         format[7] = {name='format', type='*'}
         log.info("alter space _space set format")
         box.space._space:format(format)

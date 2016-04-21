@@ -82,9 +82,8 @@ local encode_fix = msgpackffi.internal.encode_fix
 local encode_array = msgpackffi.internal.encode_array
 local encode_r = msgpackffi.internal.encode_r
 
-tuple_encode = function(obj)
-    local tmpbuf = buffer.IBUF_SHARED
-    tmpbuf:reset()
+tuple_encode_r = function(tmpbuf, obj)
+    local begin = tmpbuf.wpos
     if obj == nil then
         encode_fix(tmpbuf, 0x90, 0)  -- empty array
     elseif is_tuple(obj) then
@@ -92,6 +91,9 @@ tuple_encode = function(obj)
     elseif type(obj) == "table" then
         encode_array(tmpbuf, #obj)
         local i
+--        for _, key in ipairs(obj) do
+--            encode_r(tmpbuf, key, 1)
+--        end
         for i = 1, #obj, 1 do
             encode_r(tmpbuf, obj[i], 1)
         end
@@ -99,7 +101,22 @@ tuple_encode = function(obj)
         encode_fix(tmpbuf, 0x90, 1)  -- array of one element
         encode_r(tmpbuf, obj, 1)
     end
+    return begin, tmpbuf.wpos
+end
+
+tuple_encode = function(obj)
+    local tmpbuf = buffer.IBUF_SHARED
+    tmpbuf:reset()
+    tuple_encode_r(tmpbuf, obj)
     return tmpbuf.rpos, tmpbuf.wpos
+end
+
+tuple_encode_2 = function(obj1, obj2)
+    local tmpbuf = buffer.IBUF_SHARED
+    tmpbuf:reset()
+    local _, v1 = tuple_encode_r(tmpbuf, obj1)
+    local v2, _ = tuple_encode_r(tmpbuf, obj2)
+    return tmpbuf.rpos, v1, v2, tmpbuf.wpos
 end
 
 local tuple_gc = function(tuple)
@@ -341,4 +358,5 @@ cfuncs = nil
 -- internal api for box.select and iterators
 box.tuple.bless = tuple_bless
 box.tuple.encode = tuple_encode
+box.tuple.encode_2 = tuple_encode_2
 box.tuple.is = is_tuple
