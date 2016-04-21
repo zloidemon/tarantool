@@ -366,7 +366,7 @@ cfg_get_replication_source(int *p_count)
 		if (applier == NULL) {
 			/* Delete created appliers */
 			while (--i >= 0)
-				applier_delete(appliers[i]);
+				tx_applier_delete(appliers[i]);
 			return NULL;
 		}
 		appliers[i] = applier; /* link to the list */
@@ -391,10 +391,10 @@ box_sync_replication_source(void)
 
 	auto guard = make_scoped_guard([=]{
 		for (int i = 0; i < count; i++)
-			applier_delete(appliers[i]); /* doesn't affect diag */
+			tx_applier_delete(appliers[i]); /* doesn't affect diag */
 	});
 
-	applier_connect_all(appliers, count);
+	tx_applier_connect_all(appliers, count);
 	cluster_set_appliers(appliers, count);
 
 	guard.is_active = false;
@@ -415,7 +415,7 @@ box_set_replication_source(void)
 	box_sync_replication_source();
 	server_foreach(server) {
 		if (server->applier != NULL)
-			applier_resume(server->applier);
+			tx_applier_resume(server->applier);
 	}
 }
 
@@ -1252,7 +1252,7 @@ bootstrap_from_master(struct server *master)
 
 	/* Generate Server-UUID */
 	tt_uuid_create(&SERVER_ID);
-	applier_resume_to_state(applier, APPLIER_INITIAL_JOIN, TIMEOUT_INFINITY);
+	tx_applier_resume_to_state(applier, APPLIER_INITIAL_JOIN, TIMEOUT_INFINITY);
 
 	/*
 	 * Process initial data (snapshot or dirty disk data).
@@ -1262,14 +1262,14 @@ bootstrap_from_master(struct server *master)
 	/* Add a surrogate server id for snapshot rows */
 	vclock_add_server(&recovery->vclock, 0);
 
-	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
+	tx_applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
 
 	/*
 	 * Process final data (WALs).
 	 */
 	engine_begin_wal_recovery();
 
-	applier_resume_to_state(applier, APPLIER_JOINED, TIMEOUT_INFINITY);
+	tx_applier_resume_to_state(applier, APPLIER_JOINED, TIMEOUT_INFINITY);
 
 	/* Replace server vclock using master's vclock */
 	vclock_copy(&recovery->vclock, &applier->vclock);
@@ -1278,7 +1278,7 @@ bootstrap_from_master(struct server *master)
 	engine_end_join();
 
 	/* Switch applier to initial state */
-	applier_resume_to_state(applier, APPLIER_CONNECTED, TIMEOUT_INFINITY);
+	tx_applier_resume_to_state(applier, APPLIER_CONNECTED, TIMEOUT_INFINITY);
 	assert(applier->state == APPLIER_CONNECTED);
 }
 
@@ -1337,6 +1337,8 @@ box_init(void)
 	xstream_create(&initial_join_stream, apply_initial_join_row);
 	xstream_create(&final_join_stream, apply_row);
 	xstream_create(&subscribe_stream, apply_subscribe_row);
+
+	iproto_init();
 	box_sync_replication_source();
 
 	struct vclock checkpoint_vclock;
@@ -1370,7 +1372,6 @@ box_init(void)
 	title("hot_standby");
 
 	port_init();
-	iproto_init();
 	box_set_listen();
 
 	int64_t rows_per_wal = box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
@@ -1384,7 +1385,7 @@ box_init(void)
 	/* Follow replica */
 	server_foreach(server) {
 		if (server->applier != NULL)
-			applier_resume(server->applier);
+			tx_applier_resume(server->applier);
 	}
 
 	/* Enter read-write mode. */
