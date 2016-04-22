@@ -155,7 +155,8 @@ insert_new_sindex_as_index(SIndex *index);
  */
 Table *
 get_trntl_table_from_tuple(box_tuple_t *tpl,sqlite3 *db,
-	Schema *pSchema, bool *is_temp = NULL, bool *is_view = NULL);
+	Schema *pSchema, bool *is_temp = NULL, bool *is_view = NULL, 
+	bool is_delete = false);
 
 /**
  * This function converts index from msgpuck tuple to
@@ -540,9 +541,12 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 	Hash *tblHash = &db->aDb[0].pSchema->tblHash;
 	Schema *pSchema = db->aDb[0].pSchema;
 	bool is_temp, is_view;
+	bool is_delete = false;
 	if (old_tuple != NULL) {
+		is_delete = (new_tuple == NULL);
 		say_debug("%s(): old_tuple != NULL\n", __func_name);
 		auto table_deleter = [](Table *ptr){
+			if (!ptr) return;
 			sqlite3DbFree(get_global_db(), ptr->zName);
 			for (int i = 0; i < ptr->nCol; ++i) {
 				sqlite3DbFree(get_global_db(), ptr->aCol[i].zName);
@@ -551,7 +555,8 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 			sqlite3DbFree(get_global_db(), ptr->aCol);
 			sqlite3DbFree(get_global_db(), ptr);
 		};
-		SmartPtr<Table> table(get_trntl_table_from_tuple(old_tuple, db, pSchema, &is_temp),
+		SmartPtr<Table> table(get_trntl_table_from_tuple(old_tuple, db,
+					pSchema, &is_temp, &is_view, is_delete),
 			table_deleter);
 		if (!table.get()) {
 			say_debug("%s(): error while getting table\n", __func_name);
@@ -1293,7 +1298,7 @@ insert_new_sindex_as_index(SIndex *index) {
 
 Table *
 get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
-	Schema *pSchema, bool *is_temp, bool *is_view)
+	Schema *pSchema, bool *is_temp, bool *is_view, bool is_delete)
 {
 	static const char *__func_name = "get_trntl_table_from_tuple";
 
@@ -1304,6 +1309,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	}
 	sqlite3 *db_alloc = NULL;
 	Parse p;
+	Hash *tblHash = &db->aDb[0].pSchema->tblHash;
 	Token name1, name2;
 	char zName[256];
 	memset(&p, 0, sizeof(p));
@@ -1342,6 +1348,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	}
 
 	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){
+		if (!ptr) return;
 		sqlite3_free(ptr->zName);
 		sqlite3_free(ptr);
 	});
@@ -1371,8 +1378,12 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		if (!strcmp(pname, "view") && value.GetBool()) {
 			if (is_view) *is_view = true;
 		}
-		if (!strcmp(pname, "crt_stmt")) {
+		if (!strcmp(pname, "crt_stmt") && !is_delete) { 
+			/* we need not to parse crt_stmt_in case of deleting
+			 * view
+			 **/
 			sqlite3_stmt *stmt;
+			Table *pTable;
 			const char *pTail;
 			const char *z_sql = value.GetStr();
 			uint32_t len = strlen(z_sql);
@@ -1383,12 +1394,21 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 				say_debug("%s(): error while parsing create statement for view\n", __func_name);
 				return NULL;
 			}
+			
 			if (!db->init.busy) {
 				v = (Vdbe *)stmt;
 				(void) rc;
 				Parse *pParse = v->pParse;
 				table->pSelect = sqlite3SelectDup(0,
 							pParse->pNewTable->pSelect, 0);
+			}
+			else {
+				/* In init process we need to update tnum in
+				 * inmemory representation.
+				 **/
+				pTable = (Table *)sqlite3HashFind(tblHash,
+						table->zName);
+				pTable->tnum = table->tnum;
 			}
 			sqlite3_finalize(stmt);
 		}
