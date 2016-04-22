@@ -84,6 +84,7 @@ public:
 	int KeySize(i64 *pSize);
 	const void *KeyFetch(u32 *pAmt);
 	int Next(int *pRes);
+	int Previous(int *pRes);
 	int MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare);
 	int Insert(const void *pKey,
 		i64 nKey, const void *pData, int nData, int nZero, int appendBias,
