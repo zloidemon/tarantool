@@ -47,7 +47,7 @@ public:
 	findByKey(const char *key, uint32_t) const;
 
 	virtual struct iterator*
-	allocIterator() const;
+	allocIterator() const override;
 
 	virtual void
 	initIterator(struct iterator *iterator,
