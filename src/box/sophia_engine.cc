@@ -166,7 +166,6 @@ sophia_tuple_data_new(void *obj, struct key_def *key_def, uint32_t *bsize)
 	d = mp_encode_array(d, field_count);
 	d = sophia_write_parts(key_def, value, valuesize, parts, d);
 	assert(tuple_data + size == d);
-	sophia_write_parts(key_def, value, valuesize, parts, d);
 	*bsize = size;
 	return tuple_data;
 }
@@ -340,10 +339,9 @@ SophiaSpace::applySnapshotRow(struct space *space, struct request *request)
 		sophia_error(index->env);
 	}
 
-#if 0
 	int64_t signature = request->header->lsn;
 	sp_setint(tx, "lsn", signature);
-#endif
+
 	if (sp_set(tx, obj) != 0)
 		sophia_error(index->env); /* obj destroyed by sp_set() */
 

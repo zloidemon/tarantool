@@ -36,7 +36,7 @@
 #include "xlog.h"
 #include "xrow.h"
 #include "xstream.h"
-
+#include "wal.h" /* wal_watcher */
 #include "cluster.h"
 #include "session.h"
 
@@ -141,7 +141,7 @@ recovery_new(const char *wal_dirname, bool panic_on_wal_error,
 		free(r);
 	});
 
-	xdir_create(&r->wal_dir, wal_dirname, XLOG, &SERVER_ID);
+	xdir_create(&r->wal_dir, wal_dirname, XLOG, &SERVER_UUID);
 	r->wal_dir.panic_if_error = panic_on_wal_error;
 
 	vclock_copy(&r->vclock, vclock);
@@ -198,8 +198,6 @@ recovery_exit(struct recovery *r)
 	/* Avoid fibers, there is no event loop */
 	r->watcher = NULL;
 	recovery_delete(r);
-	if (wal)
-		wal_writer_stop();
 }
 
 /**
@@ -363,8 +361,7 @@ recover_current_wal:
 }
 
 void
-recovery_finalize(struct recovery *r, struct xstream *stream,
-		  enum wal_mode wal_mode, int64_t rows_per_wal)
+recovery_finalize(struct recovery *r, struct xstream *stream)
 {
 	recovery_stop_local(r);
 
@@ -383,10 +380,6 @@ recovery_finalize(struct recovery *r, struct xstream *stream,
 		 * for writing.
 		 */
 		vclock_inc(&r->vclock, r->server_id);
-	}
-	if (wal_mode != WAL_NONE) {
-		wal_writer_start(wal_mode, r->wal_dir.dirname,
-				 &SERVER_ID, &r->vclock, rows_per_wal);
 	}
 }
 

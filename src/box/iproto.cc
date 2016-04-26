@@ -57,7 +57,6 @@
 #include "schema.h" /* sc_version */
 #include "cluster.h" /* server_uuid */
 #include "iproto_constants.h"
-#include "authentication.h"
 #include "rmean.h"
 
 /* The number of iproto messages in flight */
@@ -816,15 +815,10 @@ tx_process_misc(struct cmsg *m)
 			box_process_eval(&msg->request, out);
 			break;
 		case IPROTO_AUTH:
-			{
-				assert(msg->request.type == msg->header.type);
-				const char *user = msg->request.key;
-				uint32_t len = mp_decode_strl(&user);
-				authenticate(user, len, msg->request.tuple,
-					     msg->request.tuple_end);
-				iproto_reply_ok(out, msg->header.sync);
-				break;
-			}
+			assert(msg->request.type == msg->header.type);
+			rmean_collect(rmean_box, msg->request.type, 1);
+			box_process_auth(&msg->request, out);
+			break;
 		case IPROTO_PING:
 			iproto_reply_ok(out, msg->header.sync);
 			break;
@@ -925,7 +919,7 @@ tx_process_connect(struct cmsg *m)
 		con->session = session_create(con->input.fd);
 		static __thread char greeting[IPROTO_GREETING_SIZE];
 		/* TODO: dirty read from tx thread */
-		struct tt_uuid uuid = SERVER_ID;
+		struct tt_uuid uuid = SERVER_UUID;
 		greeting_encode(greeting, tarantool_version_id(),
 				&uuid, con->session->salt, SESSION_SEED_SIZE);
 		obuf_dup_xc(out, greeting, IPROTO_GREETING_SIZE);
