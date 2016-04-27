@@ -74,16 +74,15 @@ static void title(const char *new_status)
 	title_update();
 }
 
-struct recovery *recovery;
-
 bool box_snapshot_is_in_progress = false;
-static bool box_init_done = false;
+bool box_init_done = false;
 static bool is_ro = true;
 
 /* Use the shared instance of xstream for all appliers */
 static struct xstream initial_join_stream;
 static struct xstream final_join_stream;
 static struct xstream subscribe_stream;
+static struct vclock replication_vclock;
 
 static void
 box_check_writable(void)
@@ -93,7 +92,7 @@ box_check_writable(void)
 	 *   box.cfg.read_only == false and
 	 *   server id is registered in _cluster table
 	 */
-	if (is_ro || recovery->server_id == 0)
+	if (is_ro)
 		tnt_raise(LoggedError, ER_READONLY);
 }
 
@@ -255,10 +254,23 @@ apply_initial_join_row(struct xstream *stream, struct xrow_header *row)
 static void
 apply_subscribe_row(struct xstream *stream, struct xrow_header *row)
 {
+	/* Sanity checks */
+	if (server_id_is_reserved(row->server_id) ||
+	    row->server_id >= VCLOCK_MAX) {
+		/*
+		 * A safety net, this can only occur
+		 * if we're fed a strangely broken xlog.
+		 */
+		tnt_raise(ClientError, ER_UNKNOWN_SERVER,
+			  int2str(row->server_id));
+	}
+
 	/* Check lsn */
-	int64_t current_lsn = vclock_get(&recovery->vclock, row->server_id);
+	int64_t current_lsn = vclock_get(&replication_vclock, row->server_id);
 	if (row->lsn <= current_lsn)
 		return;
+	/* TODO: rollback vclock in case of error */
+	vclock_follow(&replication_vclock, row->server_id, row->lsn);
 	apply_row(stream, row);
 }
 
@@ -405,7 +417,7 @@ box_sync_replication_source(void)
 extern "C" void
 box_set_replication_source(void)
 {
-	if (wal == NULL) {
+	if (!box_init_done) {
 		/*
 		 * Do nothing, we're in local hot standby mode, the server
 		 * will automatically begin following the replica when local
@@ -962,7 +974,7 @@ box_process_auth(struct request *request, struct obuf *out)
 	assert(request->type == IPROTO_AUTH);
 
 	/* Check that bootstrap has been finished */
-	if (wal == NULL)
+	if (!box_init_done)
 		tnt_raise(ClientError, ER_LOADING);
 
 	const char *user = request->key;
@@ -1021,7 +1033,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	xrow_decode_join(header, &server_uuid);
 
 	/* Check that bootstrap has been finished */
-	if (wal == NULL)
+	if (!box_init_done)
 		tnt_raise(ClientError, ER_LOADING);
 
 	/* Forbid connection to itself */
@@ -1089,7 +1101,7 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	assert(header->type == IPROTO_SUBSCRIBE);
 
 	/* Check that bootstrap has been finished */
-	if (wal == NULL)
+	if (!box_init_done)
 		tnt_raise(ClientError, ER_LOADING);
 
 	struct tt_uuid cluster_uuid = uuid_nil, replica_uuid = uuid_nil;
@@ -1097,10 +1109,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	vclock_create(&replica_clock);
 	xrow_decode_subscribe(header, &cluster_uuid, &replica_uuid,
 			      &replica_clock);
-
-	/* Check that bootstrap has been finished */
-	if (wal == NULL)
-		tnt_raise(ClientError, ER_LOADING);
 
 	/* Forbid connection to itself */
 	if (tt_uuid_is_equal(&replica_uuid, &SERVER_UUID))
@@ -1142,7 +1150,9 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 * server, this is the only way for a replica to find
 	 * out the id of the server it has connected to.
 	 */
-	row.server_id = recovery->server_id;
+	struct server *self = server_by_uuid(&SERVER_UUID);
+	assert(self != NULL);
+	row.server_id = server->id;
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
 
@@ -1176,12 +1186,6 @@ box_set_cluster_uuid()
 void
 box_free(void)
 {
-	if (recovery) {
-		recovery_exit(recovery);
-		recovery = NULL;
-		if (wal)
-			wal_writer_stop();
-	}
 	/*
 	 * See gh-584 "box_free() is called even if box is not
 	 * initialized
@@ -1195,6 +1199,7 @@ box_free(void)
 		tuple_free();
 		port_free();
 #endif
+		wal_writer_stop();
 		engine_shutdown();
 	}
 }
@@ -1225,19 +1230,18 @@ engine_init()
  * Initialize the first server of a new cluster
  */
 static void
-bootstrap_cluster(void)
+bootstrap_cluster(struct vclock *initial_vclock)
 {
 	engine_bootstrap();
 
 	uint32_t server_id = 1;
 
 	/* Unregister local server if it was registered by bootstrap.bin */
-	assert(recovery->server_id == 0);
 	boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
 
 	/* Register local server */
 	box_register_server(server_id, &SERVER_UUID);
-	assert(recovery->server_id == 1);
+	assert(server_by_uuid(&SERVER_UUID)->id == 1);
 
 	/* Register other cluster members */
 	server_foreach(server) {
@@ -1251,8 +1255,8 @@ bootstrap_cluster(void)
 	/* Generate UUID of a new cluster */
 	box_set_cluster_uuid();
 
-	/* Ugly hack: bootstrap always starts from scratch */
-	vclock_create(&recovery->vclock);
+	/* Bootstrap starts from scratch */
+	vclock_create(initial_vclock);
 }
 
 /**
@@ -1261,7 +1265,7 @@ bootstrap_cluster(void)
  * \post master->applier->state == APPLIER_CONNECTED
  */
 static void
-bootstrap_from_master(struct server *master)
+bootstrap_from_master(struct server *master, struct vclock *initial_vclock)
 {
 	struct applier *applier = master->applier;
 	assert(applier != NULL);
@@ -1293,7 +1297,7 @@ bootstrap_from_master(struct server *master)
 	applier_resume_to_state(applier, APPLIER_JOINED, TIMEOUT_INFINITY);
 
 	/* Replace server vclock using master's vclock */
-	vclock_copy(&recovery->vclock, &applier->vclock);
+	vclock_copy(initial_vclock, &applier->vclock);
 
 	/* Finalize the new replica */
 	engine_end_join();
@@ -1304,19 +1308,19 @@ bootstrap_from_master(struct server *master)
 }
 
 static void
-bootstrap(void)
+bootstrap(struct vclock *initial_vclock)
 {
 	/* Use the first replica by URI as a bootstrap leader */
 	struct server *master = server_first();
 	assert(master == NULL || master->applier != NULL);
 
 	if (master != NULL && !tt_uuid_is_equal(&master->uuid, &SERVER_UUID)) {
-		bootstrap_from_master(master);
+		bootstrap_from_master(master, initial_vclock);
 	} else {
-		bootstrap_cluster();
+		bootstrap_cluster(initial_vclock);
 	}
 	if (engine_begin_checkpoint() ||
-	    engine_commit_checkpoint(&recovery->vclock))
+	    engine_commit_checkpoint(initial_vclock))
 		panic_syserror("failed to save a snapshot");
 }
 
@@ -1346,6 +1350,7 @@ box_init(void)
 	session_init();
 
 	cluster_init();
+	wal_init();
 
 	title("loading");
 
@@ -1356,18 +1361,32 @@ box_init(void)
 	xstream_create(&final_join_stream, apply_row);
 	xstream_create(&subscribe_stream, apply_subscribe_row);
 
-	struct vclock checkpoint_vclock;
-	int64_t lsn = recovery_last_checkpoint(&checkpoint_vclock);
+	struct vclock initial_vclock;
+	int64_t lsn = recovery_last_checkpoint(&initial_vclock);
 	if (lsn != -1) {
-		recovery = recovery_new(cfg_gets("wal_dir"),
-					cfg_geti("panic_on_wal_error"),
-					&checkpoint_vclock);
-		/* Tell Phia engine LSN it must recover to. */
+		/*
+		 * Recover to checkpoint
+		 */
 		engine_recover_to_checkpoint(lsn);
-		/* Replace server vclock using the data from snapshot */
-		vclock_copy(&recovery->vclock, &checkpoint_vclock);
+
+		/*
+		 * Recover WALs
+		 */
 		engine_begin_wal_recovery();
 		title("orphan");
+		/*
+		 * Sic: `struct wal_writer` must be initialized **before**
+		 * recovering from WALs to allow txn_commit() to calculate
+		 * correct vclock_signature for Phia rows.
+		 */
+		wal_set_vclock(wal, &initial_vclock);
+		struct recovery *recovery;
+		recovery = recovery_new(cfg_gets("wal_dir"),
+					cfg_geti("panic_on_wal_error"),
+					&initial_vclock);
+		auto recovery_guard = make_scoped_guard([=]{
+			recovery_delete(recovery);
+		});
 		recovery_follow_local(recovery, &wal_stream.base, "hot_standby",
 				      cfg_getd("wal_dir_rescan_delay"));
 		title("hot_standby");
@@ -1379,14 +1398,10 @@ box_init(void)
 		box_set_listen();
 		recovery_finalize(recovery, &wal_stream.base);
 
+		vclock_copy(&initial_vclock, &recovery->vclock);
+
 		box_sync_replication_source();
 	} else {
-		/* TODO: don't create recovery for this case */
-		vclock_create(&checkpoint_vclock);
-		recovery = recovery_new(cfg_gets("wal_dir"),
-					cfg_geti("panic_on_wal_error"),
-					&checkpoint_vclock);
-
 		/* Start network */
 		tt_uuid_create(&SERVER_UUID);
 		port_init();
@@ -1395,16 +1410,31 @@ box_init(void)
 		box_sync_replication_source();
 
 		/* Bootstrap cluster */
-		bootstrap();
+		bootstrap(&initial_vclock);
 	}
 	fiber_gc();
 
+	/* Find registration for the local server */
+	struct server *self = server_by_uuid(&SERVER_UUID);
+	if (self == NULL || self->id == SERVER_ID_NIL) {
+		/*
+		 * Initial checkpoint doesn't contain information about
+		 * local server UUID.
+		 */
+		tnt_raise(ClientError, ER_UNKNOWN_SERVER,
+			  tt_uuid_str(&SERVER_UUID));
+	}
+
+	/*
+	 * Ignore our rows recevied by replication.
+	 */
+	vclock_copy(&replication_vclock, &initial_vclock);
+	vclock_follow(&replication_vclock, self->id, INT64_MAX);
+
 	int64_t rows_per_wal = box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
 	enum wal_mode wal_mode = box_check_wal_mode(cfg_gets("wal_mode"));
-	if (wal_mode != WAL_NONE) {
-		wal_writer_start(wal_mode, cfg_gets("wal_dir"), &SERVER_UUID,
-				 &recovery->vclock, rows_per_wal);
-	}
+	wal_writer_start(wal_mode, cfg_gets("wal_dir"), &SERVER_UUID,
+			self->id, &initial_vclock, rows_per_wal);
 	engine_end_recovery();
 
 	rmean_cleanup(rmean_box);
@@ -1414,9 +1444,6 @@ box_init(void)
 		if (server->applier != NULL)
 			applier_resume(server->applier);
 	}
-
-	/* Enter read-write mode. */
-	cluster_wait_for_id();
 
 	title("running");
 	say_info("ready to accept requests");
@@ -1459,11 +1486,7 @@ box_snapshot()
 		goto end;
 
 	struct vclock vclock;
-	if (wal == NULL) {
-		vclock_copy(&vclock, &recovery->vclock);
-	} else {
-		wal_checkpoint(wal, &vclock, true);
-	}
+	wal_checkpoint(wal, &vclock, true);
 	rc = engine_commit_checkpoint(&vclock);
 end:
 	if (rc)

@@ -38,7 +38,6 @@
 #include <lualib.h>
 
 #include "box/applier.h"
-#include "box/recovery.h"
 #include "box/wal.h"
 #include "box/cluster.h"
 #include "main.h"
@@ -131,18 +130,19 @@ lbox_info_replication(struct lua_State *L)
 static int
 lbox_info_server(struct lua_State *L)
 {
+	struct server *self = server_by_uuid(&SERVER_UUID);
 	lua_createtable(L, 0, 2);
 	lua_pushliteral(L, "id");
-	lua_pushinteger(L, recovery->server_id);
+	lua_pushinteger(L, self != NULL ? self->id : 0U);
 	lua_settable(L, -3);
 	lua_pushliteral(L, "uuid");
 	lua_pushlstring(L, tt_uuid_str(&SERVER_UUID), UUID_STR_LEN);
 	lua_settable(L, -3);
 	lua_pushliteral(L, "lsn");
-	if (recovery->server_id != SERVER_ID_NIL && wal != NULL) {
+	if (self != NULL && self->id != SERVER_ID_NIL) {
 		struct vclock vclock;
 		wal_checkpoint(wal, &vclock, false);
-		luaL_pushint64(L, vclock_get(&vclock, recovery->server_id));
+		luaL_pushint64(L, vclock_get(&vclock, self->id));
 	} else {
 		luaL_pushint64(L, -1);
 	}

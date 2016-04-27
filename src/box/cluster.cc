@@ -36,9 +36,6 @@
 #include <scoped_guard.h>
 #include <small/mempool.h>
 
-#include "box.h"
-#include "recovery.h"
-#include "wal.h"
 #include "applier.h"
 #include "error.h"
 #include "vclock.h" /* VCLOCK_MAX */
@@ -72,7 +69,6 @@ rb_gen(, serverset_, serverset_t, struct server, link,
 
 static struct mempool server_pool;
 static serverset_t serverset;
-static struct ipc_channel wait_for_id;
 
 void
 cluster_init(void)
@@ -80,20 +76,12 @@ cluster_init(void)
 	mempool_create(&server_pool, &cord()->slabc,
 		       sizeof(struct server));
 	serverset_new(&serverset);
-	ipc_channel_create(&wait_for_id, 0);
 }
 
 void
 cluster_free(void)
 {
 	mempool_destroy(&server_pool);
-	ipc_channel_destroy(&wait_for_id);
-}
-
-extern "C" struct vclock *
-cluster_clock()
-{
-        return &recovery->vclock;
 }
 
 /* Return true if server doesn't have id, relay and applier */
@@ -125,16 +113,6 @@ server_delete(struct server *server)
 	mempool_free(&server_pool, server);
 }
 
-void
-cluster_wait_for_id()
-{
-	void *msg;
-	while (recovery->server_id == 0) {
-		ipc_channel_get(&wait_for_id, &msg);
-		assert(msg == NULL);
-	}
-}
-
 struct server *
 cluster_add_server(uint32_t server_id, const struct tt_uuid *server_uuid)
 {
@@ -154,23 +132,6 @@ server_set_id(struct server *server, uint32_t server_id)
 	assert(server_id < VCLOCK_MAX);
 	assert(server->id == SERVER_ID_NIL); /* server id is read-only */
 	server->id = server_id;
-
-	/* Add server */
-	struct recovery *r = ::recovery;
-
-	if (tt_uuid_is_equal(&SERVER_UUID, &server->uuid)) {
-		/* Assign local server id */
-		assert(r->server_id == SERVER_ID_NIL);
-		r->server_id = server_id;
-		/*
-		 * Leave read-only mode
-		 * if this is a running server.
-		 * Otherwise, read only is switched
-		 * off after recovery_finalize().
-		 */
-		if (wal && ipc_channel_has_readers(&wait_for_id))
-			ipc_channel_put(&wait_for_id, NULL);
-	}
 }
 
 void
@@ -178,18 +139,9 @@ server_clear_id(struct server *server)
 {
 	assert(server->id != SERVER_ID_NIL);
 
-	struct recovery *r = ::recovery;
-	/*
-	 * Don't remove servers from vclock here.
-	 * The vclock_sum() must always grow, it is a core invariant of
-	 * the recovery subsystem. Further attempts to register a server
-	 * with the removed server_id will re-use LSN from the last value.
-	 * Servers with LSN == 0 also can't not be safely removed.
-	 * Some records may arrive later on due to asynchronus nature of
-	 * replication.
-	 */
-	if (r->server_id == server->id)
-		r->server_id = SERVER_ID_NIL;
+	if (tt_uuid_is_equal(&SERVER_UUID, &server->uuid))
+		tnt_raise(ClientError, ER_LOCAL_SERVER_UUID_IS_RO);
+
 	server->id = SERVER_ID_NIL;
 	if (server_is_orphan(server)) {
 		serverset_remove(&serverset, server);

@@ -94,32 +94,6 @@
  * R -> M           # remote_stop()
  */
 
-/* {{{ LSN API */
-
-void
-recovery_fill_lsn(struct recovery *r, struct xrow_header *row)
-{
-	if (row->server_id == 0) {
-		/* Local request. */
-		row->server_id = r->server_id;
-		row->lsn = vclock_inc(&r->vclock, r->server_id);
-	} else {
-		/* Replication request. */
-		if (server_id_is_reserved(row->server_id) ||
-		    row->server_id >= VCLOCK_MAX) {
-			/*
-			 * A safety net, this can only occur
-			 * if we're fed a strangely broken xlog.
-			 */
-			tnt_raise(ClientError, ER_UNKNOWN_SERVER,
-				  int2str(row->server_id));
-		}
-		vclock_follow(&r->vclock,  row->server_id, row->lsn);
-	}
-}
-
-/* }}} */
-
 /* {{{ Initial recovery */
 
 /**
@@ -192,14 +166,6 @@ recovery_delete(struct recovery *r)
 	free(r);
 }
 
-void
-recovery_exit(struct recovery *r)
-{
-	/* Avoid fibers, there is no event loop */
-	r->watcher = NULL;
-	recovery_delete(r);
-}
-
 /**
  * Read all rows in a file starting from the last position.
  * Advance the position. If end of file is reached,
@@ -236,6 +202,7 @@ recover_xlog(struct recovery *r, struct xstream *stream, struct xlog *l,
 			if (row.lsn <= current_lsn)
 				continue;
 			xstream_write(stream, &row);
+			vclock_follow(&r->vclock, row.server_id, row.lsn);
 		} catch (ClientError *e) {
 			if (l->dir->panic_if_error)
 				throw;
@@ -350,18 +317,6 @@ recovery_finalize(struct recovery *r, struct xstream *stream)
 	recover_remaining_wals(r, stream, NULL);
 
 	recovery_close_log(r);
-
-	if (vclockset_last(&r->wal_dir.index) != NULL &&
-	    vclock_sum(&r->vclock) ==
-	    vclock_sum(vclockset_last(&r->wal_dir.index))) {
-		/**
-		 * The last log file had zero rows -> bump
-		 * LSN so that we don't stumble over this
-		 * file when trying to open a new xlog
-		 * for writing.
-		 */
-		vclock_inc(&r->vclock, r->server_id);
-	}
 }
 
 

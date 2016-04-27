@@ -231,8 +231,10 @@ relay_subscribe(int fd, uint64_t sync, struct server *server,
 	relay.r = recovery_new(cfg_gets("wal_dir"),
 			       cfg_geti("panic_on_wal_error"),
 			       replica_clock);
-	relay.r->server_id = server->id;
 	relay.wal_dir_rescan_delay = cfg_getd("wal_dir_rescan_delay");
+	/* Filter rows for server->id */
+	vclock_create(&relay.filter);
+	vclock_follow(&relay.filter, server->id, INT64_MAX);
 	server_set_relay(server, &relay);
 
 	auto scope_guard = make_scoped_guard([&]{
@@ -270,10 +272,6 @@ relay_send_final_join_row(struct xstream *stream, struct xrow_header *row)
 {
 	struct relay *relay = container_of(stream, struct relay, stream);
 	assert(iproto_type_is_dml(row->type));
-	struct recovery *r = relay->r;
-
-	vclock_follow(&r->vclock, row->server_id, row->lsn);
-
 	relay_send(relay, row);
 	ERROR_INJECT(ERRINJ_RELAY,
 	{
@@ -288,24 +286,18 @@ relay_send_subscribe_row(struct xstream *stream, struct xrow_header *packet)
 	struct relay *relay = container_of(stream, struct relay, stream);
 	assert(iproto_type_is_dml(packet->type));
 
-	struct recovery *r = relay->r;
-
 	/*
 	 * We're feeding a WAL, thus responding to SUBSCRIBE request.
 	 * In that case, only send a row if it is not from the same server
 	 * (i.e. don't send replica's own rows back).
 	 */
-	if (packet->server_id != r->server_id) {
-		relay_send(relay, packet);
-		ERROR_INJECT(ERRINJ_RELAY,
-		{
-			fiber_sleep(1000.0);
-		});
-	}
-	/*
-	 * Update local vclock. During normal operation wal_write()
-	 * updates local vclock. In relay mode we have to update
-	 * it here.
-	 */
-	vclock_follow(&r->vclock, packet->server_id, packet->lsn);
+	int64_t lsn = vclock_get(&relay->filter, packet->server_id);
+	if (packet->lsn <= lsn)
+		return;
+
+	relay_send(relay, packet);
+	ERROR_INJECT(ERRINJ_RELAY,
+	{
+		fiber_sleep(1000.0);
+	});
 }

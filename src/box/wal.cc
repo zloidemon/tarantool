@@ -35,6 +35,7 @@
 #include "fio.h"
 #include "errinj.h"
 
+#include "txn.h" /* txn->stmts */
 #include "xlog.h"
 #include "xrow.h"
 #include "cbus.h"
@@ -87,6 +88,8 @@ struct wal_writer
 	 * with this LSN and LSN becomes "real".
 	 */
 	struct vclock vclock;
+	/* Server identificator of local server */
+	int32_t server_id;
 	/** Return pipe from 'wal' to tx' */
 	struct cpipe tx_pipe;
 	/** Cached write buffer */
@@ -217,7 +220,8 @@ tx_schedule_rollback(struct cmsg *msg)
 static void
 wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 		  const char *wal_dirname, const struct tt_uuid *server_uuid,
-		  struct vclock *vclock, int64_t rows_per_wal)
+		  uint32_t server_id, struct vclock *vclock,
+		  int64_t rows_per_wal)
 {
 	writer->wal_mode = wal_mode;
 	writer->rows_per_wal = rows_per_wal;
@@ -240,8 +244,21 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 	cmsg_init(&writer->in_rollback, NULL);
 
 	/* Create and fill writer->vclock. */
+	xdir_scan_xc(&writer->wal_dir);
+	if (vclockset_last(&writer->wal_dir.index) != NULL &&
+	    vclock_sum(vclock) ==
+	    vclock_sum(vclockset_last(&writer->wal_dir.index))) {
+		/**
+		 * The last log file had zero rows -> bump
+		 * LSN so that we don't stumble over this
+		 * file when trying to open a new xlog
+		 * for writing.
+		 */
+		vclock_inc(vclock, server_id);
+	}
 	vclock_create(&writer->vclock);
 	vclock_copy(&writer->vclock, vclock);
+	writer->server_id = server_id;
 
 	tt_pthread_mutex_init(&writer->watchers_mutex, NULL);
 	rlist_create(&writer->watchers);
@@ -265,6 +282,22 @@ wal_writer_f(va_list ap);
 static int
 wal_opt_rotate(struct wal_writer *writer);
 
+void
+wal_init(void)
+{
+	struct wal_writer *writer = &wal_writer_singleton;
+
+	memset(writer, 0, sizeof(*writer));
+	writer->wal_mode = WAL_NONE;
+	wal = writer;
+}
+
+void
+wal_set_vclock(struct wal_writer *wal, struct vclock *vclock)
+{
+	vclock_copy(&wal->vclock, vclock);
+}
+
 /**
  * Initialize WAL writer, start the thread.
  *
@@ -279,16 +312,22 @@ wal_opt_rotate(struct wal_writer *writer);
  */
 void
 wal_writer_start(enum wal_mode wal_mode, const char *wal_dirname,
-		 const struct tt_uuid *server_uuid, struct vclock *vclock,
-		 int64_t rows_per_wal)
+		 const struct tt_uuid *server_uuid, uint32_t server_id,
+		 struct vclock *vclock, int64_t rows_per_wal)
 {
 	assert(rows_per_wal > 1);
 
-	struct wal_writer *writer = &wal_writer_singleton;
+	struct wal_writer *writer = wal;
+	if (wal->wal_mode != WAL_NONE)
+		return;
 
 	/* I. Initialize the state. */
 	wal_writer_create(writer, wal_mode, wal_dirname, server_uuid,
-			vclock, rows_per_wal);
+			  server_id, vclock, rows_per_wal);
+
+	wal = writer;
+	if (writer->wal_mode == WAL_NONE)
+		return;
 
 	rmean_tx_wal_bus = writer->tx_wal_bus.stats;
 
@@ -300,7 +339,6 @@ wal_writer_start(enum wal_mode wal_mode, const char *wal_dirname,
 		panic("failed to start WAL thread");
 	}
 	cbus_join(&writer->tx_wal_bus, &writer->tx_pipe);
-	wal = writer;
 }
 
 static void
@@ -315,6 +353,8 @@ void
 wal_writer_stop()
 {
 	struct wal_writer *writer = wal;
+	if (wal->wal_mode == WAL_NONE)
+		return;
 
 	/* Stop the worker thread. */
 	struct cmsg wakeup;
@@ -377,6 +417,11 @@ wal_checkpoint_done_f(struct cmsg *data)
 void
 wal_checkpoint(struct wal_writer *writer, struct vclock *vclock, bool rotate)
 {
+	if (writer->wal_mode == WAL_NONE) {
+		vclock_copy(vclock, &writer->vclock);
+		return;
+	}
+
 	static struct cmsg_hop wal_checkpoint_route[] = {
 		{wal_checkpoint_f, &wal_writer_singleton.tx_pipe},
 		{wal_checkpoint_done_f, NULL},
@@ -502,6 +547,20 @@ static void
 wal_notify_watchers(struct wal_writer *writer);
 
 static void
+wal_fill_row(struct wal_writer *writer, struct xrow_header *row)
+{
+	if (row->server_id == 0) {
+		/* Local request. */
+		row->server_id = writer->server_id;
+		row->lsn = vclock_inc(&writer->vclock, writer->server_id);
+	} else {
+		/* Replication request. */
+		vclock_follow(&writer->vclock, row->server_id, row->lsn);
+	}
+	row->tm = ev_now(loop());
+}
+
+static void
 wal_write_to_disk(struct cmsg *msg)
 {
 	struct wal_writer *writer = wal;
@@ -579,6 +638,9 @@ wal_write_to_disk(struct cmsg *msg)
 				written_bytes += nwr;
 			}
 
+			/* Update internal vclock */
+			wal_fill_row(writer, *row);
+
 			/* Add the statement to iov batch */
 			struct iovec *iov = fio_batch_book(batch, XROW_IOVMAX);
 			assert(iov != NULL); /* checked above */
@@ -588,7 +650,11 @@ wal_write_to_disk(struct cmsg *msg)
 
 		/* Save relative offset of request end */
 		req->end_offset = batched_bytes;
+
+		/* Save current vclock */
+		req->signature = writer->vclock.signature;
 	}
+
 	/* Flush remaining data in batch (if any) */
 	while (fio_batch_size(batch) > 0) {
 		ssize_t nwr = wal_fio_batch_write(batch, fileno(l->f));
@@ -641,14 +707,11 @@ done:
 			break;
 		}
 
-		/* Update internal vclock */
-		vclock_follow(&writer->vclock,
-			      req->rows[req->n_rows - 1]->server_id,
-			      req->rows[req->n_rows - 1]->lsn);
 		/* Update row counter for wal_opt_rotate() */
 		l->rows += req->n_rows;
 		/* Mark request as successful for tx thread */
-		req->res = vclock_sum(&writer->vclock);
+		assert(req->signature > 0);
+		req->res = req->signature;
 	}
 
 	fiber_gc();
@@ -679,8 +742,8 @@ wal_writer_f(va_list ap)
  * WAL writer main entry point: queue a single request
  * to be written to disk and wait until this task is completed.
  */
-int64_t
-wal_write(struct wal_writer *writer, struct wal_request *req)
+static int64_t
+wal_write_request(struct wal_writer *writer, struct wal_request *req)
 {
 	ERROR_INJECT_RETURN(ERRINJ_WAL_IO);
 
@@ -731,12 +794,64 @@ wal_write(struct wal_writer *writer, struct wal_request *req)
 	return req->res;
 }
 
+int64_t
+wal_write(struct wal_writer *writer, struct txn *txn)
+{
+	assert(txn->n_rows > 0);
+
+	if (writer->wal_mode == WAL_NONE) {
+		struct txn_stmt *stmt;
+		stailq_foreach_entry(stmt, &txn->stmts, next) {
+			if (stmt->row == NULL)
+				continue; /* A read (e.g. select) request */
+			wal_fill_row(writer, stmt->row);
+		}
+		return writer->vclock.signature;
+	}
+
+	struct wal_request *req;
+	req = (struct wal_request *)region_aligned_alloc_xc(
+		&fiber()->gc,
+		sizeof(struct wal_request) +
+		         sizeof(req->rows[0]) * txn->n_rows,
+		alignof(struct wal_request));
+	/*
+	 * Note: offsetof(struct wal_request, rows) is more appropriate,
+	 * but compiler warns.
+	 */
+	req->n_rows = 0;
+
+	struct txn_stmt *stmt;
+	stailq_foreach_entry(stmt, &txn->stmts, next) {
+		if (stmt->row == NULL)
+			continue; /* A read (e.g. select) request */
+		req->rows[req->n_rows++] = stmt->row;
+	}
+	assert(req->n_rows == txn->n_rows);
+
+	ev_tstamp start = ev_now(loop()), stop;
+	/*
+	 * TODO: merge wal_write_request into this function and remove
+	 * wal_request and remove this function
+	 */
+	int64_t res = wal_write_request(writer, req);
+
+	stop = ev_now(loop());
+	if (stop - start > too_long_threshold)
+		say_warn("too long WAL write: %.3f sec", stop - start);
+	if (res < 0)
+		tnt_raise(LoggedError, ER_WAL_IO);
+	/*
+	 * Use vclock_sum() from WAL writer as transaction signature.
+	 */
+	return res;
+}
+
 int
 wal_set_watcher(struct wal_writer *writer, struct wal_watcher *watcher,
 		struct ev_async *async)
 {
-
-	if (writer == NULL)
+	if (writer->wal_mode == WAL_NONE)
 		return -1;
 
 	watcher->loop = loop();
@@ -750,7 +865,7 @@ wal_set_watcher(struct wal_writer *writer, struct wal_watcher *watcher,
 void
 wal_clear_watcher(struct wal_writer *writer, struct wal_watcher *watcher)
 {
-	if (writer == NULL)
+	if (writer->wal_mode == WAL_NONE)
 		return;
 
 	tt_pthread_mutex_lock(&writer->watchers_mutex);

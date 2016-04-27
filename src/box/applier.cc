@@ -32,13 +32,13 @@
 
 #include <msgpuck.h>
 
+#include "box.h" /* box_init_done */
 #include "xlog.h"
 #include "fiber.h"
 #include "scoped_guard.h"
 #include "coio.h"
 #include "coio_buf.h"
 #include "xstream.h"
-#include "recovery.h"
 #include "wal.h"
 #include "xrow.h"
 #include "box/cluster.h"
@@ -243,9 +243,9 @@ applier_subscribe(struct applier *applier)
 	struct iobuf *iobuf = applier->iobuf;
 	struct xrow_header row;
 
-	/* TODO: don't use struct recovery here */
-	struct recovery *r = ::recovery;
-	xrow_encode_subscribe(&row, &CLUSTER_UUID, &SERVER_UUID, &r->vclock);
+	struct vclock vclock;
+	wal_checkpoint(wal, &vclock, false);
+	xrow_encode_subscribe(&row, &CLUSTER_UUID, &SERVER_UUID, &vclock);
 	coio_write_xrow(coio, &row);
 	applier_set_state(applier, APPLIER_FOLLOW);
 	/* Re-enable warnings after successful execution of SUBSCRIBE */
@@ -364,7 +364,7 @@ applier_f(va_list ap)
 	while (!fiber_is_cancelled()) {
 		try {
 			applier_connect(applier);
-			if (wal == NULL) {
+			if (!box_init_done) {
 				/*
 				 * Execute JOIN if this is a bootstrap,
 				 * and there is no snapshot. The

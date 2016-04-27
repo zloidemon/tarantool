@@ -48,6 +48,7 @@ struct relay {
 	uint64_t sync;
 	struct recovery *r;
 	struct xstream stream;
+	struct vclock filter;
 	struct vclock stop_vclock;
 	ev_tstamp wal_dir_rescan_delay;
 };

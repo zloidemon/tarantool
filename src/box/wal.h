@@ -48,6 +48,12 @@ extern struct rmean *rmean_tx_wal_bus;
 
 #if defined(__cplusplus)
 
+void
+wal_init(void);
+
+void
+wal_set_vclock(struct wal_writer *wal, struct vclock *vclock);
+
 struct wal_request {
 	struct stailq_entry fifo;
 	/*
@@ -55,6 +61,8 @@ struct wal_request {
 	 * committed transaction, on error is -1
 	 */
 	int64_t res;
+	/* Contains assigned vclock signature (lsn) of transaction */
+	int64_t signature;
 	struct fiber *fiber;
 	/* Relative position of the start of request (used for rollback) */
 	off_t start_offset;
@@ -65,13 +73,12 @@ struct wal_request {
 };
 
 int64_t
-wal_write(struct wal_writer *writer, struct wal_request *req);
-
+wal_write(struct wal_writer *writer, struct txn *txn);
 
 void
 wal_writer_start(enum wal_mode wal_mode, const char *wal_dirname,
-		 const struct tt_uuid *server_uuid, struct vclock *vclock,
-		 int64_t rows_per_wal);
+		 const struct tt_uuid *server_uuid, uint32_t server_id,
+		 struct vclock *vclock, int64_t rows_per_wal);
 
 void
 wal_writer_stop();

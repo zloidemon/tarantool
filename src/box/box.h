@@ -70,6 +70,8 @@ box_is_ro(void);
 extern bool box_snapshot_is_in_progress;
 /** Incremented with each next snapshot. */
 extern uint32_t snapshot_version;
+/* True if box is initialized */
+extern bool box_init_done;
 
 /**
  * Iterate over all spaces and save them to the
