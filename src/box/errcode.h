@@ -171,6 +171,7 @@ struct errcode_record {
 	/*115 */_(ER_SYSTEM, 2, "%s") \
 	/*116 */_(ER_LOADING, 2, "Server bootstrap hasn't finished yet") \
 	/*117 */_(ER_CONNECTION_TO_SELF, 2, "Connection to self") \
+	/*118 */_(ER_TUPLE_TOO_BIG_OFFSET, 2, "Indexed field offset (%ld) is too big (greater than UINT16_MAX)") \
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file

@@ -163,7 +163,8 @@ tuple_format_new(struct rlist *key_list)
 	/* Set up offset slots */
 	if (format->field_count == 0) {
 		/* Nothing to store */
-		format->field_map_size = 0;
+		/* add extra space to store field map size */
+		format->field_map_size = sizeof(uint16_t);
 		return format;
 	}
 	/**
@@ -183,7 +184,10 @@ tuple_format_new(struct rlist *key_list)
 		else
 			format->fields[i].offset_slot = --current_slot;
 	}
-	format->field_map_size = -current_slot * sizeof(uint32_t);
+	format->field_map_size = -current_slot * sizeof(uint16_t);
+	/* add extra space to store field map size */
+	format->field_map_size += sizeof(uint16_t);
+	assert(format->field_map_size <= UINT16_MAX);/* see BOX_INDEX_PART_MAX */
 	return format;
 }
 

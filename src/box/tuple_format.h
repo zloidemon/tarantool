@@ -70,7 +70,7 @@ struct tuple_field_format {
 	 * Due to specific field map in tuple (it is stored before tuple),
 	 * the positions in field map is negative.
 	 * Thus if this member is negative, smth like
-	 * tuple->data[((uint32_t *)tuple)[format->offset_slot[fieldno]]]
+	 * tuple->data[((uint16_t *)tuple)[format->offset_slot[fieldno]]]
 	 * gives the start of the field
 	 */
 	int32_t offset_slot;
@@ -88,7 +88,7 @@ struct tuple_format {
 	uint32_t field_count;
 	/**
 	 * Size of field map of tuple in bytes.
-	 * See tuple_field_format::ofset for details//
+	 * See tuple_field_format::offset for details//
 	 */
 	uint32_t field_map_size;
 

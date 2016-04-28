@@ -286,6 +286,7 @@ t;
 - - 'box.error.CANT_UPDATE_PRIMARY_KEY : 94'
   - 'box.error.EXACT_MATCH : 19'
   - 'box.error.NO_SUCH_TRIGGER : 34'
+  - 'box.error.TUPLE_TOO_BIG_OFFSET : 118'
   - 'box.error.CLUSTER_ID_IS_RO : 65'
   - 'box.error.INDEX_TYPE : 13'
   - 'box.error.CLUSTER_ID_MISMATCH : 63'
@@ -731,4 +732,26 @@ require('log').info('Incorrect password supplied')
 test_run:grep_log("default", "password")
 ---
 - password
+...
+--ER_TUPLE_TOO_BIG_OFFSET
+s = box.schema.create_space('test')
+---
+...
+i = s:create_index('test', {parts = {2, 'num'}})
+---
+...
+#s:insert{string.rep('a', 65536 - 5), 1}
+---
+- 2
+...
+#s:insert{string.rep('a', 65536 - 4), 2}
+---
+- error: Indexed field offset (65536) is too big (greater than UINT16_MAX)
+...
+#s:select{1}
+---
+- 1
+...
+box.space.test:drop()
+---
 ...

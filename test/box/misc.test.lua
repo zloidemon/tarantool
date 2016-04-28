@@ -208,3 +208,11 @@ box.space.test:drop()
 -- test test_run:grep_log()
 require('log').info('Incorrect password supplied')
 test_run:grep_log("default", "password")
+
+--ER_TUPLE_TOO_BIG_OFFSET
+s = box.schema.create_space('test')
+i = s:create_index('test', {parts = {2, 'num'}})
+#s:insert{string.rep('a', 65536 - 5), 1}
+#s:insert{string.rep('a', 65536 - 4), 2}
+#s:select{1}
+box.space.test:drop()

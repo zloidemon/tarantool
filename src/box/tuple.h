@@ -585,10 +585,9 @@ tuple_ptr_field(const struct tuple_format *format,
 			return pos;
 		}
 
-		if (format->fields[i].offset_slot != INT32_MAX) {
-			uint32_t *field_map = (uint32_t *) tuple;
-			int32_t slot = format->fields[i].offset_slot;
-			return data + field_map[slot];
+		if (format->fields[i].offset_slot < 0) {
+			uint16_t *field_map = (uint16_t *) tuple;
+			return data + field_map[format->fields[i].offset_slot];
 		}
 	}
 	ERROR_INJECT(ERRINJ_TUPLE_FIELD, return NULL);

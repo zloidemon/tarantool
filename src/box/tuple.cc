@@ -67,12 +67,15 @@ tuple_id box_tuple_last;
 void
 tuple_init_field_map(struct tuple_format *format, tuple_id tupid)
 {
+	struct tuple *tuple = tuple_ptr(tupid);
+	uint16_t *field_map = (uint16_t *) tuple;
+	assert(format->field_map_size <= UINT16_MAX);
+	field_map[-(int)format->field_map_size / sizeof(field_map[0])] =
+		format->field_map_size;
 	if (format->field_count == 0)
 		return; /* Nothing to initialize */
-	struct tuple *tuple = tuple_ptr(tupid);
 	const char *data = tuple_ptr_data(tuple, format);
 	const char *pos = data;
-	uint32_t *field_map = (uint32_t *) tuple;
 
 	/* Check to see if the tuple has a sufficient number of fields. */
 	uint32_t field_count = mp_decode_array(&pos);
@@ -91,9 +94,12 @@ tuple_init_field_map(struct tuple_format *format, tuple_id tupid)
 		mp_type = mp_typeof(*pos);
 		key_mp_type_validate(format->fields[i].type, mp_type,
 				     ER_FIELD_TYPE, i + INDEX_OFFSET);
-		if (format->fields[i].offset_slot < 0)
-			field_map[format->fields[i].offset_slot] =
-				(uint32_t) (pos - data);
+		if (format->fields[i].offset_slot < 0) {
+			if (pos - data > UINT16_MAX)
+				tnt_raise(ClientError, ER_TUPLE_TOO_BIG_OFFSET,
+					  (long)(pos - data));
+			field_map[format->fields[i].offset_slot] = pos - data;
+		}
 		mp_next(&pos);
 	}
 }
@@ -206,6 +212,7 @@ tuple_ptr_delete(struct tuple *tuple)
 	struct tuple_format *format = tuple_ptr_format(tuple);
 	size_t total = sizeof(struct tuple) + tuple->bsize + format->field_map_size;
 	char *ptr = (char *) tuple - format->field_map_size;
+	assert(*(uint16_t *)ptr == format->field_map_size);
 	tuple_format_ref(format, -1);
 	if (!memtx_alloc.is_delayed_free_mode || tuple->version == snapshot_version)
 		smfree(&memtx_alloc, ptr, total);
