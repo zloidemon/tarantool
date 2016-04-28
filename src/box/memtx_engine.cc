@@ -1099,10 +1099,11 @@ checkpoint_write_tuple(struct xlog *l, uint32_t n, tuple_id tuple,
 	row.type = IPROTO_INSERT;
 
 	row.bodycnt = 2;
+	uint32_t bsize;
 	row.body[0].iov_base = &body;
 	row.body[0].iov_len = sizeof(body);
-	row.body[1].iov_base = (void *)tuple_id_get_data(tuple);
-	row.body[1].iov_len = tuple_id_get_data_size(tuple);
+	row.body[1].iov_base = (void *)tuple_data_range(tuple, &bsize);
+	row.body[1].iov_len = bsize;
 	checkpoint_write_row(l, &row, snap_io_rate_limit);
 }
 

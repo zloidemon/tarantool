@@ -570,7 +570,7 @@ box.schema.index.alter = function(space_id, index_id, options)
 end
 
 -- a static box_tuple_t ** instance for calling box_index_* API
-local ptuple = ffi.new('box_tuple_t [1]')
+local ptuple_id = ffi.new('box_tuple_t [1]')
 
 local function keify(key)
     if key == nil then
@@ -614,10 +614,10 @@ local iterator_gen = function(param, state)
         error('usage: next(param, state)')
     end
     -- next() modifies state in-place
-    if builtin.box_iterator_next(state, ptuple) ~= 0 then
+    if builtin.box_iterator_next(state, ptuple_id) ~= 0 then
         return box.error() -- error
-    elseif ptuple[0] ~= TUPLE_ID_NIL then
-        return state, tuple_bless(ptuple[0]) -- new state, value
+    elseif ptuple_id[0] ~= TUPLE_ID_NIL then
+        return state, tuple_bless(ptuple_id[0]) -- new state, value
     else
         return nil
     end
@@ -697,10 +697,10 @@ function box.schema.space.bless(space)
     index_mt.min_ffi = function(index, key)
         local pkey, pkey_end = tuple_encode(key)
         if builtin.box_index_min(index.space_id, index.id,
-                                 pkey, pkey_end, ptuple) ~= 0 then
+                                 pkey, pkey_end, ptuple_id) ~= 0 then
             box.error() -- error
-        elseif ptuple[0] ~= TUPLE_ID_NIL then
-            return tuple_bless(ptuple[0])
+        elseif ptuple_id[0] ~= TUPLE_ID_NIL then
+            return tuple_bless(ptuple_id[0])
         else
             return
         end
@@ -712,10 +712,10 @@ function box.schema.space.bless(space)
     index_mt.max_ffi = function(index, key)
         local pkey, pkey_end = tuple_encode(key)
         if builtin.box_index_max(index.space_id, index.id,
-                                 pkey, pkey_end, ptuple) ~= 0 then
+                                 pkey, pkey_end, ptuple_id) ~= 0 then
             box.error() -- error
-        elseif ptuple[0] ~= TUPLE_ID_NIL then
-            return tuple_bless(ptuple[0])
+        elseif ptuple_id[0] ~= TUPLE_ID_NIL then
+            return tuple_bless(ptuple_id[0])
         else
             return
         end
@@ -727,10 +727,10 @@ function box.schema.space.bless(space)
     index_mt.random_ffi = function(index, rnd)
         rnd = rnd or math.random()
         if builtin.box_index_random(index.space_id, index.id, rnd,
-                                    ptuple) ~= 0 then
+                                    ptuple_id) ~= 0 then
             box.error() -- error
-        elseif ptuple[0] ~= TUPLE_ID_NIL then
-            return tuple_bless(ptuple[0])
+        elseif ptuple_id[0] ~= TUPLE_ID_NIL then
+            return tuple_bless(ptuple_id[0])
         else
             return
         end
@@ -790,10 +790,10 @@ function box.schema.space.bless(space)
     index_mt.get_ffi = function(index, key)
         local key, key_end = tuple_encode(key)
         if builtin.box_index_get(index.space_id, index.id,
-                                 key, key_end, ptuple) ~= 0 then
+                                 key, key_end, ptuple_id) ~= 0 then
             return box.error() -- error
-        elseif ptuple[0] ~= TUPLE_ID_NIL then
-            return tuple_bless(ptuple[0])
+        elseif ptuple_id[0] ~= TUPLE_ID_NIL then
+            return tuple_bless(ptuple_id[0])
         else
             return
         end

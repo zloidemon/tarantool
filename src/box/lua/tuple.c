@@ -398,7 +398,7 @@ box_lua_tuple_init(struct lua_State *L)
 
 	/* Get CTypeID for `tuple_id' */
 	int rc = luaL_cdef(L, "typedef struct tuple *tuple_id;"
-		"struct tuple_cdata { tuple_id tuple; };");
+		"struct tuple_cdata { tuple_id id; };");
 	assert(rc == 0);
 	(void) rc;
 	CTID_STRUCT_TUPLE_ID = luaL_ctypeid(L, "struct tuple_cdata");

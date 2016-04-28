@@ -114,7 +114,7 @@ key_def_check_tuple(tuple_id tuple, bool *is_166plus)
 {
 	*is_166plus = true;
 	const mp_type common_template[] = {MP_UINT, MP_UINT, MP_STR, MP_STR};
-	const char *data = tuple_id_get_data(tuple);
+	const char *data = tuple_data(tuple);
 	uint32_t field_count = mp_decode_array(&data);
 	const char *field_start = data;
 	if (field_count < 6)

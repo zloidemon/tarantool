@@ -135,11 +135,11 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 	uint32_t field_count = 0;
 	size_t size = sophia_get_parts(key_def, obj, value, valuesize, parts,
 				       &field_count);
-	tuple_id tuple = tuple_alloc(format, size);
-	char *d = (char *)tuple_id_get_data(tuple);
+	char *d;
+	tuple_id tuple = tuple_alloc(format, size, &d);
 	d = mp_encode_array(d, field_count);
 	d = sophia_write_parts(key_def, value, valuesize, parts, d);
-	assert(tuple_id_get_data(tuple) + size == d);
+	assert(tuple_ptr_data(tuple, format) + size == d);
 	try {
 		tuple_init_field_map(format, tuple);
 	} catch (Exception *e) {
@@ -440,9 +440,9 @@ SophiaSpace::executeUpdate(struct txn *txn, struct space *space,
 	space_validate_tuple(space, new_tuple);
 	space_check_update(space, old_tuple, new_tuple);
 
-	index->replace_or_insert(tuple_id_get_data(new_tuple),
-				 tuple_id_get_data_end(new_tuple),
-	                         DUP_REPLACE);
+	uint32_t new_size;
+	const char *new_data = tuple_data_range(new_tuple, &new_size);
+	index->replace_or_insert(new_data, new_data + new_size, DUP_REPLACE);
 	return TUPLE_ID_NIL;
 }
 

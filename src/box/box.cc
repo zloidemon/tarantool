@@ -716,8 +716,8 @@ space_truncate(struct space *space)
 	});
 	index->initIterator(it, ITER_EQ, key_buf, 1);
 	int index_count = 0;
-	struct tuple *indexes[BOX_INDEX_MAX]; /* max count of idexes*/
-	struct tuple *tuple;
+	tuple_id indexes[BOX_INDEX_MAX]; /* max count of idexes*/
+	tuple_id tuple;
 
 	/* select all indexes of given space */
 	auto guard_indexes_unref = make_scoped_guard([=]{
@@ -744,10 +744,10 @@ space_truncate(struct space *space)
 	/* create all indexes again, now they are empty */
 	for (int i = 0; i < index_count; i++) {
 		tuple = indexes[i];
-		if (box_insert(BOX_INDEX_ID, tuple->data,
-			       tuple->data + tuple->bsize, NULL)) {
+		uint32_t bsize;
+		const char *data = tuple_data_range(tuple, &bsize);
+		if (box_insert(BOX_INDEX_ID, data, data + bsize, NULL))
 			diag_raise();
-		}
 	}
 }
 

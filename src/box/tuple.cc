@@ -69,9 +69,9 @@ tuple_init_field_map(struct tuple_format *format, tuple_id tupid)
 {
 	if (format->field_count == 0)
 		return; /* Nothing to initialize */
-	struct tuple *tuple = tuple_id_get(tupid);
-
-	const char *pos = tuple->data;
+	struct tuple *tuple = tuple_ptr(tupid);
+	const char *data = tuple_ptr_data(tuple, format);
+	const char *pos = data;
 	uint32_t *field_map = (uint32_t *) tuple;
 
 	/* Check to see if the tuple has a sufficient number of fields. */
@@ -93,7 +93,7 @@ tuple_init_field_map(struct tuple_format *format, tuple_id tupid)
 				     ER_FIELD_TYPE, i + INDEX_OFFSET);
 		if (format->fields[i].offset_slot < 0)
 			field_map[format->fields[i].offset_slot] =
-				(uint32_t) (pos - tuple->data);
+				(uint32_t) (pos - data);
 		mp_next(&pos);
 	}
 }
@@ -133,8 +133,7 @@ tuple_validate_raw(struct tuple_format *format, const char *data)
 void
 tuple_validate(struct tuple_format *format, tuple_id tupid)
 {
-	struct tuple *tuple = tuple_id_get(tupid);
-	tuple_validate_raw(format, tuple->data);
+	tuple_validate_raw(format, tuple_data(tupid));
 }
 
 /**
@@ -146,9 +145,19 @@ tuple_validate(struct tuple_format *format, tuple_id tupid)
  * to the snapshot file).
  */
 
-/** Allocate a tuple */
+/**
+ * Allocate a tuple
+ * It's similar to tuple_new, but does not set tuple data and thus does not
+ * initialize field offsets.
+ * Sets 'data' pointer to the beginning of msgpack buffer
+ *
+ * After tuple_alloc and filling tuple data the tuple_init_field_map must be
+ * called!
+ *
+ * @param size  tuple->bsize
+ */
 tuple_id
-tuple_alloc(struct tuple_format *format, size_t size)
+tuple_alloc(struct tuple_format *format, size_t size, char **data)
 {
 	size_t total = sizeof(struct tuple) + size + format->field_map_size;
 	ERROR_INJECT(ERRINJ_TUPLE_ALLOC,
@@ -181,9 +190,14 @@ tuple_alloc(struct tuple_format *format, size_t size)
 	tuple_format_ref(format, 1);
 
 	say_debug("tuple_alloc(%zu) = %p", size, tuple);
+	*data = (char *)tuple_ptr_data(tuple, format);
 	return tuple_id_create(tuple);
 }
 
+/**
+ * Free the tuple.
+ * @pre tuple->refs  == 0
+ */
 void
 tuple_ptr_delete(struct tuple *tuple)
 {
@@ -351,12 +365,13 @@ tuple_update(struct tuple_format *format,
 	     const tuple_id old_tupid, const char *expr,
 	     const char *expr_end, int field_base)
 {
-	struct tuple *old_tuple = tuple_id_get(old_tupid);
+	uint32_t old_size;
+	const char *old_data = tuple_data_range(old_tupid, &old_size);
 	uint32_t new_size = 0;
 	const char *new_data =
 		tuple_update_execute(f, alloc_ctx,
-				     expr, expr_end, old_tuple->data,
-				     old_tuple->data + old_tuple->bsize,
+				     expr, expr_end, old_data,
+				     old_data + old_size,
 				     &new_size, field_base);
 
 	return tuple_new(format, new_data, new_data + new_size);
@@ -368,12 +383,12 @@ tuple_upsert(struct tuple_format *format,
 	     const tuple_id old_tupid,
 	     const char *expr, const char *expr_end, int field_base)
 {
-	struct tuple *old_tuple = tuple_id_get(old_tupid);
+	uint32_t old_size;
+	const char *old_data = tuple_data_range(old_tupid, &old_size);
 	uint32_t new_size = 0;
 	const char *new_data =
 		tuple_upsert_execute(region_alloc, alloc_ctx, expr, expr_end,
-				     old_tuple->data,
-				     old_tuple->data + old_tuple->bsize,
+				     old_data, old_data + old_size,
 				     &new_size, field_base);
 
 	return tuple_new(format, new_data, new_data + new_size);
@@ -384,8 +399,9 @@ tuple_new(struct tuple_format *format, const char *data, const char *end)
 {
 	size_t tuple_len = end - data;
 	assert(mp_typeof(*data) == MP_ARRAY);
-	tuple_id new_tuple = tuple_alloc(format, tuple_len);
-	memcpy(tuple_id_get(new_tuple)->data, data, tuple_len);
+	char *new_data;
+	tuple_id new_tuple = tuple_alloc(format, tuple_len, &new_data);
+	memcpy(new_data, data, tuple_len);
 	try {
 		tuple_init_field_map(format, new_tuple);
 	} catch (Exception *e) {
@@ -535,7 +551,7 @@ size_t
 box_tuple_bsize(const box_tuple_t tuple)
 {
 	assert(tuple != TUPLE_ID_NIL);
-	return tuple_id_get(tuple)->bsize;
+	return tuple_ptr(tuple)->bsize;
 }
 
 ssize_t
@@ -549,7 +565,7 @@ box_tuple_format_t *
 box_tuple_format(const box_tuple_t tupid)
 {
 	assert(tupid != TUPLE_ID_NIL);
-	struct tuple *tuple = tuple_id_get(tupid);
+	struct tuple *tuple = tuple_ptr(tupid);
 	return tuple_ptr_format(tuple);
 }
 
@@ -574,9 +590,9 @@ box_tuple_iterator(box_tuple_t tupid)
 		return NULL;
 	}
 
-	struct tuple *tuple = tuple_id_get(tupid);
+	struct tuple *tuple = tuple_ptr(tupid);
 	tuple_ptr_ref(tuple);
-	tuple_ptr_rewind(it, tuple);
+	tuple_ptr_iter_init(it, tuple);
 	return it;
 }
 
@@ -596,7 +612,7 @@ box_tuple_position(box_tuple_iterator_t *it)
 void
 box_tuple_rewind(box_tuple_iterator_t *it)
 {
-	tuple_ptr_rewind(it, it->tuple);
+	tuple_rewind(it);
 }
 
 const char *
