@@ -377,11 +377,21 @@ trntl_cursor_key_fetch(void *self, BtCursor *pCur, u32 *pAmt);
  * Move TarantoolCursor in pCur on next record in index.
  *
  * @param pRes This will be set to 0 if success and 1 if current record
- * 		already if last in index.
+ * 		already is last in index.
  * returns SQLITE_OK if success
  */
 int
 trntl_cursor_next(void *self, BtCursor *pCur, int *pRes);
+
+/**
+ * Move TarantoolCursor in pCur on previous record in index.
+ *
+ * @param pRes This will be set to 0 if success and 1 if current record
+ * 		already is first in index.
+ * returns SQLITE_OK if success
+ */
+int
+trntl_cursor_prev(void * /*self_*/, BtCursor *pCur, int *pRes);
 
 /**
  * Insert data in pKey into space on index of which is pointed Tarantool
@@ -2000,6 +2010,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_data_size = trntl_cursor_data_size;
 	ob->trntl_cursor_data_fetch = trntl_cursor_data_fetch;
 	ob->trntl_cursor_next = trntl_cursor_next;
+	ob->trntl_cursor_prev = trntl_cursor_prev;
 	ob->trntl_cursor_close = trntl_cursor_close;
 	ob->trntl_cursor_count = trntl_cursor_count;
 	ob->check_num_on_tarantool_id = check_num_on_tarantool_id;
@@ -2291,7 +2302,7 @@ trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 	}
 	if (sql_index == NULL) {
 		say_debug("%s(): sql_index not found, space_id = %d, index_id = %d\n", __func_name, space_id, index_id);
-		delete[] c;
+		delete c;
 		delete[] c->key;
 		return SQLITE_ERROR;
 	}
@@ -2357,6 +2368,12 @@ int
 trntl_cursor_next(void * /*self_*/, BtCursor *pCur, int *pRes) {
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
 	return c->cursor.Next(pRes);
+}
+
+int
+trntl_cursor_prev(void * /*self_*/, BtCursor *pCur, int *pRes) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.Previous(pRes);
 }
 
 int trntl_cursor_insert(void * /*self_*/, BtCursor *pCur, const void *pKey,

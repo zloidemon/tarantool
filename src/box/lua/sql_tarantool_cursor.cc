@@ -533,18 +533,16 @@ int TarantoolCursor::MoveToFirst(int *pRes) {
 }
 
 int TarantoolCursor::MoveToLast(int *pRes) {
-	static const char *__func_name = "TarantoolCursor::MoveToLast";
 	if (it) box_iterator_free(it);
+	if (type != ITER_LE) {
+		say_debug("%s(): change iterator type to ITER_LE", __FUNCTION__);
+	}
+	type = ITER_LE;
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
-	int len = box_index_len(space_id, index_id);
-	int rc;
-	for (int i = 0; i < len; ++i) {
-		rc = box_iterator_next(it, &tpl);
-		if (rc) {
-			say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
-			*pRes = 1;
-			tpl = NULL;
-		}
+	int rc = box_iterator_next(it, &tpl);
+	if (rc) {
+		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __FUNCTION__, rc);
+		tpl = NULL;
 	}
 	if (tpl == NULL) {
 		*pRes = 1;
@@ -579,10 +577,34 @@ const void *TarantoolCursor::KeyFetch(u32 *pAmt) {
 
 int TarantoolCursor::Next(int *pRes) {
 	static const char *__func_name = "TarantoolCursor::Next";
-
+	if (type == ITER_LE) {
+		*pRes = 1;
+		return SQLITE_OK;
+	}
 	int rc = box_iterator_next(it, &tpl);
 	if (rc) {
 		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
+		*pRes = 1;
+		return SQLITE_OK;
+	}
+	if (!tpl) {
+		*pRes = 1;
+		return SQLITE_OK;
+	} else {
+		*pRes = 0;
+	}
+	rc = this->make_btree_cell_from_tuple();
+	return SQLITE_OK;
+}
+
+int TarantoolCursor::Previous(int *pRes) {
+	if (type != ITER_LE) {
+		*pRes = 1;
+		return SQLITE_OK;
+	}
+	int rc = box_iterator_next(it, &tpl);
+	if (rc) {
+		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __FUNCTION__, rc);
 		*pRes = 1;
 		return SQLITE_OK;
 	}
@@ -645,7 +667,6 @@ int TarantoolCursor::DeleteCurrent() {
 	rc = box_delete(space_id, index_id, msg_begin, msg_end, NULL);
 	assert(rc == 0);
 	box_iterator_free(it);
-	it = box_index_iterator(space_id, index_id, ITER_ALL, key, key_end);
 	type = ITER_GE;
 	it = box_index_iterator(space_id, index_id, type, msg_begin, msg_end);
 	return rc;
