@@ -35,7 +35,6 @@
 #include "xlog.h"
 #include "vclock.h"
 #include "tt_uuid.h"
-#include "wal.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -45,14 +44,12 @@ struct recovery;
 extern struct recovery *recovery;
 
 struct xrow_header;
-typedef void (apply_row_f)(struct recovery *, void *,
-			   struct xrow_header *packet);
+struct xstream;
 
 struct recovery {
 	struct vclock vclock;
 	/** The WAL we're currently reading/writing from/to. */
 	struct xlog *current_wal;
-	struct xdir snap_dir;
 	struct xdir wal_dir;
 	/**
 	 * This is used in local hot standby or replication
@@ -60,20 +57,12 @@ struct recovery {
 	 * locally or send to the replica.
 	 */
 	struct fiber *watcher;
-	/**
-	 * apply_row is a module callback invoked during initial
-	 * recovery and when reading rows from the master.
-	 */
-	apply_row_f *apply_row;
-	void *apply_row_param;
-	uint64_t snap_io_rate_limit;
-	struct tt_uuid server_uuid;
 	uint32_t server_id;
 };
 
 struct recovery *
-recovery_new(const char *snap_dirname, const char *wal_dirname,
-	     apply_row_f apply_row, void *apply_row_param);
+recovery_new(const char *wal_dirname, bool panic_on_wal_error,
+	     struct vclock *vclock);
 
 void
 recovery_delete(struct recovery *r);
@@ -83,50 +72,49 @@ void
 recovery_exit(struct recovery *r);
 
 void
-recovery_update_io_rate_limit(struct recovery *r, double new_limit);
-
-void
-recovery_setup_panic(struct recovery *r, bool on_snap_error, bool on_wal_error);
-
-static inline bool
-recovery_has_data(struct recovery *r)
-{
-	return vclockset_first(&r->snap_dir.index) != NULL ||
-	       vclockset_first(&r->wal_dir.index) != NULL;
-}
-
-void
-recovery_bootstrap(struct recovery *r);
-
-void
-recover_xlog(struct recovery *r, struct xlog *l);
-
-void
-recovery_follow_local(struct recovery *r, const char *name,
-		      ev_tstamp wal_dir_rescan_delay);
+recovery_follow_local(struct recovery *r, struct xstream *stream,
+		      const char *name, ev_tstamp wal_dir_rescan_delay);
 
 void
 recovery_stop_local(struct recovery *r);
 
 void
-recovery_finalize(struct recovery *r, enum wal_mode mode,
-		  int64_t rows_per_wal);
+recovery_finalize(struct recovery *r, struct xstream *stream);
 
 void
 recovery_fill_lsn(struct recovery *r, struct xrow_header *row);
 
-void
-recovery_apply_row(struct recovery *r, struct xrow_header *packet);
-
-/**
- * Return LSN of the most recent snapshot or -1 if there is
- * no snapshot.
- */
-int64_t
-recovery_last_checkpoint(struct recovery *r);
-
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */
+
+/**
+ * The write ahead log doesn't store the last checkpoint:
+ * it is represented by the last valid snapshot of memtx engine.
+ * This is legacy from the time the entire box was single-engine.
+ *
+ * @param[out] vclock vclock of the last checkpoint
+ * @retval         signature of the last checkpoint, or -1
+ *                 in case of fresh boot
+ *
+ * The function may throw XlogError exception.
+ * It is implemented in memtx_engine.cc
+ */
+int
+recovery_last_checkpoint(struct vclock *vclock);
+
+/**
+ * Find out if there are new .xlog files since the current
+ * vclock, and read them all up.
+ *
+ * Reading will be stopped on reaching stop_vclock.
+ * Use NULL for boundless recover
+ *
+ * This function will not close r->current_wal if
+ * recovery was successful.
+ */
+void
+recover_remaining_wals(struct recovery *r, struct xstream *stream,
+		       struct vclock *stop_vclock);
 
 #endif /* TARANTOOL_RECOVERY_H_INCLUDED */

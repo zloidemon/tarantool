@@ -52,8 +52,8 @@ program was written in Perl, PHP, Python, Go, or Java.
   #include <tarantool/tnt_net.h>` |br|
   #include <tarantool/tnt_opt.h>` |br|
   void main() {` |br|
-     struct tnt_stream *tnt = tnt_net(NULL);            /* SETUP */`
-     tnt_set(tnt, TNT_OPT_URI, "localhost:3301");`
+    struct tnt_stream *tnt = tnt_net(NULL);            /* SETUP */`
+    tnt_set(tnt, TNT_OPT_URI, "localhost:3301");`
      if (tnt_connect(tnt) < 0) {                        /* CONNECT */`
          printf("Connection refused\n");`
          exit(-1);`
@@ -68,7 +68,7 @@ program was written in Perl, PHP, Python, Go, or Java.
      tnt_flush(tnt);                                    /* SEND REQUEST */
      struct tnt_reply reply;  tnt_reply_init(&reply);   /* GET REPLY */
      tnt->read_reply(tnt, &reply);
-  `   if (reply.code != 0) {
+     if (reply.code != 0) {
        printf("Call failed %lu.\n", reply.code);
        exit(-1);
      }

@@ -32,10 +32,10 @@
 
 #include "scoped_guard.h"
 #include "fiber.h"
-#include "bootstrap.h"
 #include "xlog.h"
 #include "xrow.h"
-
+#include "xstream.h"
+#include "wal.h" /* wal_watcher */
 #include "cluster.h"
 #include "session.h"
 
@@ -105,7 +105,8 @@ recovery_fill_lsn(struct recovery *r, struct xrow_header *row)
 		row->lsn = vclock_inc(&r->vclock, r->server_id);
 	} else {
 		/* Replication request. */
-		if (!vclock_has(&r->vclock, row->server_id)) {
+		if (server_id_is_reserved(row->server_id) ||
+		    row->server_id >= VCLOCK_MAX) {
 			/*
 			 * A safety net, this can only occur
 			 * if we're fed a strangely broken xlog.
@@ -117,14 +118,6 @@ recovery_fill_lsn(struct recovery *r, struct xrow_header *row)
 	}
 }
 
-int64_t
-recovery_last_checkpoint(struct recovery *r)
-{
-	/* recover last snapshot lsn */
-	struct vclock *vclock = vclockset_last(&r->snap_dir.index);
-	return vclock ? vclock_sum(vclock) : -1;
-}
-
 /* }}} */
 
 /* {{{ Initial recovery */
@@ -133,8 +126,8 @@ recovery_last_checkpoint(struct recovery *r)
  * Throws an exception in  case of error.
  */
 struct recovery *
-recovery_new(const char *snap_dirname, const char *wal_dirname,
-	     apply_row_f apply_row, void *apply_row_param)
+recovery_new(const char *wal_dirname, bool panic_on_wal_error,
+	     struct vclock *vclock)
 {
 	struct recovery *r = (struct recovery *)
 			calloc(1, sizeof(*r));
@@ -148,17 +141,11 @@ recovery_new(const char *snap_dirname, const char *wal_dirname,
 		free(r);
 	});
 
-	r->apply_row = apply_row;
-	r->apply_row_param = apply_row_param;
-	r->snap_io_rate_limit = UINT64_MAX;
+	xdir_create(&r->wal_dir, wal_dirname, XLOG, &SERVER_UUID);
+	r->wal_dir.panic_if_error = panic_on_wal_error;
 
-	xdir_create(&r->snap_dir, snap_dirname, SNAP, &r->server_uuid);
+	vclock_copy(&r->vclock, vclock);
 
-	xdir_create(&r->wal_dir, wal_dirname, XLOG, &r->server_uuid);
-
-	vclock_create(&r->vclock);
-
-	xdir_scan_xc(&r->snap_dir);
 	/**
 	 * Avoid scanning WAL dir before we recovered
 	 * the snapshot and know server UUID - this will
@@ -172,22 +159,6 @@ recovery_new(const char *snap_dirname, const char *wal_dirname,
 
 	guard.is_active = false;
 	return r;
-}
-
-void
-recovery_update_io_rate_limit(struct recovery *r, double new_limit)
-{
-	r->snap_io_rate_limit = new_limit * 1024 * 1024;
-	if (r->snap_io_rate_limit == 0)
-		r->snap_io_rate_limit = UINT64_MAX;
-}
-
-void
-recovery_setup_panic(struct recovery *r, bool on_snap_error,
-		     bool on_wal_error)
-{
-	r->wal_dir.panic_if_error = on_wal_error;
-	r->snap_dir.panic_if_error = on_snap_error;
 }
 
 static inline void
@@ -210,7 +181,6 @@ recovery_delete(struct recovery *r)
 {
 	recovery_stop_local(r);
 
-	xdir_destroy(&r->snap_dir);
 	xdir_destroy(&r->wal_dir);
 	if (r->current_wal) {
 		/*
@@ -228,26 +198,18 @@ recovery_exit(struct recovery *r)
 	/* Avoid fibers, there is no event loop */
 	r->watcher = NULL;
 	recovery_delete(r);
-	if (wal)
-		wal_writer_stop();
-}
-
-void
-recovery_apply_row(struct recovery *r, struct xrow_header *row)
-{
-	/* Check lsn */
-	int64_t current_lsn = vclock_get(&r->vclock, row->server_id);
-	if (row->lsn > current_lsn)
-		r->apply_row(r, r->apply_row_param, row);
 }
 
 /**
  * Read all rows in a file starting from the last position.
  * Advance the position. If end of file is reached,
  * set l.eof_read.
+ * The reading will be stopped on reaching stop_vclock.
+ * Use NULL for boundless recover
  */
-void
-recover_xlog(struct recovery *r, struct xlog *l)
+static void
+recover_xlog(struct recovery *r, struct xstream *stream, struct xlog *l,
+	     struct vclock *stop_vclock)
 {
 	struct xlog_cursor i;
 
@@ -265,8 +227,15 @@ recover_xlog(struct recovery *r, struct xlog *l)
 	 * when EOF marker has been read, see i.eof_read
 	 */
 	while (xlog_cursor_next_xc(&i, &row) == 0) {
+		if (stop_vclock != NULL &&
+		    r->vclock.signature >= stop_vclock->signature)
+			return;
 		try {
-			recovery_apply_row(r, &row);
+			int64_t current_lsn = vclock_get(&r->vclock,
+							 row.server_id);
+			if (row.lsn <= current_lsn)
+				continue;
+			xstream_write(stream, &row);
 		} catch (ClientError *e) {
 			if (l->dir->panic_if_error)
 				throw;
@@ -274,43 +243,22 @@ recover_xlog(struct recovery *r, struct xlog *l)
 			e->log();
 		}
 	}
-	/**
-	 * We should never try to read snapshots with no EOF
-	 * marker - such snapshots are very likely unfinished
-	 * or corrupted, and should not be trusted.
-	 */
-	if (l->dir->type == SNAP && l->is_inprogress == false &&
-	    i.eof_read == false) {
-		panic("snapshot `%s' has no EOF marker", l->filename);
-	}
-
-}
-
-void
-recovery_bootstrap(struct recovery *r)
-{
-	/* Recover from bootstrap.snap */
-	say_info("initializing an empty data directory");
-	const char *filename = "bootstrap.snap";
-	FILE *f = fmemopen((void *) &bootstrap_bin,
-			   sizeof(bootstrap_bin), "r");
-	struct xlog *snap = xlog_open_stream_xc(&r->snap_dir, 0, f, filename);
-	auto guard = make_scoped_guard([=]{
-		xlog_close(snap);
-	});
-	/** The snapshot must have a EOF marker. */
-	recover_xlog(r, snap);
 }
 
 /**
  * Find out if there are new .xlog files since the current
  * LSN, and read them all up.
  *
+ * Reading will be stopped on reaching recovery
+ * vclock signature > to_checkpoint (after playing to_checkpoint record)
+ * use NULL for boundless recover
+ *
  * This function will not close r->current_wal if
  * recovery was successful.
  */
-static void
-recover_remaining_wals(struct recovery *r)
+void
+recover_remaining_wals(struct recovery *r, struct xstream *stream,
+		       struct vclock *stop_vclock)
 {
 	/*
 	 * Sic: it could be tempting to put xdir_scan() inside
@@ -350,6 +298,10 @@ recover_remaining_wals(struct recovery *r)
 	for (clock = vclockset_match(&r->wal_dir.index, &r->vclock);
 	     clock != NULL;
 	     clock = vclockset_next(&r->wal_dir.index, clock)) {
+		if (stop_vclock != NULL &&
+		    clock->signature >= stop_vclock->signature) {
+			break;
+		}
 
 		if (vclock_compare(clock, &r->vclock) > 0) {
 			/**
@@ -374,7 +326,7 @@ recover_remaining_wals(struct recovery *r)
 
 recover_current_wal:
 		if (r->current_wal->eof_read == false)
-			recover_xlog(r, r->current_wal);
+			recover_xlog(r, stream, r->current_wal, stop_vclock);
 		/**
 		 * Keep the last log open to remember recovery
 		 * position. This speeds up recovery in local hot
@@ -382,17 +334,20 @@ recover_current_wal:
 		 * and re-scan the last log in recovery_finalize().
 		 */
 	}
+
+	if (stop_vclock != NULL && vclock_compare(&r->vclock, stop_vclock) != 0)
+		tnt_raise(XlogGapError, &r->vclock, stop_vclock);
+
 	region_free(&fiber()->gc);
 }
 
 void
-recovery_finalize(struct recovery *r, enum wal_mode wal_mode,
-		  int64_t rows_per_wal)
+recovery_finalize(struct recovery *r, struct xstream *stream)
 {
 	recovery_stop_local(r);
 
 	xdir_scan_xc(&r->wal_dir);
-	recover_remaining_wals(r);
+	recover_remaining_wals(r, stream, NULL);
 
 	recovery_close_log(r);
 
@@ -406,10 +361,6 @@ recovery_finalize(struct recovery *r, enum wal_mode wal_mode,
 		 * for writing.
 		 */
 		vclock_inc(&r->vclock, r->server_id);
-	}
-	if (wal_mode != WAL_NONE) {
-		wal_writer_start(wal_mode, r->wal_dir.dirname,
-				 &r->server_uuid, &r->vclock, rows_per_wal);
 	}
 }
 
@@ -526,6 +477,7 @@ static int
 recovery_follow_f(va_list ap)
 {
 	struct recovery *r = va_arg(ap, struct recovery *);
+	struct xstream *stream = va_arg(ap, struct xstream *);
 	ev_tstamp wal_dir_rescan_delay = va_arg(ap, ev_tstamp);
 	fiber_set_user(fiber(), &admin_credentials);
 
@@ -551,7 +503,7 @@ recovery_follow_f(va_list ap)
 			if (r->current_wal == NULL || r->current_wal->eof_read)
 				xdir_scan_xc(&r->wal_dir);
 
-			recover_remaining_wals(r);
+			recover_remaining_wals(r, stream, NULL);
 
 			end = r->current_wal ? vclock_sum(&r->current_wal->vclock) : 0;
 			/*
@@ -581,15 +533,15 @@ recovery_follow_f(va_list ap)
 }
 
 void
-recovery_follow_local(struct recovery *r, const char *name,
-		      ev_tstamp wal_dir_rescan_delay)
+recovery_follow_local(struct recovery *r, struct xstream *stream,
+		      const char *name, ev_tstamp wal_dir_rescan_delay)
 {
 	/*
 	 * Scan wal_dir and recover all existing at the moment xlogs.
 	 * Blocks until finished.
 	 */
 	xdir_scan_xc(&r->wal_dir);
-	recover_remaining_wals(r);
+	recover_remaining_wals(r, stream, NULL);
 	recovery_close_log(r);
 
 	/*
@@ -598,7 +550,7 @@ recovery_follow_local(struct recovery *r, const char *name,
 	assert(r->watcher == NULL);
 	r->watcher = fiber_new_xc(name, recovery_follow_f);
 	fiber_set_joinable(r->watcher, true);
-	fiber_start(r->watcher, r, wal_dir_rescan_delay);
+	fiber_start(r->watcher, r, stream, wal_dir_rescan_delay);
 }
 
 void

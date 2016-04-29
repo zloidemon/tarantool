@@ -39,6 +39,7 @@
 
 #include "box/applier.h"
 #include "box/recovery.h"
+#include "box/wal.h"
 #include "box/cluster.h"
 #include "main.h"
 #include "box/box.h"
@@ -135,10 +136,16 @@ lbox_info_server(struct lua_State *L)
 	lua_pushinteger(L, recovery->server_id);
 	lua_settable(L, -3);
 	lua_pushliteral(L, "uuid");
-	lua_pushlstring(L, tt_uuid_str(&recovery->server_uuid), UUID_STR_LEN);
+	lua_pushlstring(L, tt_uuid_str(&SERVER_UUID), UUID_STR_LEN);
 	lua_settable(L, -3);
 	lua_pushliteral(L, "lsn");
-	luaL_pushint64(L, vclock_get(&recovery->vclock, recovery->server_id));
+	if (recovery->server_id != SERVER_ID_NIL && wal != NULL) {
+		struct vclock vclock;
+		wal_checkpoint(wal, &vclock, false);
+		luaL_pushint64(L, vclock_get(&vclock, recovery->server_id));
+	} else {
+		luaL_pushint64(L, -1);
+	}
 	lua_settable(L, -3);
 	lua_pushliteral(L, "ro");
 	lua_pushboolean(L, box_is_ro());
@@ -150,7 +157,13 @@ lbox_info_server(struct lua_State *L)
 static int
 lbox_info_vclock(struct lua_State *L)
 {
-	lbox_pushvclock(L, &recovery->vclock);
+	struct vclock vclock;
+	if (wal != NULL) {
+		wal_checkpoint(wal, &vclock, false);
+	} else {
+		vclock_create(&vclock);
+	}
+	lbox_pushvclock(L, &vclock);
 	return 1;
 }
 
@@ -180,7 +193,7 @@ lbox_info_cluster(struct lua_State *L)
 {
 	lua_createtable(L, 0, 2);
 	lua_pushliteral(L, "uuid");
-	lua_pushlstring(L, tt_uuid_str(&cluster_id), UUID_STR_LEN);
+	lua_pushlstring(L, tt_uuid_str(&CLUSTER_UUID), UUID_STR_LEN);
 	lua_settable(L, -3);
 
 	return 1;

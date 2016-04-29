@@ -104,6 +104,8 @@ set (server_sources
      backtrace.cc
      proc_title.c
      coeio_file.c
+     clock.c
+     lua/console.c
      lua/digest.c
      lua/init.c
      lua/fiber.c
@@ -115,7 +117,6 @@ set (server_sources
      lua/socket.c
      lua/pickle.c
      lua/fio.c
-     lua/clock.c
      ${lua_sources}
      ${PROJECT_SOURCE_DIR}/third_party/lua-yaml/lyaml.cc
      ${PROJECT_SOURCE_DIR}/third_party/lua-yaml/b64.c
@@ -138,6 +139,7 @@ set(api_headers
     ${CMAKE_SOURCE_DIR}/src/box/error.h
     ${CMAKE_SOURCE_DIR}/src/box/lua/call.h
     ${CMAKE_SOURCE_DIR}/src/latch.h
+    ${CMAKE_SOURCE_DIR}/src/clock.h
 )
 rebuild_module_api(${api_headers})
 
@@ -147,10 +149,6 @@ if (NOT TARGET_OS_DEBIAN_FREEBSD)
         ${PROJECT_SOURCE_DIR}/src/proc_title.c
         PROPERTIES COMPILE_FLAGS "-DHAVE_SETPROCTITLE")
     endif()
-endif()
-
-if (ENABLE_TRACE)
-    set (server_sources ${server_sources} trace.c)
 endif()
 
 set_source_files_compile_flags(${server_sources})
@@ -206,7 +204,7 @@ add_executable(
 	${LIBUTIL_FREEBSD_SRC}/flopen.c
 	${LIBUTIL_FREEBSD_SRC}/pidfile.c)
 add_dependencies(tarantool build_bundled_libs)
-target_link_libraries(tarantool box ${common_libraries})
+target_link_libraries(tarantool box ${common_libraries} ${OPENSSL_LIBRARIES})
 
 if (TARGET_OS_DARWIN)
     # Necessary to make LuaJIT work on Darwin, see

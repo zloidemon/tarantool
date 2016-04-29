@@ -69,6 +69,13 @@ enum {
 
 #include "error.h"
 #include <stdio.h> /* snprintf */
+#include "space.h"
+#include "latch.h"
+
+/**
+ * Lock of schema modification
+ */
+extern struct latch schema_lock;
 
 extern uint32_t sc_version;
 
@@ -94,9 +101,16 @@ space_name_by_id(uint32_t id);
 static inline struct space *
 space_cache_find(uint32_t id)
 {
-	struct space *space = space_by_id(id);
-	if (space)
+	static uint32_t scv = 0;
+	static struct space *space = NULL;
+	if (scv != sc_version)
+		space = NULL;
+	if (space && space->def.id == id)
 		return space;
+	if ((space = space_by_id(id))) {
+		scv = sc_version;
+		return space;
+	}
 	tnt_raise(ClientError, ER_NO_SUCH_SPACE, int2str(id));
 }
 
@@ -163,7 +177,6 @@ func_by_name(const char *name, uint32_t name_len);
  */
 bool
 schema_find_grants(const char *type, uint32_t id);
-
 #endif /* defined(__cplusplus) */
 
 #endif /* INCLUDES_TARANTOOL_BOX_SCHEMA_H */

@@ -36,7 +36,7 @@
 #include <box/tuple.h>
 #include <box/index.h>
 #include <box/func.h>
-#include <box/sophia_engine.h>
+#include <box/phia_engine.h>
 #include <box/request.h>
 #include <box/port.h>
 #include <box/xrow.h>
@@ -51,8 +51,12 @@
 #include <lib/salad/guava.h>
 #include "latch.h"
 #include <lib/csv/csv.h>
-#include <lua/clock.h>
+#include "clock.h"
 #include "title.h"
+#include "exception.h"
+
+#include <openssl/err.h>
+#include <openssl/evp.h>
 
 /*
  * A special hack to cc/ld to keep symbols in an optimized binary.
@@ -141,4 +145,9 @@ void *ffi_symbols[] = {
 	(void *) title_get_custom,
 	(void *) title_set_status,
 	(void *) title_get_status,
+	(void *) OpenSSL_add_all_digests,
+	(void *) OpenSSL_add_all_ciphers,
+	(void *) ERR_load_crypto_strings,
+	(void *) exception_get_string,
+	(void *) exception_get_int,
 };

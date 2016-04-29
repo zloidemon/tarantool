@@ -323,8 +323,8 @@ the function holds a consistent view of the database until the UPDATE ends.
 For the combination “UPDATE plus SELECT” the view is not consistent,
 because after the UPDATE the transaction processor thread can switch
 to another fiber, and delete the tuple that was just updated.
-Note re storage engine: sophia handles yields differently, see
-:ref:`differences between memtx and sophia <sophia_diff>`.
+Note re storage engine: phia handles yields differently, see
+:ref:`differences between memtx and phia <phia_diff>`.
 Note re multi-request transactions: there is a way to delay yields,
 see :ref:`Atomic execution <atomic_execution>`.
 
@@ -472,7 +472,7 @@ tuples (often called "Field#1"), which is assumed to be numeric.
 
 These variations exist: |br|
 (1) A indexed field may be a string rather than a number. |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{parts={1,'STR'}})` |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{parts = {1, 'STR'}})` |br|
 For an ordinary index, the two possible data types are 'NUM'
 = numeric = any positive integer, or 'STR' ='string' = any
 series of bytes. Numbers are ordered
@@ -482,16 +482,16 @@ encoding of the first byte then the encoding of the second
 byte then the encoding of the third byte and so on -- so
 '2345' is less than '500'. |br|
 (2) There may be more than one field. |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{parts={3,'NUM',2,'STR'}})` |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {parts = {3, 'NUM', 2, 'STR'}})` |br|
 For an ordinary index, the maximum number of parts is 255.
-The specification of each part consists of a field number
-and a type. |br|
+The specification of each part consists of a field number and
+a type. |br|
 (3) The index does not have to be unique. |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{unique=false})` |br|
-The first index of a tuple set must be unique, but
-other indexes ("secondary" indexes) may be non-unique. |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {unique=false})` |br|
+The first index of a tuple set must be unique, but other indexes ("secondary"
+indexes) may be non-unique. |br|
 (4) The index does not have to be a tree. |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{type='hash'})` |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {type='hash'})` |br|
 The two ordinary index types are 'tree' which is the default,
 and 'hash' which must be unique and which may be faster or
 smaller. The third type is 'bitset' which is not unique and
@@ -499,48 +499,46 @@ which works best for combinations of binary values.
 The fourth type is 'rtree' which is not unique and
 which, instead of 'STR' or 'NUM' values, works with arrays.
 
-The existence of indexes does not affect the syntax of
-data-change requests, but does cause select requests to
-have more variety.
+The existence of indexes does not affect the syntax of data-change requests, but
+does cause select requests to have more variety.
 
 The simple select request which has been illustrated before is: |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select(value)` |br|
+:samp:`box.space.{space-name}:select(value)` |br|
 By default, this looks for a single tuple
 via the first index. Since the first index is always unique,
 the maximum number of returned tuples will be: one.
 
-These variations exist. |br|
+These variations exist: |br|
 (1) The search can use comparisons other than equality. |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select('value',{iterator='GT'})` |br|
-The comparison operators are LT LE EQ REQ GE GT for
-"less than" "less than or equal" "equal" "reversed
-equal" "greater than
-or equal" "greater than" respectively.
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select('value', {iterator='GT'})` |br|
+The comparison operators are LT LE EQ REQ REQ GE GT for
+"less than" "less than or equal" " "reversed
+equal" "greater than or equal" "greater than" respectively.
 Comparisons make sense if and only if the index type
 is 'tree'.
 This type of search may return more than one tuple;
 if so, the tuples will be in descending order by key
 when the comparison operator is LT or LE or REQ,
-otherwise in ascending order.
-Note re storage engines: sophia does not allow REQ. |br|
+otherwise in ascending order. |br|
+Note re storage engines: phia does not allow REQ. |br|
 (2) The search can use a secondary index. |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`.index.`:codeitalic:`index-name`:codenormal:`:select('value')` |br|
+:samp:`box.space.{space-name}.index.{index-name}:select('value')` |br|
 For a primary-key search, it is optional to specify
-and index name. For a secondary-key search, it is
-mandatory. |br|
+an index name. For a secondary-key search, it is mandatory. |br|
 (3) The search may be for some or all key parts. |br|
-Suppose an index  has two parts: {1,'NUM', 2, 'STR'}}.
-Suppose the space has three tuples: {1,'A'},{1,'B'},{2,''}.
+Suppose an index has two parts: {1,'NUM', 2, 'STR'}.
+Suppose the space has three tuples: {1, 'A'},{1, 'B'},{2, ''}.
 The search can be for all fields, using a table for the value: |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select({1,'A'})` |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select({1, 'A'})` |br|
 or the search can be for one field, using a table or a scalar: |br|
-:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select(1)` |br|
-... in the second case, the result will be two tuples:
-{1,'A'} and {1,'B'}. It's even possible to specify zero
-fields, causing all three tuples to be returned.
-Note re storage engines: sophia requires that all fields, or none, be specified.
+:samp:`box.space.{space-name}:select(1)` |br|
+in the second case, the result will be two tuples:
+{1, 'A'} and {1, 'B'}. It's even possible to specify zero
+fields, causing all three tuples to be
+returned.
+Note re storage engines: phia requires that all fields, or none, be specified.
 
-(1) BITSET example |br|
+(1) BITSET example: |br|
 :codenormal:`box.schema.space.create('bitset_example')` |br|
 :codenormal:`box.space.bitset_example:create_index('primary')` |br|
 :codenormal:`box.space.bitset_example:create_index('bitset',{unique=false,type='BITSET', parts={2,'NUM'}})` |br|
@@ -573,7 +571,6 @@ because a rectangle whose corners are at coordinates
 4,7,5,9 is entirely within a rectangle whose corners
 are at coordinates 3,5,9,10. Searches on RTREE indexes
 can be for GT, GE, LT, LE, OVERLAPS, or NEIGHBOR.
-
 
 .. _box-library:
 
@@ -639,26 +636,26 @@ introspection (inspecting contents of spaces, accessing server configuration).
 In the discussion of each data-manipulation function there will be a note about
 which Complexity Factors might affect the function's resource usage.
 
+.. _two-storage-engines:
+
 =====================================================================
-            The two storage engines: memtx and sophia
+            The two storage engines: memtx and phia
 =====================================================================
 
 A storage engine is a set of very-low-level routines which actually store and
 retrieve tuple values. Tarantool offers a choice of two storage engines: memtx
-(the in-memory storage engine) and sophia (the on-disk storage engine).
-To specify that the engine should be sophia, add a clause: ``engine = 'sophia'``.
+(the in-memory storage engine) and phia (the on-disk storage engine).
+To specify that the engine should be phia, add a clause: ``engine = 'phia'``.
 The manual concentrates on memtx because it is the default and has been around
-longer. But sophia is a working key-value engine and will especially appeal to
+longer. But phia is a working key-value engine and will especially appeal to
 users who like to see data go directly to disk, so that recovery time might be
 shorter and database size might be larger. For architectural explanations and
-benchmarks, see `sphia.org`_ and Appendix E: :ref:`sophia <sophia>`.
-On the other hand, sophia lacks some functions and
+benchmarks, see Appendix E: :ref:`phia <phia>`.
+On the other hand, phia lacks some functions and
 options that are available with memtx. Where that is the case, the relevant
 description will contain a note beginning with the words
-"Note re storage engine: sophia". The end of this chapter has coverage
-for all :ref:`the differences between memtx and sophia <sophia_diff>`.
-
-.. _sphia.org: http://sphia.org
+"Note re storage engine: phia". The end of this chapter has coverage
+for all :ref:`the differences between memtx and phia <phia_diff>`.
 
 =====================================================================
                         Library Reference
@@ -678,6 +675,6 @@ for all :ref:`the differences between memtx and sophia <sophia_diff>`.
     authentication
     triggers
     limitations
-    sophia_diff
+    phia_diff
 
 

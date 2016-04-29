@@ -164,7 +164,7 @@ struct key_opts {
 	char distancebuf[16];
 	enum rtree_index_distance_type distance;
 	/**
-	 * Sophia index options.
+	 * Phia index options.
 	 */
 	char path[PATH_MAX];
 	char compression[16];
@@ -176,6 +176,7 @@ struct key_opts {
 	uint32_t mmap;
 	uint32_t amqf;
 	uint32_t read_oldest;
+	uint32_t expire;
 };
 
 extern const struct key_opts key_opts_default;

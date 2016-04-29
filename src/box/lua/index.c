@@ -29,7 +29,6 @@
  * SUCH DAMAGE.
  */
 #include "box/lua/index.h"
-
 #include "lua/utils.h"
 #include "box/box.h"
 #include "box/index.h"
@@ -77,7 +76,8 @@ static int
 lbox_index_update(lua_State *L)
 {
 	if (lua_gettop(L) != 4 || !lua_isnumber(L, 1) || !lua_isnumber(L, 2) ||
-	    lua_type(L, 3) != LUA_TTABLE || lua_type(L, 4) != LUA_TTABLE)
+	    (lua_type(L, 3) != LUA_TTABLE && lua_istuple(L, 3) == NULL) ||
+	    (lua_type(L, 4) != LUA_TTABLE && lua_istuple(L, 4) == NULL))
 		return luaL_error(L, "Usage index:update(key, ops)");
 
 	uint32_t space_id = lua_tointeger(L, 1);
@@ -98,7 +98,8 @@ static int
 lbox_index_upsert(lua_State *L)
 {
 	if (lua_gettop(L) != 4 || !lua_isnumber(L, 1) || !lua_isnumber(L, 2) ||
-	    lua_type(L, 3) != LUA_TTABLE || lua_type(L, 4) != LUA_TTABLE)
+	    (lua_type(L, 3) != LUA_TTABLE && lua_istuple(L, 3) == NULL) ||
+	    (lua_type(L, 4) != LUA_TTABLE && lua_istuple(L, 4) == NULL))
 		return luaL_error(L, "Usage index:upsert(tuple_key, ops)");
 
 	uint32_t space_id = lua_tointeger(L, 1);
@@ -119,7 +120,7 @@ static int
 lbox_index_delete(lua_State *L)
 {
 	if (lua_gettop(L) != 3 || !lua_isnumber(L, 1) || !lua_isnumber(L, 2) ||
-	    lua_type(L, 3) != LUA_TTABLE)
+	    (lua_type(L, 3) != LUA_TTABLE && lua_istuple(L, 3) == NULL))
 		return luaL_error(L, "Usage space:delete(key)");
 
 	uint32_t space_id = lua_tointeger(L, 1);
@@ -282,6 +283,20 @@ lbox_iterator_next(lua_State *L)
 	return lbox_pushtupleornil(L, tuple);
 }
 
+/** Truncate a given space */
+static int
+lbox_truncate(struct lua_State *L)
+{
+	if (lua_gettop(L) != 1 || lua_type(L, -1) != LUA_TTABLE)
+		return luaL_error(L, "usage: index:truncate()");
+	lua_getfield(L, -1, "id"); /* stack: id */
+	uint32_t space_id = lua_tointeger(L, -1); /* get id */
+	lua_pop(L, 1);
+	if (box_truncate(space_id) != 0)
+		return lbox_error(L);
+	return 0;
+}
+
 /* }}} */
 
 void
@@ -316,6 +331,7 @@ box_lua_index_init(struct lua_State *L)
 		{"count", lbox_index_count},
 		{"iterator", lbox_index_iterator},
 		{"iterator_next", lbox_iterator_next},
+		{"truncate", lbox_truncate},
 		{NULL, NULL}
 	};
 

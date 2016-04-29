@@ -94,6 +94,7 @@ local function remote_eval(self, line)
         self.remote = nil
         self.eval = nil
         self.prompt = nil
+        self.completion = nil
         return ""
     end
     --
@@ -123,7 +124,10 @@ local function local_read(self)
     local prompt = self.prompt
     while true do
         local delim = self.delimiter
-        local line = internal.readline(prompt.. "> ")
+        local line = internal.readline({
+            prompt = prompt.. "> ",
+            completion = self.ac and self.completion or nil
+        })
         if not line then
             return nil
         end
@@ -207,6 +211,8 @@ local repl_mt = {
         read = local_read;
         eval = local_eval;
         print = local_print;
+        completion = internal.completion_handler;
+        ac = true;
     };
 }
 
@@ -259,6 +265,17 @@ local function delimiter(delim)
     else
         error('invalid delimiter')
     end
+end
+
+--
+--
+--
+local function ac(yes_no)
+    local self = fiber.self().storage.console
+    if self == nil then
+        error("console.ac(): need existing console")
+    end
+    self.ac = not not yes_no
 end
 
 --
@@ -319,6 +336,7 @@ local function connect(uri)
     self.remote = remote
     self.eval = remote_eval
     self.prompt = string.format("%s:%s", self.remote.host, self.remote.port)
+    self.completion = function () end -- no completion for remote console
     log.info("connected to %s:%s", self.remote.host, self.remote.port)
     return true
 end
@@ -368,6 +386,7 @@ return {
     start = start;
     eval = eval;
     delimiter = delimiter;
+    ac = ac;
     connect = connect;
     listen = listen;
     on_start = on_start;

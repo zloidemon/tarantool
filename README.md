@@ -47,8 +47,11 @@ CMake is used for configuration management.
 
 The build depends on the following external libraries:
 
-- libreadline and libreadline-dev
-- GNU bfd (part of GNU binutils).
+- Readline development files (libreadline-dev/readline-devel package).
+- OpenSSL development files (libssl-dev/openssl-devel package).
+- libyaml (libyaml-dev/libyaml-devel package).
+- liblz4 (liblz4-dev/lz4-devel package).
+- GNU bfd which is the part of GNU binutils (binutils-dev/binutils-devel package).
 
 Please follow these steps to compile Tarantool:
 

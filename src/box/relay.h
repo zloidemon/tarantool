@@ -32,9 +32,10 @@
  */
 #include "evio.h"
 #include "fiber.h"
+#include "vclock.h"
+#include "xstream.h"
 
 struct server;
-struct vclock;
 struct tt_uuid;
 
 /** State of a replication relay. */
@@ -46,19 +47,29 @@ struct relay {
 	/* Request sync */
 	uint64_t sync;
 	struct recovery *r;
+	struct xstream stream;
+	struct vclock stop_vclock;
 	ev_tstamp wal_dir_rescan_delay;
 };
 
 /**
- * Send an initial snapshot to the replica
+ * Send initial JOIN rows to the replica
  *
  * @param fd        client connection
  * @param sync      sync from incoming JOIN request
- * @param uuid      server UUID of replica
- * @param[out] join_vclock vclock of initial snapshot
  */
 void
-relay_join(int fd, uint64_t sync, struct vclock *join_vclock);
+relay_initial_join(int fd, uint64_t sync);
+
+/**
+ * Send final JOIN rows to the replica.
+ *
+ * @param fd        client connection
+ * @param sync      sync from incoming JOIN request
+ */
+void
+relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
+	         struct vclock *stop_vclock);
 
 /**
  * Subscribe a replica to updates.
@@ -69,8 +80,4 @@ void
 relay_subscribe(int fd, uint64_t sync, struct server *server,
 		struct vclock *server_vclock);
 
-void
-relay_send(struct relay *relay, struct xrow_header *packet);
-
 #endif /* TARANTOOL_REPLICATION_RELAY_H_INCLUDED */
-

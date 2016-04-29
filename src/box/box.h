@@ -67,7 +67,7 @@ bool
 box_is_ro(void);
 
 /** True if snapshot is in progress. */
-extern bool snapshot_in_progress;
+extern bool box_snapshot_is_in_progress;
 /** Incremented with each next snapshot. */
 extern uint32_t snapshot_version;
 
@@ -83,7 +83,7 @@ int box_snapshot(void);
 const char *box_status(void);
 
 void
-box_process_auth(struct request *request);
+box_process_auth(struct request *request, struct obuf *out);
 
 void
 box_process_call(struct request *request, struct obuf *out);
@@ -269,6 +269,14 @@ API_EXPORT int
 box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 	   const char *tuple_end, const char *ops, const char *ops_end,
 	   int index_base, box_tuple_t **result);
+
+/**
+ * Truncate space.
+ *
+ * \param space_id space identifier
+ */
+API_EXPORT int
+box_truncate(uint32_t space_id);
 
 /** \endcond public */
 

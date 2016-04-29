@@ -70,6 +70,8 @@ check_symbol_exists(O_DSYNC fcntl.h HAVE_O_DSYNC)
 check_symbol_exists(fdatasync unistd.h HAVE_FDATASYNC)
 check_symbol_exists(pthread_yield pthread.h HAVE_PTHREAD_YIELD)
 check_symbol_exists(sched_yield sched.h HAVE_SCHED_YIELD)
+check_symbol_exists(posix_fadvise fcntl.h HAVE_POSIX_FADVISE)
+check_symbol_exists(mremap sys/mman.h HAVE_MREMAP)
 
 check_function_exists(memmem HAVE_MEMMEM)
 check_function_exists(memrchr HAVE_MEMRCHR)
@@ -258,9 +260,6 @@ if (IS_DIRECTORY ${PROJECT_SOURCE_DIR}/doc/sphinx)
     option(ENABLE_DOC "Enable building of documentation" OFF)
 endif ()
 
-option(ENABLE_TRACE "Enable debug trace of tarantool_box execution to
-a file specified in TARANTOOL_TRACE environment variable" ON)
-
 
 ##
 ## Third-Party libraries
@@ -373,19 +372,56 @@ else()
 endif()
 
 #
+# LZ4
+#
+
+option(ENABLE_BUNDLED_LZ4 "Enable building of the bundled LZ4" ON)
+if (ENABLE_BUNDLED_LZ4)
+    add_library(lz4 STATIC
+        third_party/lz4/lib/lz4.c
+        third_party/lz4/lib/lz4frame.c
+        third_party/lz4/lib/lz4hc.c
+        third_party/lz4/lib/xxhash.c
+    )
+    set(LZ4_LIBRARIES lz4)
+    set(LZ4_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lz4/lib)
+    find_package_message(LZ4 "Using bundled LZ4"
+        "${LZ4_LIBRARIES}:${LZ4_INCLUDE_DIRS}")
+    add_dependencies(build_bundled_libs lz4)
+else()
+    set(LZ4_FIND_REQUIRED ON)
+    find_package(LZ4)
+endif()
+
+#
+# zstd
+#
+
+# Debian: missing zstd_static.h in libzstd-dev
+# Fedora: not found
+# => always use bundled version
+include(BuildZSTD)
+zstd_build()
+
+#
+# OpenSSL
+#
+
+find_package(OpenSSL)
+if (OPENSSL_FOUND)
+    message(STATUS "OpenSSL ${OPENSSL_VERSION} found")
+    include_directories(${OPENSSL_INCLUDE_DIR})
+else()
+    message(FATAL_ERROR "Could NOT find OpenSSL development files (libssl-dev/openssl-devel package)")
+endif()
+
+#
 # Third-Party misc
 #
 
 include(BuildMisc)
 libmisc_build()
 add_dependencies(build_bundled_libs misc)
-
-#
-# Sophia
-#
-
-include(BuildSophia)
-sophia_build()
 
 #
 # LibSQLite
@@ -433,7 +469,7 @@ endif()
 # tarantool info summary (used in server version output)
 #
 set(TARANTOOL_OPTIONS "-DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}")
-set(TARANTOOL_OPTIONS "${TARANTOOL_OPTIONS} -DENABLE_TRACE=${ENABLE_TRACE} -DENABLE_BACKTRACE=${ENABLE_BACKTRACE}")
+set(TARANTOOL_OPTIONS "${TARANTOOL_OPTIONS} -DENABLE_BACKTRACE=${ENABLE_BACKTRACE}")
 set(TARANTOOL_BUILD "${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_BUILD_TYPE}")
 set(TARANTOOL_C_COMPILER ${CMAKE_C_COMPILER})
 set(TARANTOOL_CXX_COMPILER ${CMAKE_CXX_COMPILER})
@@ -451,7 +487,7 @@ message (STATUS "")
 set(PREFIX ${CMAKE_INSTALL_PREFIX})
 set(options VERSION BUILD C_COMPILER CXX_COMPILER C_FLAGS CXX_FLAGS PREFIX
     ENABLE_SSE2 ENABLE_AVX
-    ENABLE_GCOV ENABLE_GPROF ENABLE_VALGRIND ENABLE_TRACE
+    ENABLE_GCOV ENABLE_GPROF ENABLE_VALGRIND
     ENABLE_BACKTRACE
     ENABLE_DOC
     ENABLE_DIST

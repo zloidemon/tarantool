@@ -46,11 +46,6 @@
 #include "session.h" /* to fetch the current user. */
 #include "vclock.h" /* VCLOCK_MAX */
 
-/**
- * Lock of scheme modification
- */
-struct latch schema_lock = LATCH_INITIALIZER(schema_lock);
-
 /** _space columns */
 #define ID               0
 #define UID              1
@@ -1156,15 +1151,12 @@ AddIndex::alter(struct alter_space *alter)
 	/* Build the new index. */
 	struct tuple *tuple;
 	struct tuple_format *format = alter->new_space->format;
-	char *field_map = ((char *) region_alloc_xc(&fiber()->gc,
-						    format->field_map_size) +
-			   format->field_map_size);
 	while ((tuple = it->next(it))) {
 		/*
 		 * Check that the tuple is OK according to the
 		 * new format.
 		 */
-		tuple_init_field_map(format, tuple, (uint32_t *) field_map);
+		tuple_validate(format, tuple);
 		/*
 		 * @todo: better message if there is a duplicate.
 		 */
@@ -1970,7 +1962,7 @@ on_replace_dd_schema(struct trigger * /* trigger */, void *event)
 		if (new_tuple == NULL)
 			tnt_raise(ClientError, ER_CLUSTER_ID_IS_RO);
 		tt_uuid uu = tuple_field_uuid(new_tuple, 1);
-		cluster_id = uu;
+		CLUSTER_UUID = uu;
 	}
 }
 

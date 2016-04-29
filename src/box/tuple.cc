@@ -30,23 +30,10 @@
  */
 #include "tuple.h"
 
-#include <stdio.h>
-
 #include "small/small.h"
-#include "small/mempool.h"
 #include "small/quota.h"
 
-#include "key_def.h"
-#include "tuple_update.h"
-#include "errinj.h"
 #include "fiber.h"
-
-/** Global table of tuple formats */
-struct tuple_format **tuple_formats;
-struct tuple_format *tuple_format_ber;
-static intptr_t recycled_format_ids = FORMAT_ID_NIL;
-
-static uint32_t formats_size, formats_capacity;
 
 uint32_t snapshot_version;
 
@@ -73,171 +60,18 @@ static struct mempool tuple_iterator_pool;
  */
 struct tuple *box_tuple_last;
 
-/** Extract all available type info from keys. */
-void
-field_type_create(enum field_type *types, uint32_t field_count,
-		  struct rlist *key_list)
-{
-	/* There may be fields between indexed fields (gaps). */
-	memset(types, 0, sizeof(*types) * field_count);
-
-	struct key_def *key_def;
-	/* extract field type info */
-	rlist_foreach_entry(key_def, key_list, link) {
-		struct key_part *part = key_def->parts;
-		struct key_part *pend = part + key_def->part_count;
-		for (; part < pend; part++) {
-			enum field_type *ptype = &types[part->fieldno];
-			if (*ptype != UNKNOWN && *ptype != part->type) {
-				tnt_raise(ClientError,
-					  ER_FIELD_TYPE_MISMATCH,
-					  key_def->name,
-					  part - key_def->parts + INDEX_OFFSET,
-					  field_type_strs[part->type],
-					  field_type_strs[*ptype]);
-			}
-			*ptype = part->type;
-		}
-	}
-}
-
-void
-tuple_format_register(struct tuple_format *format)
-{
-	if (recycled_format_ids != FORMAT_ID_NIL) {
-
-		format->id = (uint16_t) recycled_format_ids;
-		recycled_format_ids = (intptr_t) tuple_formats[recycled_format_ids];
-	} else {
-		if (formats_size == formats_capacity) {
-			uint32_t new_capacity = formats_capacity ?
-				formats_capacity * 2 : 16;
-			struct tuple_format **formats;
-			formats = (struct tuple_format **)
-				realloc(tuple_formats, new_capacity *
-					sizeof(tuple_formats[0]));
-			if (formats == NULL)
-				tnt_raise(OutOfMemory,
-					  sizeof(struct tuple_format),
-					  "malloc", "tuple_formats");
-
-			formats_capacity = new_capacity;
-			tuple_formats = formats;
-		}
-		if (formats_size == FORMAT_ID_MAX + 1) {
-			tnt_raise(LoggedError, ER_TUPLE_FORMAT_LIMIT,
-				  (unsigned) formats_capacity);
-		}
-		format->id = formats_size++;
-	}
-	tuple_formats[format->id] = format;
-}
-
-void
-tuple_format_deregister(struct tuple_format *format)
-{
-	if (format->id == FORMAT_ID_NIL)
-		return;
-	tuple_formats[format->id] = (struct tuple_format *) recycled_format_ids;
-	recycled_format_ids = format->id;
-	format->id = FORMAT_ID_NIL;
-}
-
-static struct tuple_format *
-tuple_format_alloc(struct rlist *key_list)
-{
-	struct key_def *key_def;
-	uint32_t max_fieldno = 0;
-	uint32_t key_count = 0;
-
-	/* find max max field no */
-	rlist_foreach_entry(key_def, key_list, link) {
-		struct key_part *part = key_def->parts;
-		struct key_part *pend = part + key_def->part_count;
-		key_count++;
-		for (; part < pend; part++)
-			max_fieldno = MAX(max_fieldno, part->fieldno);
-	}
-	uint32_t field_count = key_count > 0 ? max_fieldno + 1 : 0;
-
-	uint32_t total = sizeof(struct tuple_format) +
-		field_count * sizeof(int32_t) +
-		field_count * sizeof(enum field_type);
-
-	struct tuple_format *format = (struct tuple_format *) malloc(total);
-
-	if (format == NULL) {
-		tnt_raise(OutOfMemory, sizeof(struct tuple_format),
-			  "malloc", "tuple format");
-	}
-
-	format->refs = 0;
-	format->id = FORMAT_ID_NIL;
-	format->max_fieldno = max_fieldno;
-	format->field_count = field_count;
-	format->types = (enum field_type *)
-		((char *) format + sizeof(*format) +
-		field_count * sizeof(int32_t));
-	return format;
-}
-
-void
-tuple_format_delete(struct tuple_format *format)
-{
-	tuple_format_deregister(format);
-	free(format);
-}
-
-struct tuple_format *
-tuple_format_new(struct rlist *key_list)
-{
-	struct tuple_format *format = tuple_format_alloc(key_list);
-
-	try {
-		tuple_format_register(format);
-		field_type_create(format->types, format->field_count,
-				  key_list);
-	} catch (Exception *e) {
-		tuple_format_delete(format);
-		throw;
-	}
-
-	uint32_t i = 0;
-	int j = 0;
-	for (; i < format->max_fieldno; i++) {
-		/*
-		 * In the tuple, store only offsets necessary to
-		 * quickly access indexed fields. Start from
-		 * field 1, not field 0, field 0 offset is 0.
-		 */
-		if (format->types[i + 1] == UNKNOWN)
-			format->offset[i] = INT32_MIN;
-		else
-			format->offset[i] = --j;
-	}
-	if (format->field_count > 0) {
-		/*
-		 * The last offset is always there and is unused,
-		 * to simplify the loop in tuple_init_field_map()
-		 */
-		format->offset[format->field_count - 1] = INT32_MIN;
-	}
-	format->field_map_size = -j * sizeof(uint32_t);
-	return format;
-}
-
 /*
  * Validate a new tuple format and initialize tuple-local
  * format data.
  */
 void
-tuple_init_field_map(struct tuple_format *format, struct tuple *tuple,
-		     uint32_t *field_map)
+tuple_init_field_map(struct tuple_format *format, struct tuple *tuple)
 {
 	if (format->field_count == 0)
 		return; /* Nothing to initialize */
 
 	const char *pos = tuple->data;
+	uint32_t *field_map = (uint32_t *) tuple;
 
 	/* Check to see if the tuple has a sufficient number of fields. */
 	uint32_t field_count = mp_decode_array(&pos);
@@ -246,21 +80,20 @@ tuple_init_field_map(struct tuple_format *format, struct tuple *tuple,
 			  (unsigned) field_count,
 			  (unsigned) format->field_count);
 
-	int32_t *offset = format->offset;
-	enum field_type *type = format->types;
-	enum field_type *type_end = format->types + format->field_count;
-	uint32_t i = 0;
-
-	for (; type < type_end; offset++, type++, i++) {
-		const char *d = pos;
-		enum mp_type mp_type = mp_typeof(*pos);
+	/* first field is simply accessible, so we do not store offset to it */
+	enum mp_type mp_type = mp_typeof(*pos);
+	key_mp_type_validate(format->fields[0].type, mp_type,
+			     ER_FIELD_TYPE, INDEX_OFFSET);
+	mp_next(&pos);
+	/* other fields...*/
+	for (uint32_t i = 1; i < format->field_count; i++) {
+		mp_type = mp_typeof(*pos);
+		key_mp_type_validate(format->fields[i].type, mp_type,
+				     ER_FIELD_TYPE, i + INDEX_OFFSET);
+		if (format->fields[i].offset_slot < 0)
+			field_map[format->fields[i].offset_slot] =
+				(uint32_t) (pos - tuple->data);
 		mp_next(&pos);
-
-		key_mp_type_validate(*type, mp_type, ER_FIELD_TYPE,
-				     i + INDEX_OFFSET);
-
-		if (*offset < 0 && *offset != INT32_MIN)
-			field_map[*offset] = d - tuple->data;
 	}
 }
 
@@ -285,13 +118,21 @@ tuple_validate_raw(struct tuple_format *format, const char *data)
 			  (unsigned) format->field_count);
 
 	/* Check field types */
-	enum field_type *type = format->types;
-	enum field_type *type_end = format->types + format->field_count;
-	for (uint32_t i = 0; type < type_end; type++, i++) {
-		key_mp_type_validate(*type, mp_typeof(*data),
+	for (uint32_t i = 0; i < format->field_count; i++) {
+		key_mp_type_validate(format->fields[i].type, mp_typeof(*data),
 				     ER_FIELD_TYPE, i + INDEX_OFFSET);
 		mp_next(&data);
 	}
+}
+
+/**
+ * Check tuple data correspondence to space format;
+ * throw proper exception if smth wrong.
+ */
+void
+tuple_validate(struct tuple_format *format, struct tuple *tuple)
+{
+	tuple_validate_raw(format, tuple->data);
 }
 
 /**
@@ -404,9 +245,9 @@ tuple_next_u32(struct tuple_iterator *it);
 const char *
 tuple_field_to_cstr(const char *field, uint32_t len)
 {
-	enum { MAX_STR_BUFS = 3, MAX_BUF_LEN = 256 };
+	enum { MAX_STR_BUFS = 4, MAX_BUF_LEN = 256 };
 	static __thread char bufs[MAX_STR_BUFS][MAX_BUF_LEN];
-	static __thread int i = 0;
+	static __thread unsigned i = 0;
 	char *buf = bufs[i];
 	i = (i + 1) % MAX_STR_BUFS;
 	len = MIN(len, MAX_BUF_LEN - 1);
@@ -448,24 +289,6 @@ tuple_field_cstr(struct tuple *tuple, uint32_t i)
 	uint32_t len = 0;
 	const char *str = mp_decode_str(&field, &len);
 	return tuple_field_to_cstr(str, len);
-}
-
-struct tuple *
-tuple_bless(struct tuple_format *format,
-	    const char *new_data, size_t new_size)
-{
-	/* Allocate a new tuple. */
-	assert(mp_typeof(*new_data) == MP_ARRAY);
-	struct tuple *new_tuple = tuple_new(format, new_data,
-					    new_data + new_size);
-
-	try {
-		tuple_init_field_map(format, new_tuple, (uint32_t *)new_tuple);
-	} catch (Exception *e) {
-		tuple_delete(new_tuple);
-		throw;
-	}
-	return new_tuple;
 }
 
 /**
@@ -544,7 +367,7 @@ tuple_update(struct tuple_format *format,
 				     old_tuple->data + old_tuple->bsize,
 				     &new_size, field_base);
 
-	return tuple_bless(format, new_data, new_size);
+	return tuple_new(format, new_data, new_data + new_size);
 }
 
 struct tuple *
@@ -554,14 +377,13 @@ tuple_upsert(struct tuple_format *format,
 	     const char *expr, const char *expr_end, int field_base)
 {
 	uint32_t new_size = 0;
-
 	const char *new_data =
 		tuple_upsert_execute(region_alloc, alloc_ctx, expr, expr_end,
 				     old_tuple->data,
 				     old_tuple->data + old_tuple->bsize,
 				     &new_size, field_base);
 
-	return tuple_bless(format, new_data, new_size);
+	return tuple_new(format, new_data, new_data + new_size);
 }
 
 struct tuple *
@@ -572,7 +394,7 @@ tuple_new(struct tuple_format *format, const char *data, const char *end)
 	struct tuple *new_tuple = tuple_alloc(format, tuple_len);
 	memcpy(new_tuple->data, data, tuple_len);
 	try {
-		tuple_init_field_map(format, new_tuple, (uint32_t *)new_tuple);
+		tuple_init_field_map(format, new_tuple);
 	} catch (Exception *e) {
 		tuple_delete(new_tuple);
 		throw;
@@ -689,10 +511,7 @@ void
 tuple_init(float tuple_arena_max_size, uint32_t objsize_min,
 	   uint32_t objsize_max, float alloc_factor)
 {
-	RLIST_HEAD(empty_list);
-	tuple_format_ber = tuple_format_new(&empty_list);
-	/* Make sure this one stays around. */
-	tuple_format_ref(tuple_format_ber, 1);
+	tuple_format_init();
 
 	/* Apply lowest allowed objsize bounds */
 	if (objsize_min < OBJSIZE_MIN)
@@ -743,18 +562,7 @@ tuple_free()
 
 	mempool_destroy(&tuple_iterator_pool);
 
-	/* Clear recycled ids. */
-	while (recycled_format_ids != FORMAT_ID_NIL) {
-
-		uint16_t id = (uint16_t) recycled_format_ids;
-		recycled_format_ids = (intptr_t) tuple_formats[id];
-		tuple_formats[id] = NULL;
-	}
-	for (struct tuple_format **format = tuple_formats;
-	     format < tuple_formats + formats_size;
-	     format++)
-		free(*format); /* ignore the reference count. */
-	free(tuple_formats);
+	tuple_format_free();
 }
 
 void
@@ -796,7 +604,7 @@ double mp_decode_num(const char **data, uint32_t i)
 box_tuple_format_t *
 box_tuple_format_default(void)
 {
-	return tuple_format_ber;
+	return tuple_format_default;
 }
 
 box_tuple_t *
@@ -917,7 +725,7 @@ box_tuple_update(const box_tuple_t *tuple, const char *expr, const char *expr_en
 {
 	try {
 		RegionGuard region_guard(&fiber()->gc);
-		struct tuple *new_tuple = tuple_update(tuple_format_ber,
+		struct tuple *new_tuple = tuple_update(tuple_format_default,
 			region_aligned_alloc_xc_cb, &fiber()->gc, tuple,
 			expr, expr_end, 1);
 		return tuple_bless(new_tuple);
@@ -931,7 +739,7 @@ box_tuple_upsert(const box_tuple_t *tuple, const char *expr, const char *expr_en
 {
 	try {
 		RegionGuard region_guard(&fiber()->gc);
-		struct tuple *new_tuple = tuple_upsert(tuple_format_ber,
+		struct tuple *new_tuple = tuple_upsert(tuple_format_default,
 			region_aligned_alloc_xc_cb, &fiber()->gc, tuple,
 			expr, expr_end, 1);
 		return tuple_bless(new_tuple);

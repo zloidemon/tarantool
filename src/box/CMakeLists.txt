@@ -1,6 +1,5 @@
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/box/lua)
 
-include_directories(${SOPHIA_INCLUDE_DIRS})
 include_directories(${LIBSQLITE_INCLUDE_DIR})
 
 set(lua_sources)
@@ -11,6 +10,7 @@ lua_source(lua_sources lua/session.lua)
 lua_source(lua_sources lua/snapshot_daemon.lua)
 lua_source(lua_sources lua/net_box.lua)
 lua_source(lua_sources lua/sql.lua)
+lua_source(lua_sources lua/upgrade.lua)
 set(bin_sources)
 bin_source(bin_sources bootstrap.snap bootstrap.h)
 
@@ -18,6 +18,8 @@ add_custom_target(box_generate_lua_sources
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src/box
     DEPENDS ${lua_sources})
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${lua_sources})
+
+include_directories(${LZ4_INCLUDE_DIRS} ${ZSTD_INCLUDE_DIRS})
 
 add_library(box STATIC
     iproto.cc
@@ -28,6 +30,7 @@ add_library(box STATIC
     xrow.cc
     xrow_io.cc
     xlog.cc
+    tuple_format.cc
     tuple.cc
     tuple_convert.cc
     tuple_update.cc
@@ -43,8 +46,10 @@ add_library(box STATIC
     memtx_engine.cc
     sysview_engine.cc
     sysview_index.cc
-    sophia_engine.cc
-    sophia_index.cc
+    phia_engine.cc
+    phia_space.cc
+    phia_index.cc
+    phia.c
     space.cc
     func.cc
     alter.cc
@@ -74,7 +79,7 @@ add_library(box STATIC
     lua/misc.cc
     lua/info.c
     lua/stat.c
-    lua/sophia.c
+    lua/phia.c
     lua/error.cc
     lua/session.c
     lua/net_box.c
@@ -84,5 +89,5 @@ add_library(box STATIC
     lua/space_iterator.cc
     ${bin_sources})
 
+target_link_libraries(box ${LZ4_LIBRARIES} ${ZSTD_LIBRARIES} trnsqlite)
 add_dependencies(box build_bundled_libs)
-target_link_libraries(box ${SOPHIA_LIBRARIES} trnsqlite)

@@ -33,40 +33,38 @@
 #include "scoped_guard.h"
 
 #include "recovery.h"
-#include "xlog.h"
 #include "iproto_constants.h"
 #include "engine.h"
 #include "cluster.h"
 #include "vclock.h"
 #include "xrow.h"
-#include "coeio.h"
 #include "coio.h"
 #include "cfg.h"
 #include "trigger.h"
 #include "errinj.h"
 #include "xrow_io.h"
 
-void
-relay_send_row(struct recovery *r, void *param, struct xrow_header *packet);
+static void
+relay_send_initial_join_row(struct xstream *stream, struct xrow_header *row);
+static void
+relay_send_final_join_row(struct xstream *stream, struct xrow_header *packet);
+static void
+relay_send_subscribe_row(struct xstream *stream, struct xrow_header *row);
 
 static inline void
-relay_create(struct relay *relay, int fd, uint64_t sync)
+relay_create(struct relay *relay, int fd, uint64_t sync,
+	     void (*stream_write)(struct xstream *, struct xrow_header *))
 {
 	memset(relay, 0, sizeof(*relay));
-	relay->r = recovery_new(cfg_gets("snap_dir"), cfg_gets("wal_dir"),
-			 relay_send_row, relay);
-	recovery_setup_panic(relay->r, cfg_geti("panic_on_snap_error"),
-			     cfg_geti("panic_on_wal_error"));
-
+	xstream_create(&relay->stream, stream_write);
 	coio_init(&relay->io, fd);
 	relay->sync = sync;
-	relay->wal_dir_rescan_delay = cfg_getd("wal_dir_rescan_delay");
 }
 
 static inline void
 relay_destroy(struct relay *relay)
 {
-	recovery_delete(relay->r);
+	(void) relay;
 }
 
 static inline void
@@ -82,34 +80,64 @@ relay_set_cord_name(int fd)
 }
 
 int
-relay_join_f(va_list ap)
+relay_initial_join_f(va_list ap)
 {
 	struct relay *relay = va_arg(ap, struct relay *);
-
 	relay_set_cord_name(relay->io.fd);
 
 	/* Send snapshot */
-	engine_join(relay);
+	assert(relay->stream.write != NULL);
+	engine_join(&relay->stream);
 
-	say_info("snapshot sent");
 	return 0;
 }
 
 void
-relay_join(int fd, uint64_t sync, struct vclock *join_vclock)
+relay_initial_join(int fd, uint64_t sync)
 {
 	struct relay relay;
-	relay_create(&relay, fd, sync);
+	relay_create(&relay, fd, sync, relay_send_initial_join_row);
 	auto scope_guard = make_scoped_guard([&]{
 		relay_destroy(&relay);
 	});
-	struct recovery *r = relay.r;
 
-	cord_costart(&relay.cord, "join", relay_join_f, &relay);
+	cord_costart(&relay.cord, "initial_join", relay_initial_join_f, &relay);
 	cord_cojoin(&relay.cord);
 	diag_raise();
+}
 
-	vclock_copy(join_vclock, vclockset_last(&r->snap_dir.index));
+int
+relay_final_join_f(va_list ap)
+{
+	struct relay *relay = va_arg(ap, struct relay *);
+	relay_set_cord_name(relay->io.fd);
+
+	/* Send all WALs until stop_vclock */
+	assert(relay->stream.write != NULL);
+	xdir_scan_xc(&relay->r->wal_dir);
+	recover_remaining_wals(relay->r, &relay->stream, &relay->stop_vclock);
+	assert(vclock_compare(&relay->r->vclock, &relay->stop_vclock) == 0);
+	return 0;
+}
+
+void
+relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
+	         struct vclock *stop_vclock)
+{
+	struct relay relay;
+	relay_create(&relay, fd, sync, relay_send_final_join_row);
+	relay.r = recovery_new(cfg_gets("wal_dir"),
+			       cfg_geti("panic_on_wal_error"),
+			       start_vclock);
+	vclock_copy(&relay.stop_vclock, stop_vclock);
+	auto scope_guard = make_scoped_guard([&]{
+		recovery_delete(relay.r);
+		relay_destroy(&relay);
+	});
+
+	cord_costart(&relay.cord, "final_join", relay_final_join_f, &relay);
+	cord_cojoin(&relay.cord);
+	diag_raise();
 }
 
 static void
@@ -129,8 +157,9 @@ relay_subscribe_f(va_list ap)
 	struct relay *relay = va_arg(ap, struct relay *);
 	struct recovery *r = relay->r;
 
+	relay->stream.write = relay_send_subscribe_row;
 	relay_set_cord_name(relay->io.fd);
-	recovery_follow_local(r, fiber_name(fiber()),
+	recovery_follow_local(r, &relay->stream, fiber_name(fiber()),
 			      relay->wal_dir_rescan_delay);
 
 	/*
@@ -198,17 +227,19 @@ relay_subscribe(int fd, uint64_t sync, struct server *server,
 	}
 
 	struct relay relay;
-	relay_create(&relay, fd, sync);
+	relay_create(&relay, fd, sync, relay_send_subscribe_row);
+	relay.r = recovery_new(cfg_gets("wal_dir"),
+			       cfg_geti("panic_on_wal_error"),
+			       replica_clock);
+	relay.r->server_id = server->id;
+	relay.wal_dir_rescan_delay = cfg_getd("wal_dir_rescan_delay");
 	server_set_relay(server, &relay);
+
 	auto scope_guard = make_scoped_guard([&]{
 		server_clear_relay(server);
+		recovery_delete(relay.r);
 		relay_destroy(&relay);
 	});
-
-	struct recovery *r = relay.r;
-	r->server_id = server->id;
-	/* Initialize the relay with replica's current clock. */
-	vclock_copy(&r->vclock, replica_clock);
 
 	struct cord cord;
 	cord_costart(&cord, "subscribe", relay_subscribe_f, &relay);
@@ -216,29 +247,55 @@ relay_subscribe(int fd, uint64_t sync, struct server *server,
 	diag_raise();
 }
 
-void
+static void
 relay_send(struct relay *relay, struct xrow_header *packet)
 {
 	packet->sync = relay->sync;
 	coio_write_xrow(&relay->io, packet);
 }
 
-/** Send a single row to the client. */
-void
-relay_send_row(struct recovery *r, void *param, struct xrow_header *packet)
+static void
+relay_send_initial_join_row(struct xstream *stream, struct xrow_header *row)
 {
-	struct relay *relay = (struct relay *) param;
+	struct relay *relay = container_of(stream, struct relay, stream);
+	relay_send(relay, row);
+	ERROR_INJECT(ERRINJ_RELAY,
+	{
+		fiber_sleep(1000.0);
+	});
+}
+
+static void
+relay_send_final_join_row(struct xstream *stream, struct xrow_header *row)
+{
+	struct relay *relay = container_of(stream, struct relay, stream);
+	assert(iproto_type_is_dml(row->type));
+	struct recovery *r = relay->r;
+
+	vclock_follow(&r->vclock, row->server_id, row->lsn);
+
+	relay_send(relay, row);
+	ERROR_INJECT(ERRINJ_RELAY,
+	{
+		fiber_sleep(1000.0);
+	});
+}
+
+/** Send a single row to the client. */
+static void
+relay_send_subscribe_row(struct xstream *stream, struct xrow_header *packet)
+{
+	struct relay *relay = container_of(stream, struct relay, stream);
 	assert(iproto_type_is_dml(packet->type));
 
+	struct recovery *r = relay->r;
+
 	/*
-	 * If packet->server_id == 0 this is a snapshot packet.
-	 * (JOIN request). In this case, send every row.
-	 * Otherwise, we're feeding a WAL, thus responding to
-	 * SUBSCRIBE request. In that case, only send a row if
-	 * it is not from the same server (i.e. don't send
-	 * replica's own rows back).
+	 * We're feeding a WAL, thus responding to SUBSCRIBE request.
+	 * In that case, only send a row if it is not from the same server
+	 * (i.e. don't send replica's own rows back).
 	 */
-	if (packet->server_id == 0 || packet->server_id != r->server_id) {
+	if (packet->server_id != r->server_id) {
 		relay_send(relay, packet);
 		ERROR_INJECT(ERRINJ_RELAY,
 		{

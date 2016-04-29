@@ -1,5 +1,5 @@
 TAP version 13
-1..34
+1..36
 ok - box is not started
 ok - invalid replication_source
 ok - invalid wal_mode
@@ -9,7 +9,7 @@ ok - invalid logger
 ok - invalid logger
 ok - box is not started
 ok - exception on unconfigured box
-ok - sophia_dir is not auto-created
+ok - phia_dir is not auto-created
 ok - configured box
 ok - wal_mode default value
 ok - panic_on_wal_mode default value
@@ -27,10 +27,12 @@ ok - wal_mode fsync -> fsync
 ok - wal_mode fsync -> write is not supported
 ok - wal_mode write -> fsync is not supported
 ok - work_dir is invalid
-ok - sophia_dir is invalid
+ok - phia_dir is invalid
 ok - snap_dir is invalid
 ok - wal_dir is invalid
 ok - logger_nonblock default value
 ok - logger_nonblock new value
 ok - dynamic listen
 ok - dynamic listen
+ok - reuse unix socket
+ok - delete socket at exit

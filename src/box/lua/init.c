@@ -47,7 +47,7 @@
 #include "box/lua/space.h"
 #include "box/lua/misc.h"
 #include "box/lua/stat.h"
-#include "box/lua/sophia.h"
+#include "box/lua/phia.h"
 #include "box/lua/info.h"
 #include "box/lua/session.h"
 #include "box/lua/net_box.h"
@@ -56,19 +56,21 @@
 
 
 extern char session_lua[],
-	schema_lua[],
 	tuple_lua[],
+	schema_lua[],
 	load_cfg_lua[],
 	snapshot_daemon_lua[],
-	net_box_lua[];
+	net_box_lua[],
+	upgrade_lua[];
 
 static const char *lua_sources[] = {
 	"box/session", session_lua,
-	"box/schema", schema_lua,
 	"box/tuple", tuple_lua,
+	"box/schema", schema_lua,
 	"box/snapshot_daemon", snapshot_daemon_lua,
-	"box/load_cfg", load_cfg_lua,
+	"box/upgrade", upgrade_lua,
 	"box/net_box", net_box_lua,
+	"box/load_cfg", load_cfg_lua,
 	NULL
 };
 
@@ -118,7 +120,7 @@ box_lua_init(struct lua_State *L)
 	box_lua_misc_init(L);
 	box_lua_info_init(L);
 	box_lua_stat_init(L);
-	box_lua_sophia_init(L);
+	box_lua_phia_init(L);
 	box_lua_session_init(L);
 	box_lua_sqlite_init(L);
 	luaopen_net_box(L);

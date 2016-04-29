@@ -78,8 +78,8 @@ update_last_stack_frame(struct fiber *fiber)
 static void
 fiber_recycle(struct fiber *fiber);
 
-void
-fiber_call(struct fiber *callee)
+static void
+fiber_call_impl(struct fiber *callee)
 {
 	struct fiber *caller = fiber();
 	struct cord *cord = cord();
@@ -97,18 +97,22 @@ fiber_call(struct fiber *callee)
 	 * removed. */
 	assert(rlist_empty(&callee->state));
 
-	assert(cord->call_stack_depth < FIBER_CALL_STACK);
 	assert(caller);
 	assert(caller != callee);
 
-	cord->call_stack_depth++;
 	cord->fiber = callee;
-	callee->caller = caller;
 
 	update_last_stack_frame(caller);
 
 	callee->csw++;
 	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
+}
+
+void
+fiber_call(struct fiber *callee)
+{
+	callee->caller = fiber();
+	fiber_call_impl(callee);
 }
 
 void
@@ -122,32 +126,41 @@ fiber_start(struct fiber *callee, ...)
 bool
 fiber_checkstack()
 {
-	if (cord()->call_stack_depth + 1 >= FIBER_CALL_STACK)
-		return true;
 	return false;
 }
 
-/** Interrupt a synchronous wait of a fiber inside the event loop.
+/**
+ * Interrupt a synchronous wait of a fiber inside the event loop.
  * We do so by keeping an "async" event in every fiber, solely
  * for this purpose, and raising this event here.
+ *
+ * @note: if this is sent to self, followed by a fiber_yield()
+ * call, it simply reschedules the fiber after other ready
+ * fibers in the same event loop iteration.
  */
-
 void
 fiber_wakeup(struct fiber *f)
 {
-	/** Remove the fiber from whatever wait list it is on. */
-	rlist_del(&f->state);
 	struct cord *cord = cord();
 	if (rlist_empty(&cord->ready)) {
 		/*
-		 * ev_feed_event() is possibly faster,
-		 * but EV_CUSTOM event gets scheduled in the
-		 * same event loop iteration, which can
-		 * produce unfair scheduling, (see the case of
-		 * fiber_sleep(0))
+		 * ev_feed_event(EV_CUSTOM) gets scheduled in the
+		 * same event loop iteration, and we rely on this
+		 * for quick scheduling. For a wakeup which
+		 * actually can invoke a poll() in libev,
+		 * use fiber_sleep(0)
 		 */
 		ev_feed_event(cord->loop, &cord->wakeup_event, EV_CUSTOM);
 	}
+	/**
+	 * Removes the fiber from whatever wait list it is on.
+	 *
+	 * It's critical that the newly scheduled fiber is
+	 * added to the tail of the list, to preserve correct
+	 * transaction commit order after a successful WAL write.
+	 * (see tx_schedule_commit()/tx_schedule_rollback() in
+	 * box/wal.cc)
+	 */
 	rlist_move_tail_entry(&cord->ready, f, state);
 }
 
@@ -273,7 +286,6 @@ fiber_yield(void)
 	struct cord *cord = cord();
 	struct fiber *caller = cord->fiber;
 	struct fiber *callee = caller->caller;
-	cord->call_stack_depth--;
 	caller->caller = &cord->sched;
 
 	/** By convention, these triggers must not throw. */
@@ -324,7 +336,7 @@ fiber_yield_timeout(ev_tstamp delay)
 }
 
 /**
- * @note: this is a cancellation point (@sa fiber_testcancel())
+ * Yield the current fiber to events in the event loop.
  */
 void
 fiber_sleep(double delay)
@@ -332,9 +344,9 @@ fiber_sleep(double delay)
 	/*
 	 * libev sleeps at least backend_mintime, which is 1 ms in
 	 * case of poll()/Linux, unless there are idle watchers.
-	 * This is a special hack to speed up fiber_sleep(0),
-	 * i.e. a sleep with a zero timeout, to ensure that there
-	 * is no 1 ms delay in case of zero sleep timeout.
+	 * So, to properly implement fiber_sleep(0), i.e. a sleep
+	 * with a zero timeout, we set up an idle watcher, and
+	 * it triggers libev to poll() with zero timeout.
 	 */
 	if (delay == 0) {
 		ev_idle_start(loop(), &cord()->idle_event);
@@ -357,26 +369,25 @@ fiber_schedule_cb(ev_loop *loop, ev_watcher *watcher, int revents)
 	(void) revents;
 	struct fiber *fiber = watcher->data;
 	assert(fiber() == &cord()->sched);
-	/*
-	 * Assert the fiber will not be scheduled twice because
-	 * it's also on the 'ready' list.
-	 */
-	assert(rlist_empty(&fiber->state));
-	fiber_call(fiber);
+	fiber_wakeup(fiber);
 }
 
 static inline void
 fiber_schedule_list(struct rlist *list)
 {
-	/** Don't schedule both lists at the same time. */
-	struct rlist copy;
-	rlist_create(&copy);
-	rlist_swap(list, &copy);
-	while (! rlist_empty(&copy)) {
-		struct fiber *f;
-		f = rlist_shift_entry(&copy, struct fiber, state);
-		fiber_call(f);
+	struct fiber *first;
+	struct fiber *last;
+
+	assert(! rlist_empty(list));
+
+	first = last = rlist_shift_entry(list, struct fiber, state);
+
+	while (! rlist_empty(list)) {
+		last->caller = rlist_shift_entry(list, struct fiber, state);
+		last = last->caller;
 	}
+	last->caller = fiber();
+	fiber_call_impl(first);
 }
 
 static void
@@ -638,7 +649,6 @@ cord_init(const char *name)
 	cord->fiber_registry = mh_i32ptr_new();
 
 	/* sched fiber is not present in alive/ready/dead list. */
-	cord->call_stack_depth = 0;
 	cord->sched.fid = 1;
 	fiber_reset(&cord->sched);
 	diag_create(&cord->sched.diag);
@@ -647,9 +657,12 @@ cord_init(const char *name)
 	cord->fiber = &cord->sched;
 
 	cord->max_fid = 100;
-
+	/*
+	 * No need to start this event since it's only used for
+	 * ev_feed_event(). Saves a few cycles on every
+	 * event loop iteration.
+	 */
 	ev_async_init(&cord->wakeup_event, fiber_schedule_wakeup);
-	ev_async_start(cord->loop, &cord->wakeup_event);
 
 	ev_idle_init(&cord->idle_event, fiber_schedule_idle);
 	cord_set_name(name);

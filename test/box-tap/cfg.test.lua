@@ -4,7 +4,7 @@ local tap = require('tap')
 local test = tap.test('cfg')
 local socket = require('socket')
 local fio = require('fio')
-test:plan(34)
+test:plan(36)
 
 --------------------------------------------------------------------------------
 -- Invalid values
@@ -40,15 +40,15 @@ local status, result = pcall(testfun)
 test:ok(not status and result:match('Please call box.cfg{}'),
     'exception on unconfigured box')
 
-os.execute("rm -rf sophia")
+os.execute("rm -rf phia")
 box.cfg{
     logger="tarantool.log",
     slab_alloc_arena=0.1,
     wal_mode = "", -- "" means default value
 }
 
--- gh-678: sophia engine creates sophia dir with empty 'snapshot' file
-test:isnil(io.open("sophia", 'r'), 'sophia_dir is not auto-created')
+-- gh-678: phia engine creates phia dir with empty 'snapshot' file
+test:isnil(io.open("phia", 'r'), 'phia_dir is not auto-created')
 
 status, result = pcall(testfun)
 test:ok(status and result == 'table', 'configured box')
@@ -134,8 +134,8 @@ local code;
 code = [[ box.cfg{ work_dir='invalid' } ]]
 test:is(run_script(code), PANIC, 'work_dir is invalid')
 
-code = [[ box.cfg{ sophia_dir='invalid' } ]]
-test:is(run_script(code), PANIC, 'sophia_dir is invalid')
+code = [[ box.cfg{ phia_dir='invalid' } ]]
+test:is(run_script(code), PANIC, 'phia_dir is invalid')
 
 code = [[ box.cfg{ snap_dir='invalid' } ]]
 test:is(run_script(code), PANIC, 'snap_dir is invalid')
@@ -154,7 +154,7 @@ test:is(run_script(code), 0, "logger_nonblock new value")
 local path = './tarantool.sock'
 os.remove(path)
 box.cfg{ listen = 'unix/:'..path }
-s = socket.tcp_connect('unix/', path)
+local s = socket.tcp_connect('unix/', path)
 test:isnt(s, nil, "dynamic listen")
 if s then s:close() end
 box.cfg{ listen = '' }
@@ -162,6 +162,22 @@ s = socket.tcp_connect('unix/', path)
 test:isnil(s, 'dynamic listen')
 if s then s:close() end
 os.remove(path)
+
+path = './tarantool.sock'
+local path2 = './tarantool2.sock'
+local s = socket.tcp_server('unix/', path, function () end)
+os.execute('ln ' .. path .. ' ' .. path2)
+s:close()
+box.cfg{ listen = 'unix/:'.. path2}
+s = socket.tcp_connect('unix/', path2)
+test:isnt(s, nil, "reuse unix socket")
+if s then s:close() end
+box.cfg{ listen = '' }
+os.remove(path2)
+
+code = " box.cfg{ listen='unix/:'" .. path .. "' } "
+run_script(code)
+test:isnil(fio.stat(path), "delete socket at exit")
 
 test:check()
 os.exit(0)

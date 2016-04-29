@@ -32,6 +32,8 @@
  */
 #include "trivia/util.h"
 
+#include "tuple_format.h"
+
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
@@ -255,15 +257,9 @@ box_tuple_upsert(const box_tuple_t *tuple, const char *expr, const
 
 #include "key_def.h" /* for enum field_type */
 #include "tuple_update.h"
+#include "errinj.h"
 
-enum { FORMAT_ID_MAX = UINT16_MAX - 1, FORMAT_ID_NIL = UINT16_MAX };
-enum { FORMAT_REF_MAX = INT32_MAX, TUPLE_REF_MAX = UINT16_MAX };
-/*
- * We don't pass INDEX_OFFSET around dynamically all the time,
- * at least hard code it so that in most cases it's a nice error
- * message
- */
-enum { INDEX_OFFSET = 1 };
+enum { TUPLE_REF_MAX = UINT16_MAX };
 
 /** Common quota for tuples and indexes */
 extern struct quota memtx_quota;
@@ -271,98 +267,6 @@ extern struct quota memtx_quota;
 extern struct small_alloc memtx_alloc;
 /** Tuple slab arena */
 extern struct slab_arena memtx_arena;
-
-/**
- * @brief In-memory tuple format
- */
-struct tuple_format {
-	uint16_t id;
-	/* Format objects are reference counted. */
-	int refs;
-	/**
-	 * Max field no which participates in any of the space
-	 * indexes. Each tuple of this format must have,
-	 * therefore, at least max_fieldno fields.
-	 *
-	 */
-	uint32_t max_fieldno;
-	/* Length of 'types' and 'offset' arrays. */
-	uint32_t field_count;
-	/**
-	 * Field types of indexed fields. This is an array of size
-	 * field_count. If there are gaps, i.e. fields that do not
-	 * participate in any index and thus we cannot infer their
-	 * type, then respective array members have value UNKNOWN.
-	 */
-	enum field_type *types;
-	/**
-	 * Each tuple has an area with field offsets. This area
-	 * is located in front of the tuple. It is used to quickly
-	 * find field start inside tuple data. This area only
-	 * stores offsets of fields preceded with fields of
-	 * dynamic length. If preceding fields have a fixed
-	 * length, field offset can be calculated once for all
-	 * tuples and thus is stored directly in the format object.
-	 * The variable below stores the size of field map in the
-	 * tuple, *in bytes*.
-	 */
-	uint32_t field_map_size;
-	/**
-	 * For each field participating in an index, the format
-	 * may either store the fixed offset of the field
-	 * (identical in all tuples with this format), or an
-	 * offset in the dynamic offset map (field_map), which,
-	 * in turn, stores the offset of the field (such offset is
-	 * varying between different tuples of the same format).
-	 * If an offset is fixed, it's positive, so that
-	 * tuple->data[format->offset[fieldno] gives the
-	 * start of the field.
-	 * If it is varying, it's negative, so that
-	 * tuple->data[((uint32_t *) * tuple)[format->offset[fieldno]]]
-	 * gives the start of the field.
-	 */
-	int32_t offset[0];
-};
-
-extern struct tuple_format **tuple_formats;
-/**
- * Default format for a tuple which does not belong
- * to any space and is stored in memory.
- */
-extern struct tuple_format *tuple_format_ber;
-
-static inline uint32_t
-tuple_format_id(struct tuple_format *format)
-{
-	assert(tuple_formats[format->id] == format);
-	return format->id;
-}
-
-/**
- * @brief Allocate, construct and register a new in-memory tuple
- *	 format.
- * @param space description
- *
- * @return tuple format or raise an exception on error
- */
-struct tuple_format *
-tuple_format_new(struct rlist *key_list);
-
-/** Delete a format with zero ref count. */
-void
-tuple_format_delete(struct tuple_format *format);
-
-static inline void
-tuple_format_ref(struct tuple_format *format, int count)
-{
-	assert(format->refs + count >= 0);
-	assert((uint64_t)format->refs + count <= FORMAT_REF_MAX);
-
-	format->refs += count;
-	if (format->refs == 0)
-		tuple_format_delete(format);
-
-};
 
 /**
  * An atom of Tarantool storage. Represents MsgPack Array.
@@ -391,14 +295,6 @@ struct tuple
 	char data[0];
 } __attribute__((packed));
 
-/** Allocate a tuple
- *
- * @param size  tuple->bsize
- * @post tuple->refs = 1
- */
-struct tuple *
-tuple_alloc(struct tuple_format *format, size_t size);
-
 /**
  * Create a new tuple from a sequence of MsgPack encoded fields.
  * tuple->refs is 0.
@@ -411,11 +307,39 @@ struct tuple *
 tuple_new(struct tuple_format *format, const char *data, const char *end);
 
 /**
+ * Allocate a tuple
+ * It's similar to tuple_new, but does not set tuple data and thus does not
+ * initialize field offsets.
+ *
+ * After tuple_alloc and filling tuple data the tuple_init_field_map must be
+ * called!
+ *
+ * @param size  tuple->bsize
+ */
+struct tuple *
+tuple_alloc(struct tuple_format *format, size_t size);
+
+/**
+ * Fill field map of tuple by the data in it
+ * Used after tuple_alloc call and filling tuple data.
+ * Throws an error if tuple data does not match the format.
+ */
+void
+tuple_init_field_map(struct tuple_format *format, struct tuple *tuple);
+
+/**
  * Free the tuple.
  * @pre tuple->refs  == 0
  */
 void
 tuple_delete(struct tuple *tuple);
+
+/**
+ * Check tuple data correspondence to space format;
+ * throw proper exception if smth wrong.
+ */
+void
+tuple_validate(struct tuple_format *format, struct tuple *tuple);
 
 /**
  * Check tuple data correspondence to space format;
@@ -490,7 +414,7 @@ struct TupleRefNil {
 static inline struct tuple_format *
 tuple_format(const struct tuple *tuple)
 {
-	struct tuple_format *format = tuple_formats[tuple->format_id];
+	struct tuple_format *format = tuple_format_by_id(tuple->format_id);
 	assert(tuple_format_id(format) == tuple->format_id);
 	return format;
 }
@@ -548,12 +472,13 @@ tuple_field_old(const struct tuple_format *format,
 			return pos;
 		}
 
-		if (format->offset[i] != INT32_MIN) {
+		if (format->fields[i].offset_slot != INT32_MAX) {
 			uint32_t *field_map = (uint32_t *) tuple;
-			int32_t idx = format->offset[i];
-			return tuple->data + field_map[idx];
+			int32_t slot = format->fields[i].offset_slot;
+			return tuple->data + field_map[slot];
 		}
 	}
+	ERROR_INJECT(ERRINJ_TUPLE_FIELD, return NULL);
 	return tuple_field_raw(tuple->data, tuple->bsize, i);
 }
 
@@ -709,11 +634,6 @@ tuple_next_u32(struct tuple_iterator *it)
  */
 const char *
 tuple_next_cstr(struct tuple_iterator *it);
-
-void
-tuple_init_field_map(struct tuple_format *format,
-		     struct tuple *tuple, uint32_t *field_map);
-
 
 /**
  * Extract msgpacked key parts from tuple data.
@@ -873,8 +793,11 @@ static inline void
 mp_tuple_assert(const char *tuple, const char *tuple_end)
 {
 	assert(mp_typeof(*tuple) == MP_ARRAY);
+#ifndef NDEBUG
 	mp_next(&tuple);
+#endif
 	assert(tuple == tuple_end);
+	(void) tuple;
 	(void) tuple_end;
 }
 

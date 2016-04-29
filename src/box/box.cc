@@ -35,6 +35,7 @@
 #include "iproto.h"
 #include "iproto_constants.h"
 #include "recovery.h"
+#include "wal.h"
 #include "relay.h"
 #include "applier.h"
 #include <rmean.h>
@@ -47,7 +48,7 @@
 #include "memtx_engine.h"
 #include "memtx_index.h"
 #include "sysview_engine.h"
-#include "sophia_engine.h"
+#include "phia_engine.h"
 #include "space.h"
 #include "port.h"
 #include "request.h"
@@ -62,6 +63,7 @@
 #include "iproto_port.h"
 #include "xrow.h"
 #include "xrow_io.h"
+#include "authentication.h"
 
 static char status[64] = "unknown";
 
@@ -74,32 +76,14 @@ static void title(const char *new_status)
 
 struct recovery *recovery;
 
-/**
- * The context of initial recovery.
- */
-static struct recover_row_ctx {
-	/** How many rows have been recovered so far. */
-	size_t rows;
-	/** Yield once per 'yield' rows. */
-	size_t yield;
-} recover_row_ctx;
-
-bool snapshot_in_progress = false;
+bool box_snapshot_is_in_progress = false;
 static bool box_init_done = false;
 static bool is_ro = true;
 
-void
-recover_row_ctx_init(struct recover_row_ctx *ctx, size_t rows_per_wal)
-{
-	ctx->rows = 0;
-	/**
-	 * Make the yield logic covered by the functional test
-	 * suite, which has a small setting for rows_per_wal.
-	 * Each yield can take up to 1ms if there are no events,
-	 * so we can't afford many of them during recovery.
-	 */
-	ctx->yield = (rows_per_wal >> 4)  + 1;
-}
+/* Use the shared instance of xstream for all appliers */
+static struct xstream initial_join_stream;
+static struct xstream final_join_stream;
+static struct xstream subscribe_stream;
 
 static void
 box_check_writable(void)
@@ -196,26 +180,86 @@ box_is_ro(void)
 	return is_ro;
 }
 
-static void
-recover_row(struct recovery *r, void *param, struct xrow_header *row)
+static inline void
+apply_row(struct xstream *stream, struct xrow_header *row)
 {
-	struct recover_row_ctx *ctx = (struct recover_row_ctx *) param;
-	assert(r == ::recovery);
 	assert(row->bodycnt == 1); /* always 1 for read */
-	(void) r;
-
-	struct request request;
-	request_create(&request, row->type);
-	request_decode(&request, (const char *) row->body[0].iov_base,
+	(void) stream;
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, row->type);
+	request_decode(request, (const char *) row->body[0].iov_base,
 		row->body[0].iov_len);
-	request.header = row;
-	process_rw(&request, NULL);
+	request->header = row;
+	process_rw(request, NULL);
+}
+
+struct wal_stream {
+	struct xstream base;
+	/** How many rows have been recovered so far. */
+	size_t rows;
+	/** Yield once per 'yield' rows. */
+	size_t yield;
+};
+
+static void
+apply_wal_row(struct xstream *stream, struct xrow_header *row)
+{
+	apply_row(stream, row);
+
+	struct wal_stream *xstream =
+		container_of(stream, struct wal_stream, base);
 	/**
 	 * Yield once in a while, but not too often,
 	 * mostly to allow signal handling to take place.
 	 */
-	if (++ctx->rows % ctx->yield == 0)
+	if (++xstream->rows % xstream->yield == 0)
 		fiber_sleep(0);
+}
+
+static void
+wal_stream_create(struct wal_stream *ctx, size_t rows_per_wal)
+{
+	xstream_create(&ctx->base, apply_wal_row);
+	ctx->rows = 0;
+	/**
+	 * Make the yield logic covered by the functional test
+	 * suite, which has a small setting for rows_per_wal.
+	 * Each yield can take up to 1ms if there are no events,
+	 * so we can't afford many of them during recovery.
+	 */
+	ctx->yield = (rows_per_wal >> 4)  + 1;
+}
+
+static void
+apply_initial_join_row(struct xstream *stream, struct xrow_header *row)
+{
+	if (row->type != IPROTO_INSERT) {
+		tnt_raise(ClientError, ER_UNKNOWN_REQUEST_TYPE,
+				(uint32_t) row->type);
+	}
+
+	(void) stream;
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, row->type);
+	assert(row->bodycnt == 1); /* always 1 for read */
+	request_decode(request, (const char *) row->body[0].iov_base,
+			row->body[0].iov_len);
+	request->header = row;
+	struct space *space = space_cache_find(request->space_id);
+	/* no access checks here - applier always works with admin privs */
+	space->handler->applySnapshotRow(space, request);
+}
+
+static void
+apply_subscribe_row(struct xstream *stream, struct xrow_header *row)
+{
+	/* Check lsn */
+	int64_t current_lsn = vclock_get(&recovery->vclock, row->server_id);
+	if (row->lsn <= current_lsn)
+		return;
+	apply_row(stream, row);
 }
 
 /* {{{ configuration bindings */
@@ -305,6 +349,7 @@ box_check_config()
 static struct applier **
 cfg_get_replication_source(int *p_count)
 {
+
 	/* Use static buffer for result */
 	static struct applier *appliers[VCLOCK_MAX];
 
@@ -316,7 +361,10 @@ cfg_get_replication_source(int *p_count)
 
 	for (int i = 0; i < count; i++) {
 		const char *source = cfg_getarr_elem("replication_source", i);
-		struct applier *applier = applier_new(source);
+		struct applier *applier = applier_new(source,
+						      &initial_join_stream,
+						      &final_join_stream,
+						      &subscribe_stream);
 		if (applier == NULL) {
 			/* Delete created appliers */
 			while (--i >= 0)
@@ -348,7 +396,7 @@ box_sync_replication_source(void)
 			applier_delete(appliers[i]); /* doesn't affect diag */
 	});
 
-	applier_connect_all(appliers, count, recovery);
+	applier_connect_all(appliers, count);
 	cluster_set_appliers(appliers, count);
 
 	guard.is_active = false;
@@ -381,29 +429,6 @@ box_set_listen(void)
 	iproto_set_listen(uri);
 }
 
-/**
- * Check if (host, port) in box.cfg.listen is equal to (host, port) in uri.
- * Used to determine that an uri from box.cfg.replication_source is
- * actually points to the same address as box.cfg.listen.
- */
-static bool
-box_cfg_listen_eq(struct uri *what)
-{
-	const char *listen = cfg_gets("listen");
-	if (listen == NULL)
-		return false;
-
-	struct uri uri;
-	int rc = uri_parse(&uri, listen);
-	assert(rc == 0 && uri.service);
-	(void) rc;
-
-	return (uri.service_len == what->service_len &&
-		uri.host_len == what->host_len &&
-		memcmp(uri.service, what->service, uri.service_len) == 0 &&
-		memcmp(uri.host, what->host, uri.host_len) == 0);
-}
-
 extern "C" void
 box_set_log_level(void)
 {
@@ -419,7 +444,9 @@ box_set_io_collect_interval(void)
 extern "C" void
 box_set_snap_io_rate_limit(void)
 {
-	recovery_update_io_rate_limit(recovery, cfg_getd("snap_io_rate_limit"));
+	MemtxEngine *memtx = (MemtxEngine *) engine_find("memtx");
+	if (memtx)
+		memtx->setSnapIoRateLimit(cfg_getd("snap_io_rate_limit"));
 }
 
 extern "C" void
@@ -434,14 +461,6 @@ box_set_readahead(void)
 	int readahead = cfg_geti("readahead");
 	box_check_readahead(readahead);
 	iobuf_set_readahead(readahead);
-}
-
-extern "C" void
-box_set_panic_on_wal_error(void)
-{
-	recovery_setup_panic(recovery,
-			     cfg_geti("panic_on_snap_error"),
-			     cfg_geti("panic_on_wal_error"));
 }
 
 /* }}} configuration bindings */
@@ -459,10 +478,11 @@ box_set_panic_on_wal_error(void)
 static void
 boxk(enum iproto_type type, uint32_t space_id, const char *format, ...)
 {
-	struct request req;
 	va_list ap;
-	request_create(&req, type);
-	req.space_id = space_id;
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, type);
+	request->space_id = space_id;
 	char buf[128];
 	char *data = buf;
 	data = mp_encode_array(data, strlen(format)/2);
@@ -484,9 +504,20 @@ boxk(enum iproto_type type, uint32_t space_id, const char *format, ...)
 	}
 	va_end(ap);
 	assert(data <= buf + sizeof(buf));
-	req.tuple = req.key = buf;
-	req.tuple_end = req.key_end = data;
-	process_rw(&req, NULL);
+	switch (type) {
+	case IPROTO_INSERT:
+	case IPROTO_REPLACE:
+		request->tuple = buf;
+		request->tuple_end = data;
+		break;
+	case IPROTO_DELETE:
+		request->key = buf;
+		request->key_end = data;
+		break;
+	default:
+		assert(0);
+	}
+	process_rw(request, NULL);
 }
 
 int
@@ -584,12 +615,13 @@ box_insert(uint32_t space_id, const char *tuple, const char *tuple_end,
 	   box_tuple_t **result)
 {
 	mp_tuple_assert(tuple, tuple_end);
-	struct request request;
-	request_create(&request, IPROTO_INSERT);
-	request.space_id = space_id;
-	request.tuple = tuple;
-	request.tuple_end = tuple_end;
-	return box_process1(&request, result);
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, IPROTO_INSERT);
+	request->space_id = space_id;
+	request->tuple = tuple;
+	request->tuple_end = tuple_end;
+	return box_process1(request, result);
 }
 
 int
@@ -597,12 +629,13 @@ box_replace(uint32_t space_id, const char *tuple, const char *tuple_end,
 	    box_tuple_t **result)
 {
 	mp_tuple_assert(tuple, tuple_end);
-	struct request request;
-	request_create(&request, IPROTO_REPLACE);
-	request.space_id = space_id;
-	request.tuple = tuple;
-	request.tuple_end = tuple_end;
-	return box_process1(&request, result);
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, IPROTO_REPLACE);
+	request->space_id = space_id;
+	request->tuple = tuple;
+	request->tuple_end = tuple_end;
+	return box_process1(request, result);
 }
 
 int
@@ -610,13 +643,14 @@ box_delete(uint32_t space_id, uint32_t index_id, const char *key,
 	   const char *key_end, box_tuple_t **result)
 {
 	mp_tuple_assert(key, key_end);
-	struct request request;
-	request_create(&request, IPROTO_DELETE);
-	request.space_id = space_id;
-	request.index_id = index_id;
-	request.key = key;
-	request.key_end = key_end;
-	return box_process1(&request, result);
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, IPROTO_DELETE);
+	request->space_id = space_id;
+	request->index_id = index_id;
+	request->key = key;
+	request->key_end = key_end;
+	return box_process1(request, result);
 }
 
 int
@@ -626,17 +660,18 @@ box_update(uint32_t space_id, uint32_t index_id, const char *key,
 {
 	mp_tuple_assert(key, key_end);
 	mp_tuple_assert(ops, ops_end);
-	struct request request;
-	request_create(&request, IPROTO_UPDATE);
-	request.space_id = space_id;
-	request.index_id = index_id;
-	request.key = key;
-	request.key_end = key_end;
-	request.index_base = index_base;
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, IPROTO_UPDATE);
+	request->space_id = space_id;
+	request->index_id = index_id;
+	request->key = key;
+	request->key_end = key_end;
+	request->index_base = index_base;
 	/** Legacy: in case of update, ops are passed in in request tuple */
-	request.tuple = ops;
-	request.tuple_end = ops_end;
-	return box_process1(&request, result);
+	request->tuple = ops;
+	request->tuple_end = ops_end;
+	return box_process1(request, result);
 }
 
 int
@@ -646,16 +681,94 @@ box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 {
 	mp_tuple_assert(ops, ops_end);
 	mp_tuple_assert(tuple, tuple_end);
-	struct request request;
-	request_create(&request, IPROTO_UPSERT);
-	request.space_id = space_id;
-	request.index_id = index_id;
-	request.ops = ops;
-	request.ops_end = ops_end;
-	request.tuple = tuple;
-	request.tuple_end = tuple_end;
-	request.index_base = index_base;
-	return box_process1(&request, result);
+	struct request *request;
+	request = region_alloc_object_xc(&fiber()->gc, struct request);
+	request_create(request, IPROTO_UPSERT);
+	request->space_id = space_id;
+	request->index_id = index_id;
+	request->ops = ops;
+	request->ops_end = ops_end;
+	request->tuple = tuple;
+	request->tuple_end = tuple_end;
+	request->index_base = index_base;
+	return box_process1(request, result);
+}
+
+static void
+space_truncate(struct space *space)
+{
+	if (!space_index(space, 0)) {
+		/* empty space without indexes, nothing to truncate */
+		return;
+	}
+
+	char key_buf[20];
+	char *key_buf_end;
+	key_buf_end = mp_encode_uint(key_buf, space_id(space));
+	assert(key_buf_end <= key_buf + sizeof(key_buf));
+
+	/* BOX_INDEX_ID is id of _index space, we need 0 index of that space */
+	struct space *space_index = space_cache_find(BOX_INDEX_ID);
+	Index *index = index_find(space_index, 0);
+	struct iterator *it = index->allocIterator();
+	auto guard_it_free = make_scoped_guard([=]{
+		it->free(it);
+	});
+	index->initIterator(it, ITER_EQ, key_buf, 1);
+	int index_count = 0;
+	struct tuple *indexes[BOX_INDEX_MAX]; /* max count of idexes*/
+	struct tuple *tuple;
+
+	/* select all indexes of given space */
+	auto guard_indexes_unref = make_scoped_guard([=]{
+		for (int i = 0; i < index_count; i++)
+			tuple_unref(indexes[i]);
+	});
+	while ((tuple = it->next(it)) != NULL) {
+		tuple_ref(tuple);
+		indexes[index_count++] = tuple;
+	}
+	assert(index_count <= BOX_INDEX_MAX);
+
+	/* drop all selected indexes */
+	for (int i = index_count - 1; i >= 0; --i) {
+		uint32_t index_id = tuple_field_u32(indexes[i], 1);
+		key_buf_end = mp_encode_array(key_buf, 2);
+		key_buf_end = mp_encode_uint(key_buf_end, space_id(space));
+		key_buf_end = mp_encode_uint(key_buf_end, index_id);
+		assert(key_buf_end <= key_buf + sizeof(key_buf));
+		if (box_delete(BOX_INDEX_ID, 0, key_buf, key_buf_end, NULL))
+			diag_raise();
+	}
+
+	/* create all indexes again, now they are empty */
+	for (int i = 0; i < index_count; i++) {
+		tuple = indexes[i];
+		if (box_insert(BOX_INDEX_ID, tuple->data,
+			       tuple->data + tuple->bsize, NULL)) {
+			diag_raise();
+		}
+	}
+}
+
+int
+box_truncate(uint32_t space_id)
+{
+	try {
+		struct space *space = space_cache_find(space_id);
+		space_truncate(space);
+		return 0;
+	} catch (Exception *exc) {
+		return -1;
+	}
+}
+
+static inline void
+box_register_server(uint32_t id, const struct tt_uuid *uuid)
+{
+	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
+	     (unsigned) id, tt_uuid_str(uuid));
+	assert(server_by_uuid(uuid) != NULL);
 }
 
 /**
@@ -669,6 +782,9 @@ static void
 box_on_cluster_join(const tt_uuid *server_uuid)
 {
 	box_check_writable();
+	struct server *server = server_by_uuid(server_uuid);
+	if (server != NULL)
+		return; /* nothing to do - already registered */
 
 	/** Find the largest existing server id. */
 	struct space *space = space_cache_find(BOX_CLUSTER_ID);
@@ -683,8 +799,7 @@ box_on_cluster_join(const tt_uuid *server_uuid)
 			break;
 		server_id++;
 	}
-	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
-	     (unsigned) server_id, tt_uuid_str(server_uuid));
+	box_register_server(server_id, server_uuid);
 }
 
 static inline struct func *
@@ -842,9 +957,76 @@ box_process_eval(struct request *request, struct obuf *out)
 }
 
 void
+box_process_auth(struct request *request, struct obuf *out)
+{
+	assert(request->type == IPROTO_AUTH);
+
+	/* Check that bootstrap has been finished */
+	if (wal == NULL)
+		tnt_raise(ClientError, ER_LOADING);
+
+	const char *user = request->key;
+	uint32_t len = mp_decode_strl(&user);
+	authenticate(user, len, request->tuple, request->tuple_end);
+	assert(request->header != NULL);
+	iproto_reply_ok(out, request->header->sync);
+}
+
+void
 box_process_join(struct ev_io *io, struct xrow_header *header)
 {
+	/*
+	 * Tarantool 1.7 JOIN protocol diagram (gh-1113)
+	 * =============================================
+	 *
+	 * Replica => Master
+	 *
+	 * => JOIN { SERVER_UUID: replica_uuid }
+	 * <= OK { VCLOCK: start_vclock }
+	 *    Replica has enough permissions and master is ready for JOIN.
+	 *     - start_vclock - vclock of the latest master's checkpoint.
+	 *
+	 * <= INSERT
+	 *    ...
+	 *    Initial data: a stream of engine-specifc rows, e.g. snapshot
+	 *    rows for memtx or dirty cursor data for Phia. Engine can
+	 *    use SERVER_ID, LSN and other fields for internal purposes.
+	 *    ...
+	 * <= INSERT
+	 * <= OK { VCLOCK: stop_vclock } - end of initial JOIN stage.
+	 *     - `stop_vclock` - master's vclock after initial stage.
+	 *
+	 * <= INSERT/REPLACE/UPDATE/UPSERT/DELETE { SERVER_ID, LSN }
+	 *    ...
+	 *    Final data: a stream of WAL rows from `start_vclock` to
+	 *    `stop_vclock`, inclusive. SERVER_ID and LSN fields are
+	 *    original values from WAL and master-master replication.
+	 *    ...
+	 * <= INSERT/REPLACE/UPDATE/UPSERT/DELETE { SERVER_ID, LSN }
+	 * <= OK { VCLOCK: current_vclock } - end of final JOIN stage.
+	 *      - `current_vclock` - master's vclock after final stage.
+	 *
+	 * All packets must have the same SYNC value as initial JOIN request.
+	 * Master can send ERROR at any time. Replica doesn't confirm rows
+	 * by OKs. Either initial or final stream includes:
+	 *  - Cluster UUID in _schema space
+	 *  - Registration of master in _cluster space
+	 *  - Registration of the new replica in _cluster space
+	 */
+
 	assert(header->type == IPROTO_JOIN);
+
+	/* Decode JOIN request */
+	struct tt_uuid server_uuid = uuid_nil;
+	xrow_decode_join(header, &server_uuid);
+
+	/* Check that bootstrap has been finished */
+	if (wal == NULL)
+		tnt_raise(ClientError, ER_LOADING);
+
+	/* Forbid connection to itself */
+	if (tt_uuid_is_equal(&server_uuid, &SERVER_UUID))
+		tnt_raise(ClientError, ER_CONNECTION_TO_SELF);
 
 	/* Check permissions */
 	access_check_universe(PRIV_R);
@@ -853,14 +1035,21 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	/* Check that we actually can register a new replica */
 	box_check_writable();
 
-	struct tt_uuid server_uuid = uuid_nil;
-	xrow_decode_join(header, &server_uuid);
+	/* Remember start vclock. */
+	struct vclock start_vclock;
+	recovery_last_checkpoint(&start_vclock);
 
-	struct vclock join_vclock;
-	vclock_create(&join_vclock);
+	/* Respond to JOIN request with start_vclock. */
+	struct xrow_header row;
+	xrow_encode_vclock(&row, &start_vclock);
+	row.sync = header->sync;
+	coio_write_xrow(io, &row);
 
-	/* Process JOIN request via a replication relay */
-	relay_join(io->fd, header->sync, &join_vclock);
+	/*
+	 * Initial stream: feed replica with dirty data from engines.
+	 */
+	relay_initial_join(io->fd, header->sync);
+	say_info("initial data sent.");
 
 	/**
 	 * Call the server-side hook which stores the replica uuid
@@ -870,18 +1059,26 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 */
 	box_on_cluster_join(&server_uuid);
 
+	/* Remember master's vclock after the last request */
+	struct vclock stop_vclock;
+	wal_checkpoint(wal, &stop_vclock, false);
+
+	/* Send end of initial stage data marker */
+	xrow_encode_vclock(&row, &stop_vclock);
+	row.sync = header->sync;
+	coio_write_xrow(io, &row);
+
 	/*
-	 * Send a response to JOIN request, an indicator of the
-	 * end of the stream of snapshot rows.
+	 * Final stage: feed replica with WALs in range
+	 * (start_vclock, stop_vclock).
 	 */
-	struct xrow_header row;
-	xrow_encode_vclock(&row, &join_vclock);
-	/*
-	 * Identify the message with the server id of this
-	 * server, this is the only way for a replica to find
-	 * out the id of the server it has connected to.
-	 */
-	row.server_id = recovery->server_id;
+	relay_final_join(io->fd, header->sync, &start_vclock, &stop_vclock);
+	say_info("final data sent.");
+
+	/* Send end of WAL stream marker */
+	struct vclock current_vclock;
+	wal_checkpoint(wal, &current_vclock, false);
+	xrow_encode_vclock(&row, &current_vclock);
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
 }
@@ -889,8 +1086,11 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 void
 box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 {
-	/* Check permissions */
-	access_check_universe(PRIV_R);
+	assert(header->type == IPROTO_SUBSCRIBE);
+
+	/* Check that bootstrap has been finished */
+	if (wal == NULL)
+		tnt_raise(ClientError, ER_LOADING);
 
 	struct tt_uuid cluster_uuid = uuid_nil, replica_uuid = uuid_nil;
 	struct vclock replica_clock;
@@ -898,16 +1098,27 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	xrow_decode_subscribe(header, &cluster_uuid, &replica_uuid,
 			      &replica_clock);
 
+	/* Check that bootstrap has been finished */
+	if (wal == NULL)
+		tnt_raise(ClientError, ER_LOADING);
+
+	/* Forbid connection to itself */
+	if (tt_uuid_is_equal(&replica_uuid, &SERVER_UUID))
+		tnt_raise(ClientError, ER_CONNECTION_TO_SELF);
+
+	/* Check permissions */
+	access_check_universe(PRIV_R);
+
 	/**
 	 * Check that the given UUID matches the UUID of the
 	 * cluster this server belongs to. Used to handshake
 	 * replica connect, and refuse a connection from a replica
 	 * which belongs to a different cluster.
 	 */
-	if (!tt_uuid_is_equal(&cluster_uuid, &cluster_id)) {
+	if (!tt_uuid_is_equal(&cluster_uuid, &CLUSTER_UUID)) {
 		tnt_raise(ClientError, ER_CLUSTER_ID_MISMATCH,
 			  tt_uuid_str(&cluster_uuid),
-			  tt_uuid_str(&cluster_id));
+			  tt_uuid_str(&CLUSTER_UUID));
 	}
 
 	/* Check server uuid */
@@ -923,7 +1134,9 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 * and identify ourselves with our own server id.
 	 */
 	struct xrow_header row;
-	xrow_encode_vclock(&row, &recovery->vclock);
+	struct vclock current_vclock;
+	wal_checkpoint(wal, &current_vclock, true);
+	xrow_encode_vclock(&row, &current_vclock);
 	/*
 	 * Identify the message with the server id of this
 	 * server, this is the only way for a replica to find
@@ -948,29 +1161,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	relay_subscribe(io->fd, header->sync, server, &replica_clock);
 }
 
-/** Replace the current server id in _cluster */
-static void
-box_set_server_uuid()
-{
-	struct recovery *r = recovery;
-
-	assert(r->server_id == 0);
-
-	/* Unregister local server if it was registered by bootstrap.bin */
-	boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
-
-	/* Register local server */
-	tt_uuid_create(&r->server_uuid);
-	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
-	     1, tt_uuid_str(&r->server_uuid));
-	assert(r->server_id == 1);
-
-	/* Ugly hack: bootstrap always starts from scratch */
-	vclock_create(&r->vclock);
-	vclock_add_server(&r->vclock, 1);
-	assert(vclock_sum(&r->vclock) == 0);
-}
-
 /** Insert a new cluster into _schema */
 static void
 box_set_cluster_uuid()
@@ -989,6 +1179,8 @@ box_free(void)
 	if (recovery) {
 		recovery_exit(recovery);
 		recovery = NULL;
+		if (wal)
+			wal_writer_stop();
 	}
 	/*
 	 * See gh-584 "box_free() is called even if box is not
@@ -1016,15 +1208,17 @@ engine_init()
 	 * in snapshotting (in enigne_foreach order),
 	 * so it must be registered first.
 	 */
-	MemtxEngine *memtx = new MemtxEngine();
+	MemtxEngine *memtx = new MemtxEngine(cfg_gets("snap_dir"),
+					     cfg_geti("panic_on_snap_error"),
+					     cfg_geti("panic_on_wal_error"));
 	engine_register(memtx);
 
 	SysviewEngine *sysview = new SysviewEngine();
 	engine_register(sysview);
 
-	SophiaEngine *sophia = new SophiaEngine();
-	sophia->init();
-	engine_register(sophia);
+	PhiaEngine *phia = new PhiaEngine();
+	phia->init();
+	engine_register(phia);
 }
 
 /**
@@ -1033,41 +1227,80 @@ engine_init()
 static void
 bootstrap_cluster(void)
 {
-	/* Add a surrogate server id for snapshot rows */
-	vclock_add_server(&recovery->vclock, 0);
+	engine_bootstrap();
 
-	/* Process bootstrap.bin */
-	recovery_bootstrap(recovery);
+	uint32_t server_id = 1;
+
+	/* Unregister local server if it was registered by bootstrap.bin */
+	assert(recovery->server_id == 0);
+	boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
+
+	/* Register local server */
+	box_register_server(server_id, &SERVER_UUID);
+	assert(recovery->server_id == 1);
+
+	/* Register other cluster members */
+	server_foreach(server) {
+		if (tt_uuid_is_equal(&server->uuid, &SERVER_UUID))
+			continue;
+		assert(server->applier != NULL);
+		box_register_server(++server_id, &server->uuid);
+		assert(server->id == server_id);
+	}
 
 	/* Generate UUID of a new cluster */
 	box_set_cluster_uuid();
 
-	/* Generate Server-UUID */
-	box_set_server_uuid();
+	/* Ugly hack: bootstrap always starts from scratch */
+	vclock_create(&recovery->vclock);
 }
 
 /**
  * Bootstrap from the remote master
+ * \pre  master->applier->state == APPLIER_CONNECTED
+ * \post master->applier->state == APPLIER_CONNECTED
  */
 static void
 bootstrap_from_master(struct server *master)
 {
-	assert(master->applier != NULL);
+	struct applier *applier = master->applier;
+	assert(applier != NULL);
+	assert(applier->state == APPLIER_CONNECTED);
 
-	/* Generate Server-UUID */
-	tt_uuid_create(&recovery->server_uuid);
+	say_info("bootstraping replica from %s",
+		 sio_strfaddr(&applier->addr, applier->addr_len));
 
-	/* Initialize a new replica */
+	/*
+	 * Send JOIN request to master
+	 * See box_process_join().
+	 */
+
+	assert(!tt_uuid_is_nil(&SERVER_UUID));
+	applier_resume_to_state(applier, APPLIER_INITIAL_JOIN, TIMEOUT_INFINITY);
+
+	/*
+	 * Process initial data (snapshot or dirty disk data).
+	 */
 	engine_begin_join();
 
-	/* Add a surrogate server id for snapshot rows */
-	vclock_add_server(&recovery->vclock, 0);
+	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
 
-	/* Download and process a data snapshot from master */
-	applier_bootstrap(master->applier);
+	/*
+	 * Process final data (WALs).
+	 */
+	engine_begin_wal_recovery();
+
+	applier_resume_to_state(applier, APPLIER_JOINED, TIMEOUT_INFINITY);
 
 	/* Replace server vclock using master's vclock */
-	vclock_copy(&recovery->vclock, &master->applier->vclock);
+	vclock_copy(&recovery->vclock, &applier->vclock);
+
+	/* Finalize the new replica */
+	engine_end_join();
+
+	/* Switch applier to initial state */
+	applier_resume_to_state(applier, APPLIER_CONNECTED, TIMEOUT_INFINITY);
+	assert(applier->state == APPLIER_CONNECTED);
 }
 
 static void
@@ -1077,14 +1310,14 @@ bootstrap(void)
 	struct server *master = server_first();
 	assert(master == NULL || master->applier != NULL);
 
-	if (master != NULL && !box_cfg_listen_eq(&master->applier->uri)) {
+	if (master != NULL && !tt_uuid_is_equal(&master->uuid, &SERVER_UUID)) {
 		bootstrap_from_master(master);
 	} else {
 		bootstrap_cluster();
 	}
-
-	int64_t checkpoint_id = vclock_sum(&recovery->vclock);
-	engine_checkpoint(checkpoint_id);
+	if (engine_begin_checkpoint() ||
+	    engine_commit_checkpoint(&recovery->vclock))
+		panic_syserror("failed to save a snapshot");
 }
 
 static inline void
@@ -1116,46 +1349,62 @@ box_init(void)
 
 	title("loading");
 
-	/* recovery initialization */
-	recover_row_ctx_init(&recover_row_ctx,
-			     cfg_geti64("rows_per_wal"));
-	recovery = recovery_new(cfg_gets("snap_dir"),
-				cfg_gets("wal_dir"),
-				recover_row, &recover_row_ctx);
-	recovery_setup_panic(recovery,
-			     cfg_geti("panic_on_snap_error"),
-			     cfg_geti("panic_on_wal_error"));
 	box_set_too_long_threshold();
+	struct wal_stream wal_stream;
+	wal_stream_create(&wal_stream, cfg_geti64("rows_per_wal"));
+	xstream_create(&initial_join_stream, apply_initial_join_row);
+	xstream_create(&final_join_stream, apply_row);
+	xstream_create(&subscribe_stream, apply_subscribe_row);
 
-	/*
-	 * Initialize the cluster registry using replication_source,
-	 * but don't start replication right now.
-	 */
-	box_sync_replication_source();
+	struct vclock checkpoint_vclock;
+	int64_t lsn = recovery_last_checkpoint(&checkpoint_vclock);
+	if (lsn != -1) {
+		recovery = recovery_new(cfg_gets("wal_dir"),
+					cfg_geti("panic_on_wal_error"),
+					&checkpoint_vclock);
+		/* Tell Phia engine LSN it must recover to. */
+		engine_recover_to_checkpoint(lsn);
+		/* Replace server vclock using the data from snapshot */
+		vclock_copy(&recovery->vclock, &checkpoint_vclock);
+		engine_begin_wal_recovery();
+		title("orphan");
+		recovery_follow_local(recovery, &wal_stream.base, "hot_standby",
+				      cfg_getd("wal_dir_rescan_delay"));
+		title("hot_standby");
 
-	if (recovery_has_data(recovery)) {
-		/* Tell Sophia engine LSN it must recover to. */
-		int64_t checkpoint_id =
-			recovery_last_checkpoint(recovery);
-		engine_recover_to_checkpoint(checkpoint_id);
+		/* Start network */
+		assert(!tt_uuid_is_nil(&SERVER_UUID));
+		port_init();
+		iproto_init();
+		box_set_listen();
+		recovery_finalize(recovery, &wal_stream.base);
+
+		box_sync_replication_source();
 	} else {
-		 bootstrap();
+		/* TODO: don't create recovery for this case */
+		vclock_create(&checkpoint_vclock);
+		recovery = recovery_new(cfg_gets("wal_dir"),
+					cfg_geti("panic_on_wal_error"),
+					&checkpoint_vclock);
+
+		/* Start network */
+		tt_uuid_create(&SERVER_UUID);
+		port_init();
+		iproto_init();
+		box_set_listen();
+		box_sync_replication_source();
+
+		/* Bootstrap cluster */
+		bootstrap();
 	}
 	fiber_gc();
 
-	title("orphan");
-	recovery_follow_local(recovery, "hot_standby",
-			      cfg_getd("wal_dir_rescan_delay"));
-	title("hot_standby");
-
-	port_init();
-	iproto_init();
-	box_set_listen();
-
 	int64_t rows_per_wal = box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
 	enum wal_mode wal_mode = box_check_wal_mode(cfg_gets("wal_mode"));
-	recovery_finalize(recovery, wal_mode, rows_per_wal);
-
+	if (wal_mode != WAL_NONE) {
+		wal_writer_start(wal_mode, cfg_gets("wal_dir"), &SERVER_UUID,
+				 &recovery->vclock, rows_per_wal);
+	}
 	engine_end_recovery();
 
 	rmean_cleanup(rmean_box);
@@ -1200,9 +1449,28 @@ box_atfork()
 int
 box_snapshot()
 {
+	int rc = 0;
+	if (box_snapshot_is_in_progress)
+		return EINPROGRESS;
+	box_snapshot_is_in_progress = true;
 	/* create snapshot file */
-	int64_t checkpoint_id = vclock_sum(&recovery->vclock);
-	return engine_checkpoint(checkpoint_id);
+	latch_lock(&schema_lock);
+	if ((rc = engine_begin_checkpoint()))
+		goto end;
+
+	struct vclock vclock;
+	if (wal == NULL) {
+		vclock_copy(&vclock, &recovery->vclock);
+	} else {
+		wal_checkpoint(wal, &vclock, true);
+	}
+	rc = engine_commit_checkpoint(&vclock);
+end:
+	if (rc)
+		engine_abort_checkpoint();
+	latch_unlock(&schema_lock);
+	box_snapshot_is_in_progress = false;
+	return rc;
 }
 
 const char *

@@ -1,3 +1,5 @@
+.. _package-shard:
+
 -------------------------------------------------------------------------------
                             Package `shard`
 -------------------------------------------------------------------------------
@@ -23,7 +25,7 @@ First some terminology:
         decide which shard the tuple belongs to. The hash function is `consistent`_
         so that changing the number of servers will not affect results for many
         keys. The specific hash function that the shard package uses is
-        :func:`digest.guava` in the :codeitalic:`digest` package.
+        :ref:`digest.guava <digest-guava>` in the :codeitalic:`digest` package.
 
     **Queue**
         A temporary list of recent update requests. Sometimes called "batching".
@@ -97,9 +99,9 @@ The shard package will conclude that there is only one shard.
 
     tarantool> cfg = {
              >   servers = {
-             >     { uri = 'loclhost:33131', zone = '1' },
-             >     { uri = 'loclhost:33132', zone = '2' },
-             >     { uri = 'loclhost:33133', zone = '3' },1
+             >     { uri = 'localhost:33131', zone = '1' },
+             >     { uri = 'localhost:33132', zone = '2' },
+             >     { uri = 'localhost:33133', zone = '3' },1
              >   },
              >   login = 'tester',
              >   password = 'pass',
@@ -125,13 +127,13 @@ necessarily an error, because perhaps one of the servers in the list is not aliv
 
     tarantool> cfg = {
              >   servers = {
-             >     { uri = 'loclhost:33131', zone = '1' },
-             >     { uri = 'loclhost:33131', zone = '2' },
-             >     { uri = 'loclhost:33132', zone = '1' },
-             >     { uri = 'loclhost:33133', zone = '2' },
-             >     { uri = 'loclhost:33131', zone = '1' },
-             >     { uri = 'loclhost:33132', zone = '2' },
-             >     { uri = 'loclhost:33133', zone = '1' },
+             >     { uri = 'localhost:33131', zone = '1' },
+             >     { uri = 'localhost:33131', zone = '2' },
+             >     { uri = 'localhost:33132', zone = '1' },
+             >     { uri = 'localhost:33133', zone = '2' },
+             >     { uri = 'localhost:33131', zone = '1' },
+             >     { uri = 'localhost:33132', zone = '2' },
+             >     { uri = 'localhost:33133', zone = '1' },
              >   },
              >   login = 'tester',
              >   password = 'pass',

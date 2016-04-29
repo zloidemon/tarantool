@@ -1,3 +1,5 @@
+.. _box-cfg-replication-source:
+
 .. confval:: replication_source
 
     If replication_source is not an empty string, the server is considered

@@ -113,7 +113,7 @@ API is a direct binding to corresponding methods of index objects of type
             the comparison-result for equality is always true when a search-value-part is ``nil``
             or is missing. This behavior of searches with nil is subject to change.
 
-            Note re storage engine: sophia does not allow search-value-parts to be ``nil`` or missing.
+            Note re storage engine: phia does not allow search-value-parts to be ``nil`` or missing.
 
             .. rst-class:: left-align-column-1
             .. rst-class:: left-align-column-2
@@ -132,7 +132,7 @@ API is a direct binding to corresponding methods of index objects of type
             | or 'REQ'      | value     | ``box.index.EQ``.                           |
             |               |           | Tuples are returned in descending order by  |
             |               |           | index key.                                  |
-            |               |           | Note re storage engine: sophia does not     |
+            |               |           | Note re storage engine: phia does not     |
             |               |           | REQ.                                        |
             +---------------+-----------+---------------------------------------------+
             | box.index.GT  | search    | The comparison operator is '>' (greater     |
@@ -495,7 +495,7 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
-        Note re storage engine: sophia does not support ``min()``.
+        Note re storage engine: phia does not support ``min()``.
 
         **Example:**
 
@@ -526,7 +526,7 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
-        Note re storage engine: sophia does not support ``max()``.
+        Note re storage engine: phia does not support ``max()``.
 
         **Example:**
 
@@ -555,7 +555,7 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
-        Note re storage engine: sophia does not support ``random()``.
+        Note re storage engine: phia does not support ``random()``.
 
         **Example:**
 
@@ -568,10 +568,10 @@ API is a direct binding to corresponding methods of index objects of type
 
     .. _index_count:
 
-    .. method:: count(key-value, options)
+    .. method:: count([key], [iterator])
 
         Iterate over an index, counting the number of
-        tuples which equal the provided search criteria.
+        tuples which match the key-value.
 
         Parameters:
 
@@ -579,13 +579,14 @@ API is a direct binding to corresponding methods of index objects of type
         * :samp:`{key-value}` (type = Lua table or scalar) =
           the value which must match the key(s) in the specified index. The type
           may be a list of field-values, or a tuple containing only the
-          field-values; :samp:`{options}`.
+          field-values;  :codeitalic:`iterator` = comparison method.
 
-        :return: the number of matching index keys. The ``count`` function
-                is only applicable for the memtx storage engine.
+        :return: the number of matching index keys.
         :rtype:  number
 
-        Note re storage engine: sophia does not support ``count()``.
+        Note re storage engine: phia does not support :codenormal:`count(...)`.
+        One possible workaround is to say :codenormal:`#select(...)`.
+
 
         **Example:**
 
@@ -654,7 +655,7 @@ API is a direct binding to corresponding methods of index objects of type
         the first index cannot be changed to {unique = false}, or
         the alter function is only applicable for the memtx storage engine.
 
-        Note re storage engine: sophia does not support ``alter()``.
+        Note re storage engine: phia does not support ``alter()``.
 
         **Example:**
 

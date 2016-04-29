@@ -5,7 +5,7 @@ local json = require('json')
 local private = require('box.internal')
 
 -- see default_cfg below
-local default_sophia_cfg = {
+local default_phia_cfg = {
     memory_limit      = 0,
     threads           = 5,
     compact_wm        = 2,
@@ -14,6 +14,8 @@ local default_sophia_cfg = {
     branch_age_period = 0,
     branch_age_wm     = 0,
     snapshot_period   = 0,
+    expire_period     = 0,
+    expire_prio       = 0,
     node_preload      = 0,
     mmap              = 1,
     sync              = 2
@@ -29,8 +31,8 @@ local default_cfg = {
     work_dir            = nil,
     snap_dir            = ".",
     wal_dir             = ".",
-    sophia_dir          = '.',
-    sophia              = default_sophia_cfg,
+    phia_dir          = '.',
+    phia              = default_phia_cfg,
     logger              = nil,
     logger_nonblock     = true,
     log_level           = 5,
@@ -57,7 +59,7 @@ local default_cfg = {
 }
 
 -- see template_cfg below
-local sophia_template_cfg = {
+local phia_template_cfg = {
     memory_limit      = 'number',
     threads           = 'number',
     compact_wm        = 'number',
@@ -66,6 +68,8 @@ local sophia_template_cfg = {
     branch_age_period = 'number',
     branch_age_wm     = 'number',
     snapshot_period   = 'number',
+    expire_period     = 'number',
+    expire_prio       = 'number',
     node_preload      = 'number',
     mmap              = 'number',
     sync              = 'number'
@@ -82,8 +86,8 @@ local template_cfg = {
     work_dir            = 'string',
     snap_dir            = 'string',
     wal_dir             = 'string',
-    sophia_dir          = 'string',
-    sophia              = sophia_template_cfg,
+    phia_dir          = 'string',
+    phia              = phia_template_cfg,
     logger              = 'string',
     logger_nonblock     = 'boolean',
     log_level           = 'number',
@@ -129,7 +133,7 @@ local dynamic_cfg = {
     readahead               = private.cfg_set_readahead,
     too_long_threshold      = private.cfg_set_too_long_threshold,
     snap_io_rate_limit      = private.cfg_set_snap_io_rate_limit,
-    panic_on_wal_error      = private.cfg_set_panic_on_wal_error,
+    panic_on_wal_error      = function() end,
     read_only               = private.cfg_set_read_only,
     -- snapshot_daemon
     snapshot_period         = box.internal.snapshot_daemon.set_snapshot_period,

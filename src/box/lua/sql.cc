@@ -2027,7 +2027,6 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->set_global_db = set_global_db;
 	ob->space_truncate_by_id = space_truncate_by_id;
 	ob->remove_and_free_sindex = remove_and_free_sindex;
-	ob->space_truncate_by_id = space_truncate_by_id;
 }
 
 void
@@ -2188,8 +2187,7 @@ void log_debug(const char *msg) {
 
 void
 space_truncate_by_id(int space_id) {
-	struct space *space = space_by_id(get_space_id_from(space_id));
-	space_truncate(space);
+	box_truncate(space_id);
 }
 
 int init_schema_with_table(void *self_, Table *table) {

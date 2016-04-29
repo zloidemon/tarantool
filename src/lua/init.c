@@ -42,7 +42,8 @@
 #include <luajit.h>
 
 #include <fiber.h>
-#include "coeio.h"
+#include "coio.h"
+#include "lua/console.h"
 #include "lua/fiber.h"
 #include "lua/ipc.h"
 #include "lua/errno.h"
@@ -194,73 +195,26 @@ lbox_coredump(struct lua_State *L __attribute__((unused)))
 
 /* }}} */
 
-/*
- * {{{ console library
- */
-
-static ssize_t
-readline_cb(va_list ap)
+/**
+ * Original LuaJIT/Lua logic: <luajit/src/lib_package.c - function setpath>
+ *
+ * 1) If environment variable 'envname' is empty, it uses only <default value>
+ * 2) Otherwise:
+ *    - If it contains ';;', then ';;' is replaced with ';'<default value>';'
+ *    - Otherwise is uses only what's inside this value.
+ **/
+static void
+tarantool_lua_pushpath_env(struct lua_State *L, const char *envname)
 {
-	const char **line = va_arg(ap, const char **);
-	const char *prompt = va_arg(ap, const char *);
-	/*
-	 * libeio threads blocks all signals by default. Therefore, nobody
-	 * can interrupt read(2) syscall inside readline() to correctly
-	 * cleanup resources and restore terminal state. In case of signal
-	 * a signal_cb(), a ev watcher in tarantool.cc will stop event
-	 * loop and and stop entire process by exiting the main thread.
-	 * rl_cleanup_after_signal() is called from tarantool_lua_free()
-	 * in order to restore terminal state.
-	 */
-	*line = readline(prompt);
-	return 0;
-}
-
-static int
-tarantool_console_readline(struct lua_State *L)
-{
-	const char *prompt = ">";
-	if (lua_gettop(L) > 0) {
-		if (!lua_isstring(L, 1))
-			luaL_error(L, "console.readline([prompt])");
-		prompt = lua_tostring(L, 1);
+	const char *path = getenv(envname);
+	if (path != NULL) {
+		const char *def = lua_tostring(L, -1);
+		path = luaL_gsub(L, path, ";;", ";\1;");
+		luaL_gsub(L, path, "\1", def);
+		lua_remove(L, -2);
+		lua_remove(L, -2);
 	}
-
-	char *line;
-	if (coio_call(readline_cb, &line, prompt) != 0) {
-		lua_pushnil(L);
-		return 1;
-	}
-
-	if (!line) {
-		lua_pushnil(L);
-	} else {
-		/* Make sure the line doesn't leak. */
-		static __thread char *line_buf = NULL;
-		if (line_buf)
-			free(line_buf);
-
-		line_buf = line;
-		lua_pushstring(L, line);
-
-		free(line_buf);
-		line_buf = NULL;
-	}
-
-	return 1;
 }
-
-static int
-tarantool_console_add_history(struct lua_State *L)
-{
-	if (lua_gettop(L) < 1 || !lua_isstring(L, 1))
-		luaL_error(L, "console.add_history(string)");
-
-	add_history(lua_tostring(L, 1));
-	return 0;
-}
-
-/* }}} */
 
 /**
  * Prepend the variable list of arguments to the Lua
@@ -287,6 +241,7 @@ tarantool_lua_setpaths(struct lua_State *L)
 	lua_pushliteral(L, MODULE_LUAPATH ";");
 	/* overwrite standard paths */
 	lua_concat(L, lua_gettop(L) - top);
+	tarantool_lua_pushpath_env(L, "LUA_PATH");
 	lua_setfield(L, top, "path");
 
 	lua_pushliteral(L, "./?." TARANTOOL_LIBEXT ";");
@@ -299,6 +254,7 @@ tarantool_lua_setpaths(struct lua_State *L)
 	lua_pushliteral(L, MODULE_LIBPATH ";");
 	/* overwrite standard paths */
 	lua_concat(L, lua_gettop(L) - top);
+	tarantool_lua_pushpath_env(L, "LUA_CPATH");
 	lua_setfield(L, top, "cpath");
 
 	assert(lua_gettop(L) == top);
@@ -396,12 +352,7 @@ tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 	rl_catch_signals = 0;
 	rl_catch_sigwinch = 0;
 #endif
-	static const struct luaL_reg consolelib[] = {
-		{"readline", tarantool_console_readline},
-		{"add_history", tarantool_console_add_history},
-		{NULL, NULL}
-	};
-	luaL_register_module(L, "console", consolelib);
+	tarantool_lua_console_init(L);
 	lua_pop(L, 1);
 
 	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
@@ -564,9 +515,11 @@ tarantool_lua_free()
 	 * being called due to cleanup order issues
 	 */
 	if (isatty(STDIN_FILENO)) {
-		/* See comments in readline_cb() */
+		/*
+		 * Restore terminal state. Doesn't hurt if exiting not
+		 * due to a signal.
+		 */
 		rl_cleanup_after_signal();
 	}
 #endif
 }
-

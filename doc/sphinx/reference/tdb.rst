@@ -47,10 +47,6 @@ exits evaluation mode by typing :codebold:`-e`.
 
 :codebold:`-e` -- Exit evaluation mode.
 
-:codebold:`f` -- Display the fiber id, the
-program name, and the percentage of memory used,
-as a table.
-
 :codebold:`n` -- Go to the next line, skipping over
 any function calls.
 
@@ -89,7 +85,6 @@ The screen should now look like this: |br|
 :codeblue:`(TDB)` |nbsp| :codegreen:`[example.lua]` |br|
 :codeblue:`(TDB)` |nbsp| :codenormal:`3: i = 1` |br|
 :codeblue:`(TDB)>` |br|
-
 Debugger prompts are blue, debugger hints and information
 are green, and the current line -- line 3 of example.lua --
 is the default color. Now enter six debugger commands: |br|
@@ -122,9 +117,4 @@ is the default color. Now enter six debugger commands: |br|
 
 Another debugger example can be found here_.
 
-
 .. _here: https://github.com/sulverus/tdb
-
-
-
-

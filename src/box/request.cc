@@ -57,6 +57,8 @@ void
 request_decode(struct request *request, const char *data, uint32_t len)
 {
 	const char *end = data + len;
+	/** Advanced requests don't have a defined key map. */
+	assert(request->type <= IPROTO_UPSERT);
 	uint64_t key_map = iproto_body_key_map[request->type];
 
 	if (mp_typeof(*data) != MP_MAP || mp_check_map(data, end) > 0) {
@@ -202,6 +204,6 @@ request_rebind_to_primary_key(struct request *request, struct space *space,
 	request->key = key;
 	request->key_end = key + key_len;
 	request->index_id = 0;
-	/* clear header to guarantee it's rebuild during commit */
+	/* Clear the header to ensure it's rebuilt at commit. */
 	request->header = NULL;
 }

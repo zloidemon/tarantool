@@ -40,13 +40,9 @@
 #include "scoped_guard.h"
 #include <stdlib.h>
 #include <string.h>
-#include <latch.h>
 #include <errinj.h>
 
 RLIST_HEAD(engines);
-
-extern bool snapshot_in_progress;
-extern struct latch schema_lock;
 
 Engine::Engine(const char *engine_name)
 	:name(engine_name),
@@ -97,15 +93,15 @@ Engine::beginJoin()
 }
 
 int
-Engine::beginCheckpoint(int64_t lsn)
+Engine::beginCheckpoint()
 {
-	(void) lsn;
 	return 0;
 }
 
 int
-Engine::waitCheckpoint()
+Engine::waitCheckpoint(struct vclock *vclock)
 {
+	(void) vclock;
 	return 0;
 }
 
@@ -130,9 +126,9 @@ Engine::recoverToCheckpoint(int64_t /* lsn */)
 }
 
 void
-Engine::join(struct relay *relay)
+Engine::join(struct xstream *stream)
 {
-	(void) relay;
+	(void) stream;
 }
 
 void
@@ -155,6 +151,13 @@ Engine::keydefCheck(struct space *space, struct key_def *key_def)
 Handler::Handler(Engine *f)
 	:engine(f)
 {
+}
+
+void
+Handler::applySnapshotRow(struct space *, struct request *)
+{
+	tnt_raise(ClientError, ER_UNSUPPORTED, engine->name,
+		  "applySnapshotRow");
 }
 
 struct tuple *
@@ -211,7 +214,7 @@ Handler::executeSelect(struct txn *, struct space *space,
 	struct tuple *tuple;
 	while ((tuple = it->next(it)) != NULL) {
 		/*
-		 * This is for Sophia, which returns a tuple
+		 * This is for Phia, which returns a tuple
 		 * with zero refs from the iterator, expecting
 		 * the caller to GC it after use.
 		 */
@@ -266,6 +269,15 @@ engine_recover_to_checkpoint(int64_t checkpoint_id)
 }
 
 void
+engine_bootstrap()
+{
+	Engine *engine;
+	engine_foreach(engine) {
+		engine->bootstrap();
+	}
+}
+
+void
 engine_begin_join()
 {
 	/* recover engine snapshot */
@@ -273,6 +285,20 @@ engine_begin_join()
 	engine_foreach(engine) {
 		engine->beginJoin();
 	}
+}
+
+void
+engine_begin_wal_recovery()
+{
+	Engine *engine;
+	engine_foreach(engine)
+		engine->beginWalRecovery();
+}
+
+void
+engine_end_join()
+{
+	/* just for symmetry with engine_begin_join() */
 }
 
 void
@@ -288,49 +314,47 @@ engine_end_recovery()
 }
 
 int
-engine_checkpoint(int64_t checkpoint_id)
+engine_begin_checkpoint()
 {
-	if (snapshot_in_progress)
-		return EINPROGRESS;
-
-	snapshot_in_progress = true;
-	latch_lock(&schema_lock);
-
 	/* create engine snapshot */
 	Engine *engine;
 	engine_foreach(engine) {
-		if (engine->beginCheckpoint(checkpoint_id))
-			goto error;
+		if (engine->beginCheckpoint())
+			return errno;
 	}
+	return 0;
+}
 
+int
+engine_commit_checkpoint(struct vclock *vclock)
+{
+	Engine *engine;
 	/* wait for engine snapshot completion */
 	engine_foreach(engine) {
-		if (engine->waitCheckpoint())
-			goto error;
+		if (engine->waitCheckpoint(vclock))
+			return errno;
 	}
-
 	/* remove previous snapshot reference */
 	engine_foreach(engine) {
 		engine->commitCheckpoint();
 	}
-	latch_unlock(&schema_lock);
-	snapshot_in_progress = false;
 	return 0;
-error:
-	int save_errno = errno;
-	/* rollback snapshot creation */
-	engine_foreach(engine)
-		engine->abortCheckpoint();
-	latch_unlock(&schema_lock);
-	snapshot_in_progress = false;
-	return save_errno;
 }
 
 void
-engine_join(struct relay *relay)
+engine_abort_checkpoint()
+{
+	Engine *engine;
+	/* rollback snapshot creation */
+	engine_foreach(engine)
+		engine->abortCheckpoint();
+}
+
+void
+engine_join(struct xstream *stream)
 {
 	Engine *engine;
 	engine_foreach(engine) {
-		engine->join(relay);
+		engine->join(stream);
 	}
 }

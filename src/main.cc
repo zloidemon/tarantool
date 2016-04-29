@@ -114,7 +114,7 @@ static void
 sig_snapshot(ev_loop * /* loop */, struct ev_signal * /* w */,
 	     int /* revents */)
 {
-	if (snapshot_in_progress) {
+	if (box_snapshot_is_in_progress) {
 		say_warn("Snapshot process is already running,"
 			" the signal is ignored");
 		return;
@@ -496,7 +496,10 @@ tarantool_free(void)
 	 * but it is no longer called
 	 */
 	if (isatty(STDIN_FILENO)) {
-		/* See comments in readline_cb() */
+		/*
+		 * Restore terminal state. Doesn't hurt if exiting not
+		 * due to a signal.
+		 */
 		rl_cleanup_after_signal();
 	}
 #ifdef HAVE_BFD

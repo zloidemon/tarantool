@@ -51,11 +51,6 @@
  */
 #cmakedefine ENABLE_GCOV 1
 /*
- * Defined if configured with ENABLE_TRACE (debug trace into
- * a file specified by TARANTOOL_TRACE environment variable.
- */
-#cmakedefine ENABLE_TRACE 1
-/*
  * Defined if configured with ENABLE_BACKTRACE ('show fiber'
  * showing fiber call stack.
  */
@@ -89,7 +84,11 @@
 #cmakedefine HAVE_FDATASYNC 1
 
 #ifndef HAVE_FDATASYNC
-	#define fdatasync fsync
+#if defined(__APPLE__)
+#define fdatasync(fd) fcntl(fd, F_FULLFSYNC)
+#else
+#define fdatasync fsync
+#endif
 #endif
 
 /*
@@ -174,6 +173,8 @@
 
 #cmakedefine HAVE_PTHREAD_YIELD 1
 #cmakedefine HAVE_SCHED_YIELD 1
+#cmakedefine HAVE_POSIX_FADVISE 1
+#cmakedefine HAVE_MREMAP 1
 
 #cmakedefine HAVE_PRCTL_H 1
 

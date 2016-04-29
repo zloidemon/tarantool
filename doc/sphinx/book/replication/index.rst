@@ -167,6 +167,8 @@ If a primary server is started with:
 then there will be lines in the log file, containing the word "relay",
 when a replica connects or disconnects.
 
+.. _preventing-duplicate-actions:
+
 =====================================================================
                     Preventing Duplicate Actions
 =====================================================================
@@ -210,7 +212,7 @@ Starting with the simple configuration, the first server has to say:
     box.cfg{ replication_source = *uri#2* }
 
 This request can be performed at any time --
-:ref:`replication_source <box-cfg-replication-source> is a dynamic parameter.
+:ref:`replication_source <box-cfg-replication-source>` is a dynamic parameter.
 
 In this configuration, both servers are "masters" and both servers are
 "replicas". Henceforth every change that happens on either server will
@@ -227,7 +229,6 @@ servers will end up with different contents.
 =====================================================================
                 All the "What If?" Questions
 =====================================================================
-
 
 Q: What if there are more than two servers with master-master? |br|
 A: On each server, specify the :confval:`replication_source` for all the

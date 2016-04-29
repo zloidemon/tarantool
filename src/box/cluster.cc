@@ -38,13 +38,20 @@
 
 #include "box.h"
 #include "recovery.h"
+#include "wal.h"
 #include "applier.h"
+#include "error.h"
+#include "vclock.h" /* VCLOCK_MAX */
 
 /**
  * Globally unique identifier of this cluster.
  * A cluster is a set of connected appliers.
  */
-struct tt_uuid cluster_id;
+struct tt_uuid CLUSTER_UUID;
+/**
+ * Globally unique identifier of this server.
+ */
+struct tt_uuid SERVER_UUID;
 
 typedef rb_tree(struct server) serverset_t;
 rb_proto(, serverset_, serverset_t, struct server)
@@ -144,22 +151,14 @@ cluster_add_server(uint32_t server_id, const struct tt_uuid *server_uuid)
 void
 server_set_id(struct server *server, uint32_t server_id)
 {
+	assert(server_id < VCLOCK_MAX);
 	assert(server->id == SERVER_ID_NIL); /* server id is read-only */
 	server->id = server_id;
 
 	/* Add server */
 	struct recovery *r = ::recovery;
-	/*
-	 * Add a new server into vclock if the specified server_id has never
-	 * been registered in the cluster. A fresh server starts from
-	 * LSN = 0 (i.e. a first request is LSN = 1). LSN starts from the
-	 * last known value in case server was registered and then
-	 * unregistered somewhere in the past.
-	 */
-	if (!vclock_has(&r->vclock, server_id))
-		vclock_add_server_nothrow(&r->vclock, server_id);
 
-	if (tt_uuid_is_equal(&r->server_uuid, &server->uuid)) {
+	if (tt_uuid_is_equal(&SERVER_UUID, &server->uuid)) {
 		/* Assign local server id */
 		assert(r->server_id == SERVER_ID_NIL);
 		r->server_id = server_id;

@@ -113,7 +113,7 @@ struct errcode_record {
 	/* 57 */_(ER_NO_SUCH_ENGINE,		2, "Space engine '%s' does not exist") \
 	/* 58 */_(ER_RELOAD_CFG,		2, "Can't set option '%s' dynamically") \
 	/* 59 */_(ER_CFG,			2, "Incorrect value for option '%s': %s") \
-	/* 60 */_(ER_SOPHIA,			2, "%s") \
+	/* 60 */_(ER_PHIA,			2, "%s") \
 	/* 61 */_(ER_LOCAL_SERVER_IS_NOT_ACTIVE,2, "Local server is not active") \
 	/* 62 */_(ER_UNKNOWN_SERVER,		2, "Server %s is not registered with the cluster") \
 	/* 63 */_(ER_CLUSTER_ID_MISMATCH,	2, "Cluster id of the replica %s doesn't match cluster id of the master %s") \
@@ -168,6 +168,9 @@ struct errcode_record {
 	/*112 */_(ER_UNSUPPORTED_INDEX_FEATURE,	2, "Index '%s' (%s) of space '%s' (%s) does not support %s") \
 	/*113 */_(ER_VIEW_IS_RO,		2, "View '%s' is read-only") \
 	/*114 */_(ER_SERVER_UUID_MISMATCH, 2, "Remote UUID mismatch: expected %s, got %s") \
+	/*115 */_(ER_SYSTEM, 2, "%s") \
+	/*116 */_(ER_LOADING, 2, "Server bootstrap hasn't finished yet") \
+	/*117 */_(ER_CONNECTION_TO_SELF, 2, "Connection to self") \
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file
