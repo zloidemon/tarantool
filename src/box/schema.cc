@@ -293,6 +293,11 @@ schema_init()
 	key_def->space_id = def.id = BOX_CLUSTER_ID;
 	snprintf(def.name, sizeof(def.name), "_cluster");
 	(void) sc_space_new(&def, key_def, &on_replace_cluster);
+	
+	/* _trigger - all existing SQL triggers */
+	key_def->space_id = def.id = BOX_TRIGGER_ID;
+	snprintf(def.name, sizeof(def.name), "_trigger");
+	(void) sc_space_new(&def, key_def, NULL);
 	key_def_delete(key_def);
 
 	/* _index - definition of indexes in all spaces */
