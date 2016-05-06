@@ -2314,7 +2314,7 @@ trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 		delete[] c->key;
 		return SQLITE_ERROR;
 	}
-	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index, wrFlag);
+	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index, wrFlag, pCur);
 	c->brother = pCur;
 	pCur->trntl_cursor = (void *)c;
 	pCur->pBtree = p;

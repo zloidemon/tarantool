@@ -502,12 +502,13 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 }
 
 TarantoolCursor::TarantoolCursor() : space_id(0), index_id(0), type(-1), key(NULL),
-	key_end(NULL), it(NULL), tpl(NULL), sql_index(NULL), wrFlag(-1), db(NULL), data(NULL), size(0) { }
+	key_end(NULL), it(NULL), tpl(NULL), sql_index(NULL), wrFlag(-1), original(NULL),
+	db(NULL), data(NULL), size(0) { }
 
 TarantoolCursor::TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag_)
-: space_id(space_id_), index_id(index_id_), type(type_), key(key_), key_end(key_end_),
-	tpl(NULL), sql_index(sql_index_), wrFlag(wrFlag_), db(db_), data(NULL), size(0) {
+               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag_, BtCursor *cursor_)
+: space_id(space_id_), index_id(index_id_), type(type_), key(key_), key_end(key_end_), it(NULL),
+	tpl(NULL), sql_index(sql_index_), wrFlag(wrFlag_), original(cursor_), db(db_), data(NULL), size(0) {
 	if (!wrFlag)
 		it = box_index_iterator(space_id, index_id, type, key, key_end);
 }
@@ -688,6 +689,7 @@ int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pR
 		if (reversed) rc = this->MoveToLast(pRes);
 		else rc = this->MoveToFirst(pRes);
 		if (!tpl) {
+			if (original) original->eState = CURSOR_INVALID;
 			*pRes = -1;
 			rc = SQLITE_OK;
 			say_debug("%s(): space is empty\n", __func_name);
@@ -747,6 +749,10 @@ TarantoolCursor &TarantoolCursor::operator=(const TarantoolCursor &ob) {
 	tpl = ob.tpl;
 	db = ob.db;
 	sql_index = ob.sql_index;
+	wrFlag = ob.wrFlag;
+	original = ob.original;
+	it = NULL;
+
 	if (ob.size) {
 		size = ob.size;
 		data = sqlite3DbMallocZero(db, size);
