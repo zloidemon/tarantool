@@ -2163,16 +2163,26 @@ add_new_index_to_self(sql_trntl_self *self, SIndex *new_index) {
 
 void
 remove_old_index_from_self(sql_trntl_self *self, SIndex *old_index) {
-	SIndex **new_indices = new SIndex*[self->cnt_indices];
-	bool found = false;
+	SIndex **new_indices = nullptr;
+	int new_count = 0;
+	for (int i = 0; i < self->cnt_indices; ++i) {
+		if ((self->indices[i] != old_index) &&
+			(self->indices[i]->tnum != old_index->tnum))
+		{
+			new_count++;
+		}
+	}
+	new_indices = new SIndex*[new_count];
 	for (int i = 0, j = 0; i < self->cnt_indices; ++i) {
 		if ((self->indices[i] != old_index) &&
 			(self->indices[i]->tnum != old_index->tnum))
-			new_indices[j++] = self->indices[i];
-		else found = true;
+		{
+			new_indices[j] = self->indices[i];
+			j++;
+		}
 	}
+	self->cnt_indices = new_count;
 	delete[] self->indices;
-	if (found) self->cnt_indices--;
 	self->indices = new_indices;
 }
 
