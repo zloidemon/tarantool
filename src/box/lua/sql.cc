@@ -2186,8 +2186,8 @@ void log_debug(const char *msg) {
 }
 
 void
-space_truncate_by_id(int space_id) {
-	box_truncate(space_id);
+space_truncate_by_id(int root_page) {
+	box_truncate(get_space_id_from(root_page));
 }
 
 int init_schema_with_table(void *self_, Table *table) {
