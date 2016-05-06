@@ -499,9 +499,10 @@ local function upgrade_to_1_7_0()
         format[2] = {name = 'iid', type = 'num'}
         format[3] = {name='owner', type='num'}
         format[4] = {name='name', type='str'}
-        format[5] = {name='sql', type='str'}
-        format[6] = {name='setuid', type='num'}
-        format[7] = {name = 'opts', type = 'array'}
+        format[5] = {name='table', type='str'}
+        format[6] = {name='sql', type='str'}
+        format[7] = {name='setuid', type='num'}
+        format[8] = {name = 'opts', type = 'array'}
         log.info("alter space _trigger set format")
         box.space._trigger:format(format)
     end
