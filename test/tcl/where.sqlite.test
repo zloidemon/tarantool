@@ -949,13 +949,11 @@ do_test where-9.1 {
   }
 } {}
 
-# MUST_WORK_TEST
-
-# do_test where-9.2 {
-#   execsql {
-#     SELECT * FROM t5 WHERE x<10 ORDER BY x DESC;
-#   }
-# } {}
+do_test where-9.2 {
+  execsql {
+    SELECT * FROM t5 WHERE x<10 ORDER BY x DESC;
+  }
+} {}
 do_test where-9.3 {
   execsql {
     SELECT * FROM t5 WHERE x=10;
@@ -1315,33 +1313,35 @@ do_test where-16.2 {
 # These tests test that a bug surrounding the use of ForceInt has been
 # fixed in where.c.
 #
+
 do_test where-17.1 {
   execsql {
-    CREATE TABLE tbltest (
+    DROP TABLE IF EXISTS tbltmp;
+    CREATE TABLE tbltmp (
       id INTEGER PRIMARY KEY,
       eventtype INTEGER NOT NULL
     );
-    INSERT INTO tbltest VALUES(42, 3);
-    INSERT INTO tbltest VALUES(43, 4);
+    INSERT INTO tbltmp VALUES(42, 3);
+    INSERT INTO tbltmp VALUES(43, 4);
   }
 } {}
 do_test where-17.2 {
   execsql {
     SELECT a.id
-    FROM tbltest AS a
+    FROM tbltmp AS a
     WHERE a.eventtype=3;
   }
 } {42}
 do_test where-17.3 {
   execsql {
-    SELECT a.id, (SELECT b.id FROM tbltest AS b WHERE b.id>a.id)
-    FROM tbltest AS a
+    SELECT a.id, (SELECT b.id FROM tbltmp AS b WHERE b.id>a.id)
+    FROM tbltmp AS a
     WHERE a.eventtype=3;
   }
 } {42 43}
 do_test where-17.4 {
   execsql {
-    SELECT a.id, (SELECT b.id FROM tbltest AS b WHERE b.id>a.id)
+    SELECT a.id, (SELECT b.id FROM tbltmp AS b WHERE b.id>a.id)
     FROM (SELECT 1.5 AS id) AS a
   }
 } {1.5 42}
@@ -1349,7 +1349,7 @@ do_test where-17.4 {
 #   execsql {
 #     CREATE TABLE tother(a, b);
 #     INSERT INTO tother VALUES(1, 3.7);
-#     SELECT id, a FROM tbltest, tother WHERE id>a;
+#     SELECT id, a FROM tbltmp, tother WHERE id>a;
 #   }
 # } {42 1 43 1}
 
