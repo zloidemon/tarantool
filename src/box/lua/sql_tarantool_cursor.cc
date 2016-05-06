@@ -684,7 +684,9 @@ int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pR
 		say_debug("%s(): intKey not supported, intKey = %lld\n", __func_name, intKey);
 		return SQLITE_ERROR;
 	} else {
-		rc = this->MoveToFirst(pRes);
+		bool reversed = *pRes < 0;
+		if (reversed) rc = this->MoveToLast(pRes);
+		else rc = this->MoveToFirst(pRes);
 		if (!tpl) {
 			*pRes = -1;
 			rc = SQLITE_OK;
@@ -707,25 +709,26 @@ int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pR
 			const void *data = this->KeyFetch(&tmp_);
 			data_size = tmp_;
 			int c = xRecordCompare(data_size, data, pIdxKey);
-			if (!c) {
-				*pRes = 0;
-          		rc = SQLITE_OK;
-          		say_debug("%s(): find match\n", __func_name);
-          		return rc;
-			}
-			if (c > 0) {
-				*pRes = 1;
+			if ((reversed && (c == pIdxKey->r1)) || ((!reversed) && (c == pIdxKey->r2)) ||
+				((pIdxKey->default_rc == 0) && (c == 0))) {
+				if (c == 0) *pRes = 0;
+				else if (!reversed) *pRes = 1;
+				else *pRes = -1;
 				rc = SQLITE_OK;
-				say_debug("%s(): no matches found\n", __func_name);
+				say_debug("%s(): end of search\n", __func_name);
 				return rc;
 			}
-			rc = this->Next(pRes);
+			if (reversed) rc = this->Previous(pRes);
+			else rc = this->Next(pRes);
 			if (rc) {
-				say_debug("%s(): Next return rc = %d <> 0\n", __func_name, rc);
+				say_debug("%s(): Next/Prev return rc = %d <> 0\n", __func_name, rc);
 				return rc;
 			}
 		}
-		*pRes = -1;
+		if (!reversed)
+			*pRes = -1;
+		else
+			*pRes = 1;
 		rc = SQLITE_OK;
 	}
 	return rc;
