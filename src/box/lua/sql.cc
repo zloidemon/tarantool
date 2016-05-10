@@ -117,16 +117,22 @@ bool
 space_with_name_exists(const char *name, int *id);
 
 /**
- * Get maximal ID of all records in _space.
+ * Get maximal ID of all records in space with id cspace_id.
  */
 int
-get_max_id_of_space();
+get_max_id_of_space(int cspace_id=BOX_SPACE_ID);
 
 /**
- * Get maximal ID of all records in _index where space id = space_id 
+ * Get maximal IID of all records in _index where space id = space_id 
  */
 int
 get_max_id_of_index(int space_id);
+
+/**
+ * Get maximal IID of all records in _trigger where space id = space_id 
+ */
+int
+get_max_iid_of_trigger(int space_id);
 
 /**
  * Insert new struct Table object into _space after converting it
@@ -148,6 +154,14 @@ insert_new_view_as_space(Table *table, char * crt_stmt);
  */
 int
 insert_new_sindex_as_index(SIndex *index);
+
+/**
+ * Insert new struct Trigger object into _trigger after converting it
+ * into msgpuck.
+ */
+int
+insert_trigger(Trigger *trigger, Token *pAll);
+
 
 /**
  * This function converts space from msgpuck tuple to
@@ -1203,7 +1217,7 @@ space_with_name_exists(const char *name, int *id) {
 }
 
 int
-get_max_id_of_space() {
+get_max_id_of_space(int cspace_id) {
 	//static const char *__func_name = "get_max_id_of_space";
 	int id_max = -1;
 	char key[2], *key_end = mp_encode_array(key, 0);
@@ -1218,7 +1232,7 @@ get_max_id_of_space() {
 				*id_max = space_id.GetUint64();
 			return 0;
 		};
-	SpaceIterator space_iterator(1, argv, callback, BOX_SPACE_ID, 0, key, key_end);
+	SpaceIterator space_iterator(1, argv, callback, cspace_id, 0, key, key_end);
 	space_iterator.IterateOver();
 	return id_max;
 }
@@ -1239,6 +1253,27 @@ int get_max_id_of_index(int space_id) {
 			return 0;
 		};
 	SpaceIterator space_iterator(1, argv, callback, BOX_INDEX_ID, 0, key, key_end, ITER_EQ);
+	space_iterator.IterateOver();
+	if (space_iterator.IsOpen() && space_iterator.IsEnd() && (id_max < 0)) id_max = -1;
+	return id_max;
+}
+
+int get_max_iid_of_trigger(int space_id) {
+	int id_max = -2;
+	char key[128], *key_end = mp_encode_array(key, 1);
+	key_end = mp_encode_uint(key_end, space_id);
+	void *argv[1];
+	argv[0] = (void *)&id_max;
+	SpaceIterator::SIteratorCallback callback=\
+		[](box_tuple_t *tpl, int, void **argv) -> int {
+			const char *data = box_tuple_field(tpl, 1);
+			MValue index_id = MValue::FromMSGPuck(&data);
+			int *id_max = (int *)argv[0];
+			if ((int64_t)index_id.GetUint64() > *id_max)
+				*id_max = index_id.GetUint64();
+			return 0;
+		};
+	SpaceIterator space_iterator(1, argv, callback, BOX_TRIGGER_ID, 0, key, key_end, ITER_EQ);
 	space_iterator.IterateOver();
 	if (space_iterator.IsOpen() && space_iterator.IsEnd() && (id_max < 0)) id_max = -1;
 	return id_max;
@@ -1304,6 +1339,62 @@ insert_new_sindex_as_index(SIndex *index) {
 	msg_data.reset(make_msgpuck_from((const SIndex *)index, msg_size));
 	rc = box_insert(BOX_INDEX_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
+}
+
+int
+insert_trigger(Trigger *trigger, Token *pAll) {
+	static const char *__func_name = "insert_trigger";
+	uint32_t iDb = sqlite3SchemaToIndex(get_global_db(), trigger->pSchema);
+	
+	Hash *tblHash = &trigger->pSchema->tblHash;
+	Table *table = (Table *)sqlite3HashFind(tblHash, trigger->table);
+
+	if (!table) {
+		say_debug("%s(): error while getting id of space\n", __func_name);
+		return 1;
+	}
+	uint32_t space_id = get_space_id_from(table->tnum);
+
+	uint32_t max_id = get_max_iid_of_trigger(space_id);
+	uint32_t new_id = max_id + 1;
+	
+	uint32_t create_len = 15; //15 = strlen("CREATE TRIGGER ")
+	uint32_t stmt_len = create_len + pAll->n;
+	char *crt_stmt = new char[stmt_len];
+	sprintf(crt_stmt, "CREATE TRIGGER %s", pAll->z);
+
+	bool is_temp = (iDb == 1);
+
+	uint32_t temporary_len = 9; //9 = strlen("temporary")
+	uint32_t rec_size = 0;
+	rec_size += mp_sizeof_array(6);
+	rec_size += mp_sizeof_uint(space_id);
+	rec_size += mp_sizeof_uint(new_id);
+	rec_size += mp_sizeof_uint(0); // owner id
+	rec_size += mp_sizeof_str(stmt_len);
+	rec_size += mp_sizeof_uint(0); // setuid
+	rec_size += mp_sizeof_map(1);
+	rec_size += mp_sizeof_str(temporary_len);
+	rec_size += mp_sizeof_bool(is_temp);
+
+  	char *new_tuple = new char[rec_size];
+  	char *it = new_tuple;
+
+  	it = mp_encode_array(it, 6);
+  	it = mp_encode_uint(it, space_id);
+	it = mp_encode_uint(it, 0);
+  	it = mp_encode_uint(it, 0); // owner id
+  	it = mp_encode_str(it, crt_stmt, stmt_len);
+  	it = mp_encode_uint(it, 0); // setuid
+  	it = mp_encode_map(it, 1);
+  	it = mp_encode_str(it, "temporary", temporary_len);
+  	it = mp_encode_bool(it, is_temp);
+
+  	box_insert(BOX_TRIGGER_ID, new_tuple, it, NULL);
+  	
+  	delete[] new_tuple;
+
+  	return 0;
 }
 
 Table *
@@ -2027,6 +2118,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->set_global_db = set_global_db;
 	ob->space_truncate_by_id = space_truncate_by_id;
 	ob->remove_and_free_sindex = remove_and_free_sindex;
+	ob->insert_trigger = insert_trigger;
 }
 
 void
