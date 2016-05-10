@@ -1382,7 +1382,7 @@ insert_trigger(Trigger *trigger, Token *pAll) {
 
   	it = mp_encode_array(it, 6);
   	it = mp_encode_uint(it, space_id);
-	it = mp_encode_uint(it, 0);
+	it = mp_encode_uint(it, new_id);
   	it = mp_encode_uint(it, 0); // owner id
   	it = mp_encode_str(it, crt_stmt, stmt_len);
   	it = mp_encode_uint(it, 0); // setuid
