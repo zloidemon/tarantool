@@ -39,6 +39,8 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
+extern struct lsall memtx_allocator;
+
 /** \cond public */
 
 typedef struct tuple_format box_tuple_format_t;
@@ -259,13 +261,12 @@ box_tuple_upsert(const box_tuple_t tuple,
 #include "key_def.h" /* for enum field_type */
 #include "tuple_update.h"
 #include "errinj.h"
+#include "small/lsall.h"
 
 enum { TUPLE_REF_MAX = UINT16_MAX };
 
 /** Common quota for tuples and indexes */
 extern struct quota memtx_quota;
-/** Tuple allocator */
-extern struct small_alloc memtx_alloc;
 /** Tuple slab arena */
 extern struct slab_arena memtx_arena;
 
@@ -303,17 +304,9 @@ struct tuple
 static inline struct tuple *
 tuple_ptr(tuple_id tupid)
 {
-	return tupid;
-}
-
-/**
- * Convert struct tuple * to tuple_id
- * Don't use is outside tuple.h/cc
- */
-inline tuple_id
-tuple_id_create(struct tuple *tuple)
-{
-	return tuple;
+	char *data = (char *)lsall_get(&memtx_allocator, tupid);
+	data += *(uint16_t *)data;
+	return (struct tuple *)data;
 }
 
 /**
@@ -406,7 +399,7 @@ tuple_init_field_map(struct tuple_format *format, tuple_id tupid);
  * @pre tuple->refs  == 0
  */
 void
-tuple_ptr_delete(struct tuple *tuple);
+tuple_ptr_delete(struct tuple *tuple, tuple_id tupid);
 
 /**
  * Free the tuple, for tuple.h private use.
@@ -416,7 +409,7 @@ inline void
 tuple_delete(tuple_id tupid)
 {
 	struct tuple *tuple = tuple_ptr(tupid);
-	tuple_ptr_delete(tuple);
+	tuple_ptr_delete(tuple, tupid);
 }
 
 /**
@@ -475,14 +468,14 @@ tuple_ref(tuple_id tupid)
  * @pre tuple->refs + count >= 0
  */
 inline void
-tuple_ptr_unref(struct tuple *tuple)
+tuple_ptr_unref(struct tuple *tuple, tuple_id tupid)
 {
 	assert(tuple->refs - 1 >= 0);
 
 	tuple->refs--;
 
 	if (tuple->refs == 0)
-		tuple_ptr_delete(tuple);
+		tuple_ptr_delete(tuple, tupid);
 }
 
 /**
@@ -493,7 +486,7 @@ tuple_ptr_unref(struct tuple *tuple)
 inline void
 tuple_unref(tuple_id tupid)
 {
-	return tuple_ptr_unref(tuple_ptr(tupid));
+	return tuple_ptr_unref(tuple_ptr(tupid), tupid);
 }
 
 /** Make tuple references exception-friendly in absence of @finally. */
@@ -665,7 +658,9 @@ tuple_field_to_cstr(const char *field, uint32_t len);
  */
 struct tuple_iterator {
 	/** @cond false **/
-	/* Iterating tuple */
+	/* Iterating tuple id */
+	tuple_id tupid;
+	/* Iterating tuple pointer */
 	struct tuple *tuple;
 	/* Begin (first field) of msgpacked tuple data */
 	const char *data_start;
@@ -684,8 +679,10 @@ struct tuple_iterator {
  * @copydoc tuple_iter_init
  */
 inline void
-tuple_ptr_iter_init(struct tuple_iterator *it, struct tuple *tuple)
+tuple_ptr_iter_init(struct tuple_iterator *it, struct tuple *tuple,
+		    tuple_id tupid)
 {
+	it->tupid = tupid;
 	it->tuple = tuple;
 	struct tuple_format *format = tuple_ptr_format(tuple);
 	uint32_t bsize;
@@ -716,7 +713,7 @@ tuple_ptr_iter_init(struct tuple_iterator *it, struct tuple *tuple)
 inline void
 tuple_iter_init(struct tuple_iterator *it, tuple_id tupid)
 {
-	return tuple_ptr_iter_init(it, tuple_ptr(tupid));
+	return tuple_ptr_iter_init(it, tuple_ptr(tupid), tupid);
 }
 
 /**

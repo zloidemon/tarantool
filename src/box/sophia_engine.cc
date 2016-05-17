@@ -139,7 +139,7 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 	tuple_id tuple = tuple_alloc(format, size, &d);
 	d = mp_encode_array(d, field_count);
 	d = sophia_write_parts(key_def, value, valuesize, parts, d);
-	assert(tuple_ptr_data(tuple, format) + size == d);
+	assert(tuple_data(tuple) + size == d);
 	try {
 		tuple_init_field_map(format, tuple);
 	} catch (Exception *e) {

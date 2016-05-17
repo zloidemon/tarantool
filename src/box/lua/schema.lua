@@ -13,7 +13,7 @@ local builtin = ffi.C
 local tuple_encode = box.tuple.encode
 local tuple_bless = box.tuple.bless
 local is_tuple = box.tuple.is
-local TUPLE_ID_NIL = nil
+local TUPLE_ID_NIL = 0xFFFFFFFF
 assert(tuple_encode ~= nil and tuple_bless ~= nil and is_tuple ~= nil)
 
 ffi.cdef[[

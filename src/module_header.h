@@ -44,6 +44,7 @@
 #include <stdbool.h>
 #include <stdio.h> /* ssize_t for Apple */
 #include <sys/types.h> /* ssize_t */
+#include <assert.h>
 
 /** Extern modifier for all public functions */
 #if defined(__cplusplus)

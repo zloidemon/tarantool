@@ -39,16 +39,8 @@
 #include "small/quota.h"
 #include "memory.h"
 
-extern struct small_alloc memtx_alloc;
+extern struct slab_arena memtx_arena;
 extern struct mempool memtx_index_extent_pool;
-
-static int
-small_stats_noop_cb(const struct mempool_stats *stats, void *cb_ctx)
-{
-	(void) stats;
-	(void) cb_ctx;
-	return 0;
-}
 
 static int
 small_stats_lua_cb(const struct mempool_stats *stats, void *cb_ctx)
@@ -103,13 +95,11 @@ small_stats_lua_cb(const struct mempool_stats *stats, void *cb_ctx)
 static int
 lbox_slab_stats(struct lua_State *L)
 {
-	struct small_stats totals;
 	lua_newtable(L);
 	/*
 	 * List all slabs used for tuples and slabs used for
 	 * indexes, with their stats.
 	 */
-	small_stats(&memtx_alloc, &totals, small_stats_lua_cb, L);
 	struct mempool_stats index_stats;
 	mempool_stats(&memtx_index_extent_pool, &index_stats);
 	small_stats_lua_cb(&index_stats, L);
@@ -121,18 +111,17 @@ lbox_slab_stats(struct lua_State *L)
 static int
 lbox_slab_info(struct lua_State *L)
 {
-	struct small_stats totals;
+	struct small_stats totals = {0};
 
 	/*
 	 * List all slabs used for tuples and slabs used for
 	 * indexes, with their stats.
 	 */
 	lua_newtable(L);
-	small_stats(&memtx_alloc, &totals, small_stats_noop_cb, L);
 	struct mempool_stats index_stats;
 	mempool_stats(&memtx_index_extent_pool, &index_stats);
 
-	struct slab_arena *tuple_arena = memtx_alloc.cache->arena;
+	struct slab_arena *tuple_arena = &memtx_arena;
 	struct quota *memtx_quota = tuple_arena->quota;
 	double ratio;
 	char ratio_buf[32];
@@ -214,7 +203,6 @@ lbox_runtime_info(struct lua_State *L)
 static int
 lbox_slab_check(struct lua_State *L __attribute__((unused)))
 {
-	slab_cache_check(memtx_alloc.cache);
 	return 0;
 }
 

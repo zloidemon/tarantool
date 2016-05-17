@@ -74,7 +74,7 @@ local builtin = ffi.C
 
 local tuple_t = ffi.typeof('struct tuple_cdata')
 
-local TUPLE_ID_NIL = nil
+local TUPLE_ID_NIL = 0xFFFFFFFF
 
 local is_tuple = function(tuple)
     return tuple ~= nil and type(tuple) == 'cdata' and ffi.istype(tuple_t, tuple)

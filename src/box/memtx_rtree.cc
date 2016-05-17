@@ -129,7 +129,10 @@ static tuple_id
 index_rtree_iterator_next(struct iterator *i)
 {
 	struct index_rtree_iterator *itr = (struct index_rtree_iterator *)i;
-	return tuple_id_unpack(rtree_iterator_next(&itr->impl));
+	void *result = rtree_iterator_next(&itr->impl);
+	if (result == NULL)
+		return TUPLE_ID_NIL;
+	return tuple_id_unpack(result);
 }
 
 /* }}} */

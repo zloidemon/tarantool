@@ -397,7 +397,7 @@ box_lua_tuple_init(struct lua_State *L)
 	luamp_set_encode_extension(luamp_encode_extension_box);
 
 	/* Get CTypeID for `tuple_id' */
-	int rc = luaL_cdef(L, "typedef struct tuple *tuple_id;"
+	int rc = luaL_cdef(L, "typedef uint32_t tuple_id;"
 		"struct tuple_cdata { tuple_id id; };");
 	assert(rc == 0);
 	(void) rc;

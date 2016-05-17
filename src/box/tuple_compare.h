@@ -39,6 +39,7 @@ extern "C" {
 #endif /* defined(__cplusplus) */
 
 struct key_def;
+struct tuple;
 
 typedef int (*tuple_compare_with_key_t)(const struct tuple *tuple,
 					const char *key,

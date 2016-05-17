@@ -40,8 +40,9 @@ uint32_t snapshot_version;
 struct quota memtx_quota;
 
 struct slab_arena memtx_arena;
-static struct slab_cache memtx_slab_cache;
-struct small_alloc memtx_alloc;
+struct lsall memtx_allocator;
+extern struct mempool memtx_index_extent_pool;
+static size_t tuple_size_limit = 0;
 
 enum {
 	/** Lowest allowed slab_alloc_minimal */
@@ -67,13 +68,11 @@ tuple_id box_tuple_last;
 void
 tuple_init_field_map(struct tuple_format *format, tuple_id tupid)
 {
-	struct tuple *tuple = tuple_ptr(tupid);
-	uint16_t *field_map = (uint16_t *) tuple;
 	assert(format->field_map_size <= UINT16_MAX);
-	field_map[-(int)format->field_map_size / sizeof(field_map[0])] =
-		format->field_map_size;
 	if (format->field_count == 0)
 		return; /* Nothing to initialize */
+	struct tuple *tuple = tuple_ptr(tupid);
+	uint16_t *field_map = (uint16_t *) tuple;
 	const char *data = tuple_ptr_data(tuple, format);
 	const char *pos = data;
 
@@ -151,6 +150,26 @@ tuple_validate(struct tuple_format *format, tuple_id tupid)
  * to the snapshot file).
  */
 
+static tuple_id delayed_free_list = TUPLE_ID_NIL;
+static bool is_delayed_free_mode = false;
+
+static void
+delayed_free_batch()
+{
+	if (is_delayed_free_mode)
+		return;
+	const int BATCH = 100;
+	for (int i = 0; delayed_free_list != TUPLE_ID_NIL && i < BATCH; i++) {
+		tuple_id id = delayed_free_list;
+		void *ptr = lsall_get(&memtx_allocator, id);
+		char *ptr_skip_size = (char *)ptr + sizeof(uint16_t);
+		delayed_free_list = *(tuple_id *)ptr_skip_size;
+		lsfree(&memtx_allocator, id);
+	}
+}
+
+
+
 /**
  * Allocate a tuple
  * It's similar to tuple_new, but does not set tuple data and thus does not
@@ -165,11 +184,17 @@ tuple_validate(struct tuple_format *format, tuple_id tupid)
 tuple_id
 tuple_alloc(struct tuple_format *format, size_t size, char **data)
 {
+	delayed_free_batch();
 	size_t total = sizeof(struct tuple) + size + format->field_map_size;
 	ERROR_INJECT(ERRINJ_TUPLE_ALLOC,
 		     tnt_raise(OutOfMemory, (unsigned) total,
 			       "slab allocator", "tuple"));
-	char *ptr = (char *) smalloc(&memtx_alloc, total);
+	uint32_t id;
+	if (total > tuple_size_limit) {
+		tnt_raise(LoggedError, ER_SLAB_ALLOC_MAX,
+			  (unsigned) total);
+	}
+	char *ptr = (char *)lsalloc(&memtx_allocator, total, &id);
 	/**
 	 * Use a nothrow version and throw an exception here,
 	 * to throw an instance of ClientError. Apart from being
@@ -179,14 +204,10 @@ tuple_alloc(struct tuple_format *format, size_t size, char **data)
 	 * of disaster recovery.
 	 */
 	if (ptr == NULL) {
-		if (total > memtx_alloc.objsize_max) {
-			tnt_raise(LoggedError, ER_SLAB_ALLOC_MAX,
-				  (unsigned) total);
-		} else {
-			tnt_raise(OutOfMemory, (unsigned) total,
-				  "slab allocator", "tuple");
-		}
+		tnt_raise(OutOfMemory, (unsigned) total,
+			  "slab allocator", "tuple");
 	}
+	*(uint16_t *)ptr = format->field_map_size;
 	struct tuple *tuple = (struct tuple *)(ptr + format->field_map_size);
 
 	tuple->refs = 0;
@@ -197,7 +218,7 @@ tuple_alloc(struct tuple_format *format, size_t size, char **data)
 
 	say_debug("tuple_alloc(%zu) = %p", size, tuple);
 	*data = (char *)tuple_ptr_data(tuple, format);
-	return tuple_id_create(tuple);
+	return id;
 }
 
 /**
@@ -205,19 +226,21 @@ tuple_alloc(struct tuple_format *format, size_t size, char **data)
  * @pre tuple->refs  == 0
  */
 void
-tuple_ptr_delete(struct tuple *tuple)
+tuple_ptr_delete(struct tuple *tuple, tuple_id tupid)
 {
 	say_debug("tuple_delete(%p)", tuple);
 	assert(tuple->refs == 0);
 	struct tuple_format *format = tuple_ptr_format(tuple);
-	size_t total = sizeof(struct tuple) + tuple->bsize + format->field_map_size;
 	char *ptr = (char *) tuple - format->field_map_size;
 	assert(*(uint16_t *)ptr == format->field_map_size);
 	tuple_format_ref(format, -1);
-	if (!memtx_alloc.is_delayed_free_mode || tuple->version == snapshot_version)
-		smfree(&memtx_alloc, ptr, total);
-	else
-		smfree_delayed(&memtx_alloc, ptr, total);
+	if (!is_delayed_free_mode || tuple->version == snapshot_version) {
+		lsfree(&memtx_allocator, tupid);
+	} else {
+		char *ptr_skip_size = ptr + sizeof(uint16_t);
+		*(tuple_id *)ptr_skip_size = delayed_free_list;
+		delayed_free_list = tupid;
+	}
 }
 
 /**
@@ -232,7 +255,8 @@ tuple_ref_exception()
 const char *
 tuple_seek(struct tuple_iterator *it, uint32_t i)
 {
-	const char *field = tuple_field(it->tuple, i);
+	struct tuple_format *format = tuple_ptr_format(it->tuple);
+	const char *field = tuple_ptr_field(format, it->tuple, i);
 	if (likely(field != NULL)) {
 		it->pos = field;
 		it->fieldno = i;
@@ -418,10 +442,28 @@ tuple_new(struct tuple_format *format, const char *data, const char *end)
 	return new_tuple;
 }
 
+enum {
+	MEMTX_EXTENT_SIZE = 16 * 1024
+};
+
+static void *
+mextent_new()
+{
+	assert(memtx_index_extent_pool.objsize == MEMTX_EXTENT_SIZE);
+	return mempool_alloc(&memtx_index_extent_pool);
+}
+
+static void
+mextent_free(void *ptr)
+{
+	mempool_free(&memtx_index_extent_pool, ptr);
+}
+
 void
 tuple_init(float tuple_arena_max_size, uint32_t objsize_min,
 	   uint32_t objsize_max, float alloc_factor)
 {
+	(void)alloc_factor;
 	tuple_format_init();
 
 	/* Apply lowest allowed objsize bounds */
@@ -429,6 +471,7 @@ tuple_init(float tuple_arena_max_size, uint32_t objsize_min,
 		objsize_min = OBJSIZE_MIN;
 	if (objsize_max < OBJSIZE_MAX_MIN)
 		objsize_max = OBJSIZE_MAX_MIN;
+	tuple_size_limit = objsize_max;
 
 	/* Calculate slab size for tuple arena */
 	size_t slab_size = small_round(objsize_max * 4);
@@ -453,9 +496,8 @@ tuple_init(float tuple_arena_max_size, uint32_t objsize_min,
 				       prealloc);
 		}
 	}
-	slab_cache_create(&memtx_slab_cache, &memtx_arena);
-	small_alloc_create(&memtx_alloc, &memtx_slab_cache,
-			   objsize_min, alloc_factor);
+	lsall_create(&memtx_allocator, &memtx_arena, MEMTX_EXTENT_SIZE,
+		     mextent_new, mextent_free);
 	mempool_create(&tuple_iterator_pool, &cord()->slabc,
 		       sizeof(struct tuple_iterator));
 
@@ -480,13 +522,13 @@ void
 tuple_begin_snapshot()
 {
 	snapshot_version++;
-	small_alloc_setopt(&memtx_alloc, SMALL_DELAYED_FREE_MODE, true);
+	is_delayed_free_mode = true;
 }
 
 void
 tuple_end_snapshot()
 {
-	small_alloc_setopt(&memtx_alloc, SMALL_DELAYED_FREE_MODE, false);
+	is_delayed_free_mode = false;
 }
 
 double mp_decode_num(const char **data, uint32_t i)
@@ -599,14 +641,14 @@ box_tuple_iterator(box_tuple_t tupid)
 
 	struct tuple *tuple = tuple_ptr(tupid);
 	tuple_ptr_ref(tuple);
-	tuple_ptr_iter_init(it, tuple);
+	tuple_ptr_iter_init(it, tuple, tupid);
 	return it;
 }
 
 void
 box_tuple_iterator_free(box_tuple_iterator_t *it)
 {
-	tuple_ptr_unref(it->tuple);
+	tuple_ptr_unref(it->tuple, it->tupid);
 	mempool_free(&tuple_iterator_pool, it);
 }
 

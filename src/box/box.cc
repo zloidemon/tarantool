@@ -724,7 +724,7 @@ space_truncate(struct space *space)
 		for (int i = 0; i < index_count; i++)
 			tuple_unref(indexes[i]);
 	});
-	while ((tuple = it->next(it)) != NULL) {
+	while ((tuple = it->next(it)) != TUPLE_ID_NIL) {
 		tuple_ref(tuple);
 		indexes[index_count++] = tuple;
 	}

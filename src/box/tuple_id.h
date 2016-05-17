@@ -33,6 +33,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <assert.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -40,22 +41,22 @@ extern "C" {
 
 /** \cond public */
 
-struct tuple;
+typedef uint32_t tuple_id;
 
-typedef struct tuple *tuple_id;
-
-static const tuple_id TUPLE_ID_NIL = NULL;
+static const tuple_id TUPLE_ID_NIL = UINT32_MAX;
 
 inline void *
 tuple_id_pack(tuple_id tupid)
 {
-	return (void *)tupid;
+	assert((void *)(uintptr_t)tupid != NULL);
+	return (void *)(uintptr_t)tupid;
 }
 
 inline tuple_id
 tuple_id_unpack(void *ptr)
 {
-	return (tuple_id)ptr;
+	assert(ptr != NULL);
+	return (tuple_id)(uintptr_t)ptr;
 }
 
 /** \endcond public */
