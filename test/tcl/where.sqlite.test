@@ -687,7 +687,7 @@ do_test where-6.15 {
   cksort {
     SELECT t3.a, t1.x FROM t3, t1 WHERE t3.a=t1.w ORDER BY t3.a LIMIT 3
   }
-} {1 0 2 1 3 1 sort}
+} {1 0 2 1 3 1 nosort}
 do_test where-6.16 {
   cksort {
     SELECT t3.a, t1.x FROM t3, t1 WHERE t3.a=t1.w ORDER BY t1.x, t3.a LIMIT 3

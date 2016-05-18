@@ -123,12 +123,12 @@ do_test select2-3.2d {
   set sqlite_search_count 0
   execsql {SELECT * FROM tbl2 WHERE 1000=f2}
   set sqlite_search_count
-} {1}
+} {2}
 do_test select2-3.2e {
   set sqlite_search_count 0
   execsql {SELECT * FROM tbl2 WHERE f2=1000}
   set sqlite_search_count
-} {1}
+} {2}
 
 # Make sure queries run faster with an index than without
 #
