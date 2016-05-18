@@ -514,19 +514,25 @@ TarantoolCursor::TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t inde
 }
 
 int TarantoolCursor::MoveToFirst(int *pRes) {
-	static const char *__func_name = "TarantoolCursor::MoveToFirst";
 	if (it) box_iterator_free(it);
+	if (type != ITER_ALL) {
+		say_debug("%s(): change type of iterator to ITER_ALL\n", __FUNCTION__);
+	}
+	type = ITER_ALL;
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
 	int rc = box_iterator_next(it, &tpl);
+	original->eState = CURSOR_VALID;
 	if (rc) {
-		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
+		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __FUNCTION__, rc);
 		*pRes = 1;
+		original->eState = CURSOR_INVALID;
 		tpl = NULL;
 	} else {
 		*pRes = 0;
 	}
 	if (tpl == NULL) {
 		*pRes = 1;
+		original->eState = CURSOR_INVALID;
 		return SQLITE_OK;
 	}
 	rc = this->make_btree_cell_from_tuple();
@@ -577,14 +583,18 @@ const void *TarantoolCursor::KeyFetch(u32 *pAmt) {
 }
 
 int TarantoolCursor::Next(int *pRes) {
-	static const char *__func_name = "TarantoolCursor::Next";
 	if (type == ITER_LE) {
+		*pRes = 1;
+		return SQLITE_OK;
+	}
+	if (!it) {
+		say_debug("%s(): iterator is empty\n", __FUNCTION__);
 		*pRes = 1;
 		return SQLITE_OK;
 	}
 	int rc = box_iterator_next(it, &tpl);
 	if (rc) {
-		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
+		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __FUNCTION__, rc);
 		*pRes = 1;
 		return SQLITE_OK;
 	}
