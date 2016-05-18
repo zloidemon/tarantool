@@ -1150,9 +1150,13 @@ make_msgpuck_from(const SIndex *index, int &size) {
 	it = mp_encode_uint(it, index_id);
 	it = mp_encode_str(it, index->zName, name_len);
 	it = mp_encode_str(it, type, type_len);
-	it = mp_encode_map(it, 1); 
+	it = mp_encode_map(it, 1);
 		it = mp_encode_str(it, "unique", 6);
+	if (index->idxType == 0) {
+		it = mp_encode_bool(it, false);
+	} else {
 		it = mp_encode_bool(it, true);
+	}
 	it = mp_encode_array(it, index->nKeyCol);
 	for (int i = 0; i < index->nKeyCol; ++i) {
 		int col = index->aiColumn[i];
@@ -1658,7 +1662,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	index->aSortOrder[0] = 0;
 	index->szIdxRow = ESTIMATED_ROW_SIZE;
 	index->nColumn = table->nCol;
-	index->onError = OE_Abort;
+	index->onError = OE_None;
 	for (int j = 0; j < table->nCol; ++j) {
 		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, sizeof(char) * (strlen("BINARY") + 1)));
 		memcpy(index->azColl[j], "BINARY", strlen("BINARY"));
@@ -1713,9 +1717,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
 		if (value.GetBool()) {
 			if (index->idxType != 2) index->idxType = 1;
-			index->uniqNotNull = 1;
 		}
-		else index->uniqNotNull = 0;
 	}
 
 	//---- INDEX FORMAT ----
