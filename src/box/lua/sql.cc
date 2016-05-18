@@ -1510,7 +1510,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	char key[128], *key_end;
 	key_end = mp_encode_array(key, 1);
 	key_end = mp_encode_uint(key_end, tbl_id.GetUint64());
-	int index_len = 0;
+	int index_len = 200;
 	void *argv[1];
 	argv[0] = (void *)&index_len;
 	SpaceIterator::SIteratorCallback callback =
@@ -1521,8 +1521,9 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		MValue space_id = MValue::FromMSGPuck(&data);
 		data = box_tuple_field(tpl, 1);
 		MValue index_id = MValue::FromMSGPuck(&data);
-		*index_len = box_index_len(space_id.GetUint64(),
+		int tmp = box_index_len(space_id.GetUint64(),
 			index_id.GetUint64());
+		if (tmp > *index_len) *index_len = tmp;
 		return 1;
 	};
 	SpaceIterator iterator(1, argv, callback, BOX_INDEX_ID,
