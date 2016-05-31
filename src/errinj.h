@@ -38,31 +38,34 @@ extern "C" {
 struct errinj {
 	const char *name;
 	bool state;
+	long value;
 };
 
 /**
  * list of error injection handles.
  */
 #define ERRINJ_LIST(_) \
-	_(ERRINJ_TESTING, false) \
-	_(ERRINJ_WAL_IO, false) \
-	_(ERRINJ_WAL_ROTATE, false) \
-	_(ERRINJ_WAL_WRITE, false) \
-	_(ERRINJ_INDEX_ALLOC, false) \
-	_(ERRINJ_TUPLE_ALLOC, false) \
-	_(ERRINJ_TUPLE_FIELD, false) \
-	_(ERRINJ_RELAY, false)
+	_(ERRINJ_TESTING, false, 0) \
+	_(ERRINJ_WAL_IO, false, 0) \
+	_(ERRINJ_WAL_ROTATE, false, 0) \
+	_(ERRINJ_WAL_WRITE, false, 0) \
+	_(ERRINJ_INDEX_ALLOC, false, 0) \
+	_(ERRINJ_TUPLE_ALLOC, false, 0) \
+	_(ERRINJ_TUPLE_FIELD, false, 0) \
+	_(ERRINJ_RELAY, false, 0)
 
 ENUM0(errinj_enum, ERRINJ_LIST);
 extern struct errinj errinjs[];
 
 bool errinj_get(int id);
 
-void errinj_set(int id, bool state);
-int errinj_set_byname(char *name, bool state);
+void errinj_set(int id, bool state, long value);
+int errinj_set_byname(char *name, bool state, long value);
 
 typedef int (*errinj_cb)(struct errinj *e, void *cb_ctx);
 int errinj_foreach(errinj_cb cb, void *cb_ctx);
+
+#define ERROR_INJECT_VALUE(ID) (errinjs[ID].value)
 
 #ifdef NDEBUG
 #  define ERROR_INJECT(ID, CODE)

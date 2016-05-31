@@ -137,7 +137,8 @@ lbox_errinj_set(struct lua_State *L)
 {
 	char *name = (char*)luaL_checkstring(L, 1);
 	bool state = lua_toboolean(L, 2);
-	if (errinj_set_byname(name, state)) {
+	long value = lua_tointeger(L, 3);
+	if (errinj_set_byname(name, state, value)) {
 		lua_pushfstring(L, "error: can't find error injection '%s'", name);
 		return 1;
 	}
@@ -153,6 +154,9 @@ lbox_errinj_cb(struct errinj *e, void *cb_ctx)
 	lua_newtable(L);
 	lua_pushstring(L, "state");
 	lua_pushboolean(L, e->state);
+	lua_settable(L, -3);
+	lua_pushstring(L, "value");
+	lua_pushnumber(L, e->value);
 	lua_settable(L, -3);
 	lua_settable(L, -3);
 	return 0;

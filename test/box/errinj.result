@@ -14,20 +14,28 @@ errinj.info()
 ---
 - ERRINJ_RELAY:
     state: false
+    value: 0
   ERRINJ_WAL_WRITE:
     state: false
+    value: 0
   ERRINJ_TUPLE_FIELD:
     state: false
+    value: 0
   ERRINJ_TESTING:
     state: false
+    value: 0
   ERRINJ_WAL_ROTATE:
     state: false
+    value: 0
   ERRINJ_INDEX_ALLOC:
     state: false
+    value: 0
   ERRINJ_TUPLE_ALLOC:
     state: false
+    value: 0
   ERRINJ_WAL_IO:
     state: false
+    value: 0
 ...
 errinj.set("some-injection", true)
 ---

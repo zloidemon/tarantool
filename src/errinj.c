@@ -38,7 +38,8 @@
 #include "say.h"
 #include "errinj.h"
 
-#define ERRINJ_MEMBER(n, s) { /* .name = */ #n, /* .state = */ s },
+#define ERRINJ_MEMBER(n, s, v) { /* .name = */ #n, /* .state = */ s, \
+				 /* .value = */ v },
 
 struct errinj errinjs[errinj_enum_MAX] = {
 	ERRINJ_LIST(ERRINJ_MEMBER)
@@ -77,10 +78,11 @@ errinj_get(int id)
  *
  */
 void
-errinj_set(int id, bool state)
+errinj_set(int id, bool state, long value)
 {
 	assert(id >= 0 && id < errinj_enum_MAX);
 	errinjs[id].state = state;
+	errinjs[id].value = value;
 }
 
 /**
@@ -92,12 +94,13 @@ errinj_set(int id, bool state)
  * @return 0 on success, -1 if injection was not found.
  */
 int
-errinj_set_byname(char *name, bool state)
+errinj_set_byname(char *name, bool state, long value)
 {
 	struct errinj *ei = errinj_lookup(name);
 	if (ei == NULL)
 		return -1;
 	ei->state = state;
+	ei->value = value;
 	return 0;
 }
 
