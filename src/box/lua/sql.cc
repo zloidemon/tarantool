@@ -65,8 +65,10 @@ extern "C" {
 #define GetLastErrMsg box_error_message(box_error_last())
 
 static const char *sqlitelib_name = "sqlite";
-static trigger *on_index_commit_trigger;
-static trigger *on_space_commit_trigger;
+static trigger *on_index_replace_trigger;
+static trigger *on_space_replace_trigger;
+static trigger *on_trigger_replace_trigger;
+
 
 /**
  * Structure for linking BtCursor (sqlite) with
@@ -123,16 +125,16 @@ int
 get_max_id_of_space(int cspace_id=BOX_SPACE_ID);
 
 /**
- * Get maximal IID of all records in _index where space id = space_id 
+ * Get maximal ID of all records in _index where space id = space_id
  */
 int
 get_max_id_of_index(int space_id);
 
 /**
- * Get maximal IID of all records in _trigger where space id = space_id 
+ * Get maximal trigger ID of all records in _trigger where space id = space_id
  */
 int
-get_max_iid_of_trigger(int space_id);
+get_max_id_of_trigger(int space_id);
 
 /**
  * Insert new struct Table object into _space after converting it
@@ -160,7 +162,7 @@ insert_new_sindex_as_index(SIndex *index);
  * into msgpuck.
  */
 int
-insert_trigger(Trigger *trigger, Token *pAll);
+insert_trigger(Trigger *trigger, char *crt_stmt);
 
 
 /**
@@ -169,7 +171,7 @@ insert_trigger(Trigger *trigger, Token *pAll);
  */
 Table *
 get_trntl_table_from_tuple(box_tuple_t *tpl,sqlite3 *db,
-	Schema *pSchema, bool *is_temp = NULL, bool *is_view = NULL, 
+	Schema *pSchema, bool *is_temp = NULL, bool *is_view = NULL,
 	bool is_delete = false);
 
 /**
@@ -379,7 +381,7 @@ trntl_cursor_data_fetch(void *self_, BtCursor *pCur, u32 *pAmt);
  */
 int
 trntl_cursor_key_size(void *self, BtCursor *pCur, i64 *pSize);
- 
+
 /**
  * Same as trntl_cursor_data_fetch - for compatibility with
  * sqlite.
@@ -425,7 +427,7 @@ trntl_cursor_insert(void *self, BtCursor *pCur, const void *pKey,
 /**
  * Delete tuple pointed by pCur.
  * @param bPreserve If this parameter is zero, then the cursor is left pointing at an
- * 		arbitrary location after the delete. If it is non-zero, then the cursor 
+ * 		arbitrary location after the delete. If it is non-zero, then the cursor
  * 		is left in a state such that the next call to Next() or Prev()
  * 		moves it to the same row as it would if the call to DeleteCurrent() had
  * 		been omitted.
@@ -506,7 +508,7 @@ extern "C" {
 /**
  * Callback function for sqlite3_exec function. It fill
  * sql_result structure with data, received from database.
- * 
+ *
  * @param data Pointer to struct sql_result
  * @param cols Number of columns in result
  * @param values One concrete row from result
@@ -597,7 +599,7 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 			say_debug("%s(): table was not found\n", __func_name);
 			return;
 		}
-		
+
 		sqlite3HashInsert(tblHash, table->zName, NULL);
 	}
 	if (new_tuple != NULL) {
@@ -730,6 +732,69 @@ on_replace_index(struct trigger * /*trigger*/, void * event) {
 }
 
 /**
+ * Calls every time when _trigger is updated and this
+ * changes are commited. It applies commited changes to
+ * sqlite schema.
+ */
+void
+on_commit_trigger(struct trigger * /*trigger*/, void * event) {
+	static const char *__func_name = "on_commit_index";
+	say_debug("%s(): _trigger commited\n", __func_name);
+	struct txn *txn = (struct txn *) event;
+	struct txn_stmt *stmt = txn_last_stmt(txn);
+	struct tuple *old_tuple = stmt->old_tuple;
+	struct tuple *new_tuple = stmt->new_tuple;
+	if (old_tuple != NULL) {
+		say_debug("%s(): _trigger old_tuple != NULL\n", __func_name);
+		return;
+	}
+	else if (new_tuple != NULL) {
+		say_debug("%s(): _trigger new_tuple != NULL && old_tuple == NULL\n", __func_name);
+		const char *z_sql = box_tuple_field(new_tuple, 5);
+		sqlite3_stmt *sqlite3_stmt;
+		uint32_t len = strlen(z_sql);
+		sqlite3 *db = get_global_db();
+		Trigger *trigger;
+		Vdbe *v;
+		const char *pTail;
+		int rc = sqlite3_prepare_v2(db, z_sql,
+				len, &sqlite3_stmt, &pTail);
+		if (rc) {
+			say_debug("%s(): error while parsing create statement for trigger\n", __func_name);
+			return;
+		}
+
+		if (!db->init.busy) {
+			v = (Vdbe *)sqlite3_stmt;
+			(void) rc;
+			trigger = v->pParse->pNewTrigger;
+			Hash *trigHash = &trigger->pSchema->trigHash;
+			sqlite3HashInsert(trigHash, trigger->zName, (void *)trigger);
+		}
+		sqlite3_finalize(sqlite3_stmt);
+	}
+
+}
+
+
+/**
+ * Call every time when _index is modified. This function
+ * doesn't do any updates but creating new trigger on commiting
+ * this _index updates.
+ */
+void
+on_replace_trigger(struct trigger * /*trigger*/, void * event) {
+	static const char *__func_name = "on_replace_trigger";
+	say_debug("%s():\n", __func_name);
+	struct txn *txn = (struct txn *) event;
+	struct trigger *on_commit = (struct trigger *)
+		region_calloc_object_xc(&fiber()->gc, struct trigger);
+	trigger_create(on_commit, on_commit_trigger, NULL, NULL);
+	txn_on_commit(txn, on_commit);
+}
+
+
+/**
  * Set global sql_tarantool_api and ready flag.
  * When sqlite will make initialization this flag
  * will be used for detection if global sql_tarantool_api is
@@ -754,7 +819,7 @@ connect_triggers() {
 	*alter_space_on_replace_space = {
 		RLIST_LINK_INITIALIZER, on_replace_space, NULL, NULL
 	};
-	on_space_commit_trigger = alter_space_on_replace_space;
+	on_space_replace_trigger = alter_space_on_replace_space;
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_space, link);
 
 	/* _index */
@@ -764,8 +829,26 @@ connect_triggers() {
 	*alter_space_on_replace_index = {
 		RLIST_LINK_INITIALIZER, on_replace_index, NULL, NULL
 	};
-	on_index_commit_trigger = alter_space_on_replace_index;
+	on_index_replace_trigger = alter_space_on_replace_index;
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_index, link);
+
+	/* _trigger */
+	space = space_cache_find(BOX_TRIGGER_ID);
+	struct trigger *alter_space_on_replace_trigger = (struct trigger *)malloc(sizeof(struct trigger));
+	memset(alter_space_on_replace_trigger, 0, sizeof(struct trigger));
+	*alter_space_on_replace_trigger = {
+		RLIST_LINK_INITIALIZER, on_replace_trigger, NULL, NULL
+	};
+	on_trigger_replace_trigger = alter_space_on_replace_trigger;
+	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_trigger, link);
+
+}
+
+void
+disconnect_trriggers() {
+	rlist_del((rlist *) on_space_replace_trigger);
+	rlist_del((rlist *) on_index_replace_trigger);
+	rlist_del((rlist *) on_trigger_replace_trigger);
 }
 
 /**
@@ -877,8 +960,7 @@ lua_sqlite_close(struct lua_State *L)
 {
 	sqlite3 *db = lua_check_sqliteconn(L, 1);
 	sqlite3_close(db);
-	rlist_del((rlist *) on_space_commit_trigger);
-	rlist_del((rlist *) on_index_commit_trigger);
+	disconnect_trriggers();
 	return 0;
 }
 
@@ -995,7 +1077,7 @@ make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
 	}
 	if (is_view) {
 		msg_size += mp_sizeof_str(view_len)
-			+ mp_sizeof_bool(true);	
+			+ mp_sizeof_bool(true);
 	}
 	if (crt_stmt) {
 		msg_size += mp_sizeof_str(stmt_len)
@@ -1019,16 +1101,16 @@ make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
 	it = mp_encode_str(it, table->zName, table_name_len); // space name
 	it = mp_encode_str(it, engine, engine_len); // space engine
 	it = mp_encode_uint(it, 0); // field count
-	
+
 	// flags
 	it = mp_encode_map(it, flags_cnt);
-	if (is_temp) {	
+	if (is_temp) {
 		it = mp_encode_str(it, "temporary", temporary_len);
 		it = mp_encode_bool(it, true);
 	}
 	if (is_view) {
 		it = mp_encode_str(it, "view", view_len);
-		it = mp_encode_bool(it, true);	
+		it = mp_encode_bool(it, true);
 	}
 	if (crt_stmt) {
 		it = mp_encode_str(it, "crt_stmt", stmt_len);
@@ -1080,7 +1162,7 @@ make_msgpuck_from(const Table *table, int &size) {
 		}
 		if (is_view) {
 			msg_size += mp_sizeof_str(view_len)
-				+ mp_sizeof_bool(true);	
+				+ mp_sizeof_bool(true);
 		}
 	}
 	else
@@ -1106,13 +1188,13 @@ make_msgpuck_from(const Table *table, int &size) {
 	// flags
 	if (flags_cnt) {
 		it = mp_encode_map(it, flags_cnt);
-		if (is_temp) {	
+		if (is_temp) {
 			it = mp_encode_str(it, "temporary", temporary_len);
 			it = mp_encode_bool(it, true);
 		}
 		if (is_view) {
 			it = mp_encode_str(it, "view", view_len);
-			it = mp_encode_bool(it, true);	
+			it = mp_encode_bool(it, true);
 		}
 	} else {
 		it = mp_encode_map(it, 0);
@@ -1147,7 +1229,7 @@ make_msgpuck_from(const SIndex *index, int &size) {
 	msg_size += mp_sizeof_uint(index_id);
 	msg_size += mp_sizeof_str(name_len);
 	msg_size += mp_sizeof_str(type_len);
-	msg_size += mp_sizeof_map(1); 
+	msg_size += mp_sizeof_map(1);
 		msg_size += mp_sizeof_str(6); //strlen('unique')
 		msg_size += mp_sizeof_bool(true);
 	msg_size += mp_sizeof_array(index->nKeyCol);
@@ -1164,7 +1246,7 @@ make_msgpuck_from(const SIndex *index, int &size) {
 	it = mp_encode_uint(it, index_id);
 	it = mp_encode_str(it, index->zName, name_len);
 	it = mp_encode_str(it, type, type_len);
-	it = mp_encode_map(it, 1); 
+	it = mp_encode_map(it, 1);
 		it = mp_encode_str(it, "unique", 6);
 		it = mp_encode_bool(it, true);
 	it = mp_encode_array(it, index->nKeyCol);
@@ -1258,7 +1340,7 @@ int get_max_id_of_index(int space_id) {
 	return id_max;
 }
 
-int get_max_iid_of_trigger(int space_id) {
+int get_max_id_of_trigger(int space_id) {
 	int id_max = -2;
 	char key[128], *key_end = mp_encode_array(key, 1);
 	key_end = mp_encode_uint(key_end, space_id);
@@ -1342,10 +1424,10 @@ insert_new_sindex_as_index(SIndex *index) {
 }
 
 int
-insert_trigger(Trigger *trigger, Token *pAll) {
+insert_trigger(Trigger *trigger, char *crt_stmt) {
 	static const char *__func_name = "insert_trigger";
 	uint32_t iDb = sqlite3SchemaToIndex(get_global_db(), trigger->pSchema);
-	
+
 	Hash *tblHash = &trigger->pSchema->tblHash;
 	Table *table = (Table *)sqlite3HashFind(tblHash, trigger->table);
 
@@ -1355,43 +1437,47 @@ insert_trigger(Trigger *trigger, Token *pAll) {
 	}
 	uint32_t space_id = get_space_id_from(table->tnum);
 
-	uint32_t max_id = get_max_iid_of_trigger(space_id);
+	uint32_t max_id = get_max_id_of_trigger(space_id);
 	uint32_t new_id = max_id + 1;
-	
+
 	uint32_t create_len = 15; //15 = strlen("CREATE TRIGGER ")
-	uint32_t stmt_len = create_len + pAll->n;
-	char *crt_stmt = new char[stmt_len];
-	sprintf(crt_stmt, "CREATE TRIGGER %s", pAll->z);
+	uint32_t full_stmt_len = create_len + strlen(crt_stmt);
+	char *crt_stmt_full = new char[full_stmt_len];
+	sprintf(crt_stmt_full, "CREATE TRIGGER %s", crt_stmt);
 
 	bool is_temp = (iDb == 1);
 
 	uint32_t temporary_len = 9; //9 = strlen("temporary")
 	uint32_t rec_size = 0;
-	rec_size += mp_sizeof_array(6);
+	rec_size += mp_sizeof_array(8);
 	rec_size += mp_sizeof_uint(space_id);
 	rec_size += mp_sizeof_uint(new_id);
 	rec_size += mp_sizeof_uint(0); // owner id
-	rec_size += mp_sizeof_str(stmt_len);
+	rec_size += mp_sizeof_str(strlen(trigger->zName));
+	rec_size += mp_sizeof_str(strlen(trigger->table));
+	rec_size += mp_sizeof_str(full_stmt_len);
 	rec_size += mp_sizeof_uint(0); // setuid
 	rec_size += mp_sizeof_map(1);
 	rec_size += mp_sizeof_str(temporary_len);
 	rec_size += mp_sizeof_bool(is_temp);
 
-  	char *new_tuple = new char[rec_size];
-  	char *it = new_tuple;
+	char *new_tuple = new char[rec_size];
+	char *it = new_tuple;
 
-  	it = mp_encode_array(it, 6);
+  	it = mp_encode_array(it, 8);
   	it = mp_encode_uint(it, space_id);
 	it = mp_encode_uint(it, new_id);
-  	it = mp_encode_uint(it, 0); // owner id
-  	it = mp_encode_str(it, crt_stmt, stmt_len);
+	it = mp_encode_uint(it, 0); // owner id
+ 	it = mp_encode_str(it, trigger->zName, strlen(trigger->zName));
+ 	it = mp_encode_str(it, trigger->table, strlen(trigger->table));
+  	it = mp_encode_str(it, crt_stmt_full, full_stmt_len);
   	it = mp_encode_uint(it, 0); // setuid
   	it = mp_encode_map(it, 1);
   	it = mp_encode_str(it, "temporary", temporary_len);
   	it = mp_encode_bool(it, is_temp);
 
   	box_insert(BOX_TRIGGER_ID, new_tuple, it, NULL);
-  	
+
   	delete[] new_tuple;
 
   	return 0;
@@ -1479,7 +1565,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		if (!strcmp(pname, "view") && value.GetBool()) {
 			if (is_view) *is_view = true;
 		}
-		if (!strcmp(pname, "crt_stmt") && !is_delete) { 
+		if (!strcmp(pname, "crt_stmt") && !is_delete) {
 			/* we need not to parse crt_stmt_in case of deleting
 			 * view
 			 **/
@@ -1495,7 +1581,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 				say_debug("%s(): error while parsing create statement for view\n", __func_name);
 				return NULL;
 			}
-			
+
 			if (!db->init.busy) {
 				v = (Vdbe *)stmt;
 				(void) rc;
@@ -2447,7 +2533,7 @@ trntl_cursor_key_size(void * /*self_*/, BtCursor *pCur, i64 *pSize) {
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
 	return c->cursor.KeySize(pSize);
 }
- 
+
 const void *
 trntl_cursor_key_fetch(void * /*self_*/, BtCursor *pCur, u32 *pAmt) {
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
@@ -2594,13 +2680,20 @@ trntl_nested_insert_into_space(int argc, void *argv_) {
 		Table *table = (Table *)argv[2];
 		char *crt_stmt = (char *)argv[3];
 		rc = insert_new_view_as_space(table, crt_stmt);
-		//TODO: free table memory
 		if (rc) {
 			say_debug("%s(): error while inserting new view as space\n", __func_name);
 			return SQLITE_ERROR;
 		}
+	} else if (!strcmp(name, "_trigger")) {
+		Trigger *trigger = (Trigger *)argv[2];
+		char *crt_stmt = (char *)argv[3];
+		rc = insert_trigger(trigger, crt_stmt);
+		if (rc) {
+			say_debug("%s(): error while inserting new trigger into _trigger\n", __func_name);
+			return SQLITE_ERROR;
+		}
 	}
-	say_debug("%s(): maked insert into space %s\n", __func_name, (char *)(argv[1]));
+	say_debug("%s(): made insert into space %s\n", __func_name, (char *)(argv[1]));
 	return SQLITE_OK;
 }
 
