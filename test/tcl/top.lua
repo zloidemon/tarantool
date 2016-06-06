@@ -20,7 +20,7 @@ require('console').listen(os.getenv('ADMIN'))
 ffi = require('ffi')    
 
 -- loading textfixture - dynamic librarary for running tests
-fixture = ffi.load( '../../third_party/sqlite/src/libtestfixture.so')
+fixture = ffi.load( '../../third_party/sqlite/src/libtestfixture.dylib')
 
 -- define function
 ffi.cdef('int main(int argc, char *argv[])')
