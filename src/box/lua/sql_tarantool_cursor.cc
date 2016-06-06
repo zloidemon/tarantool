@@ -29,6 +29,9 @@
  * SUCH DAMAGE.
  */
 
+extern "C" {
+#include "sqliteInt.h"
+}
 #include "sql_tarantool_cursor.h"
 #include "space_iterator.h"
 

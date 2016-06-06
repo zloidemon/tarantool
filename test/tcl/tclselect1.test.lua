@@ -6,7 +6,7 @@ require("top")
 
 -- initialization params
 local arg0 = ffi.cast('char *',  tarantool_path)
-local arg1 = ffi.cast('char *', "./select1.test")
+local arg1 = ffi.cast('char *', "./select1.sqlite.test")
 local argv = ffi.new('char *[2]')
 argv[0] = arg0
 argv[1] = arg1

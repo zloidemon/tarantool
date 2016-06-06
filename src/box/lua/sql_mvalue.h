@@ -54,8 +54,8 @@ static int do_mvalue_from_msgpuck(MValue *res, const char **data);
 public:
 	MValue();
 	MValue(const MValue &ob);
-	MValue(int64_t n);
-	MValue(uint64_t n);
+	MValue(i64 n);
+	MValue(u64 n);
 	MValue(const char *src, int len = -1);
 	MValue(double num);
 	MValue(const void *src, int len);
@@ -65,8 +65,8 @@ public:
 	int GetType() const;
 
 	double GetDouble() const;
-	uint64_t GetUint64() const;
-	int64_t GetInt64() const;
+	u64 GetUint64() const;
+	i64 GetInt64() const;
 	const char *GetStr(size_t *len = NULL) const;
 	const char *GetBin(size_t *len = NULL) const;
 	bool GetBool() const;

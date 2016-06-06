@@ -14,6 +14,7 @@ include_directories(${MSGPUCK_INCLUDE_DIRS})
 
 set(LIBUTIL_FREEBSD_SRC ${CMAKE_SOURCE_DIR}/third_party/libutil_freebsd)
 include_directories(${LIBUTIL_FREEBSD_SRC})
+add_definitions(-D_HAVE_SQLITE_CONFIG_H=1)
 
 # Compile src/lua/*.lua files into src/lua/*.lua.c sources
 set(lua_sources)

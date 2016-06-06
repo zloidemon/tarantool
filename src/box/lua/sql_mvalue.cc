@@ -37,10 +37,10 @@ MValue::MValue(const MValue &ob) : type(-1), data(NULL), data_len(0), error(fals
 	*this = ob;
 }
 
-MValue::MValue(int64_t n) : type(-1), data(NULL), data_len(0), error(false) {
-	data = malloc(sizeof(int64_t));
-	memcpy(data, &n, sizeof(int64_t));
-	data_len = sizeof(int64_t);
+MValue::MValue(i64 n) : type(-1), data(NULL), data_len(0), error(false) {
+	data = malloc(sizeof(i64));
+	memcpy(data, &n, sizeof(i64));
+	data_len = sizeof(i64);
 	if (n > 0) {
 		type = MP_UINT;
 	} else {
@@ -48,10 +48,10 @@ MValue::MValue(int64_t n) : type(-1), data(NULL), data_len(0), error(false) {
 	}
 }
 
-MValue::MValue(uint64_t n) {
-	data = malloc(sizeof(uint64_t));
-	memcpy(data, &n, sizeof(uint64_t));
-	data_len = sizeof(uint64_t);
+MValue::MValue(u64 n) {
+	data = malloc(sizeof(u64));
+	memcpy(data, &n, sizeof(u64));
+	data_len = sizeof(u64);
 	type = MP_UINT;
 }
 
@@ -109,25 +109,25 @@ double MValue::GetDouble() const {
 	return res;
 }
 
-uint64_t MValue::GetUint64() const {
+u64 MValue::GetUint64() const {
 	error = false;
 	if (type != MP_UINT) {
 		error = true;
 		return 0;
 	}
-	uint64_t res;
-	memcpy(&res, data, sizeof(uint64_t));
+	u64 res;
+	memcpy(&res, data, sizeof(u64));
 	return res;
 }
 
-int64_t MValue::GetInt64() const {
+i64 MValue::GetInt64() const {
 	error = false;
 	if (type != MP_INT) {
 		error = true;
 		return 0;
 	}
-	int64_t res;
-	memcpy(&res, data, sizeof(int64_t));
+	i64 res;
+	memcpy(&res, data, sizeof(i64));
 	return res;
 }
 
@@ -229,7 +229,7 @@ MValue MValue::FromBtreeCell(const char *data, int serial_type, int &size) {
 
 	switch(mem.flags) {
 		case MEM_Null: return MValue();
-		case MEM_Int: return MValue((int64_t)mem.u.i);
+		case MEM_Int: return MValue((i64)mem.u.i);
 		case MEM_Real: return MValue(mem.u.r);
 		default: {
 			if (mem.flags & MEM_Blob)
@@ -253,19 +253,19 @@ int MValue::do_mvalue_from_msgpuck(MValue *res, const char **data) {
 			res->data_len = 0;
 			return 0;
 		case MP_UINT: {
-			uint64_t tmp = mp_decode_uint(&tuple);
+			u64 tmp = mp_decode_uint(&tuple);
 			*data = tuple;
 			res->type = type;
-			res->data_len = sizeof(uint64_t);
+			res->data_len = sizeof(u64);
 			res->data = malloc(res->data_len);
 			memcpy(res->data, &tmp, res->data_len);
 			return 0;
 		}
 		case MP_INT: {
-			int64_t tmp = mp_decode_int(&tuple);
+			i64 tmp = mp_decode_int(&tuple);
 			*data = tuple;
 			res->type = type;
-			res->data_len = sizeof(int64_t);
+			res->data_len = sizeof(i64);
 			res->data = malloc(res->data_len);
 			memcpy(res->data, &tmp, res->data_len);
 			return 0;
