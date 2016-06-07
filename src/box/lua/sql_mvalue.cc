@@ -91,6 +91,10 @@ MValue &MValue::operator=(const MValue &ob) {
 		for (int i = 0; i < data_len; ++i) {
 			*((MValue *)data + i) = *ob[i];
 		}
+	} else if (type == MP_STR) {
+		data = malloc (data_len + 1);
+		memcpy (data, ob.data, data_len);
+		((char*)data) [data_len] = 0;
 	} else {
 		data = malloc(data_len);
 		memcpy(data, ob.data, data_len);
