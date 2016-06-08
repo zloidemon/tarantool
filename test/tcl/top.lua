@@ -17,11 +17,13 @@ box.cfg {
 require('console').listen(os.getenv('ADMIN'))
 
 --requere ffi module
-ffi = require('ffi')    
+ffi = require('ffi')
 
 -- loading textfixture - dynamic librarary for running tests
-fixture = ffi.load( '../../third_party/sqlite/src/libtestfixture.dylib')
+package.cpath = '../../third_party/sqlite/src/?.so;'..
+                '../../third_party/sqlite/src/?.dylib;'..
+                package.cpath
+fixture = ffi.load(package.searchpath('libtestfixture', package.cpath))
 
 -- define function
 ffi.cdef('int main(int argc, char *argv[])')
-

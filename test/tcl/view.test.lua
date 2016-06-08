@@ -1,4 +1,4 @@
-#!/usr/bin/env tarantool tcltestrunner.lua
+#!/usr/bin/env ./tcltestrunner.lua
 
 # 2002 February 26
 #
