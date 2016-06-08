@@ -1,10 +1,9 @@
 #!/usr/bin/env tarantool
 
-os.execute("rm -f *.snap *.xlog*")
+local ffi = require('ffi')
+local console = require('console')
 
-tarantool_path = io.popen("which tarantool", "r"):read()
-
-require("top")
+local tarantool_path = io.popen("which tarantool", "r"):read()
 
 function get_test_name(path_to_file)
 	local last_part = ''
@@ -26,6 +25,36 @@ function get_test_name(path_to_file)
 	return result
 end
 
+--[[ for run tsl test you should run main from:
+     <tarantool_path>/third_party/sqlite/build/testfixture.so
+     int main(int argc, char *argv[]):
+         param: argc: count of arguments = 2
+         param: argv: array with two strings
+                argv[0] -- path to tarantool src dir
+                argv[1] -- path to tcl test file for run 
+]]--
+
+-- cleanup
+os.execute("rm -f *.snap *.xlog*")
+
+-- configuring tarantool
+box.cfg {
+    listen = os.getenv("LISTEN"),
+    logger="tarantool.log",
+    slab_alloc_arena=0.1,
+}
+
+console.listen(os.getenv('ADMIN'))
+
+-- loading textfixture - dynamic librarary for running tests
+package.cpath = '../../third_party/sqlite/src/?.so;'..
+                '../../third_party/sqlite/src/?.dylib;'..
+                package.cpath
+fixture = ffi.load(package.searchpath('libtestfixture', package.cpath))
+
+-- define function
+ffi.cdef('int main(int argc, char *argv[])')
+
 -- initialization params
 local arg0 = ffi.cast('char *',  tarantool_path)
 local arg1 = ffi.cast('char *', get_test_name(arg[1]))
@@ -34,7 +63,4 @@ argv[0] = arg0
 argv[1] = arg1
 
 -- run main
-fixture.main(2, argv)
-print('here!!')
-
-os.exit(0)
+os.exit(fixture.main(2, argv))
