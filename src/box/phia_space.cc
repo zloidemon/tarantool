@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -63,38 +63,39 @@ PhiaSpace::applySnapshotRow(struct space *space, struct request *request)
 	primary_key_validate(index->key_def, key, index->key_def->part_count);
 
 	const char *value = NULL;
-	void *obj = index->createDocument(key, &value);
+	struct phia_document *obj = index->createDocument(key, &value);
 	size_t valuesize = size - (value - request->tuple);
 	if (valuesize > 0)
-		sp_setstring(obj, "value", value, valuesize);
+		phia_document_set_field(obj, "value", value, valuesize);
 
 	assert(request->header != NULL);
 
-	void *tx = sp_begin(index->env);
+	struct phia_tx *tx = phia_begin(index->env);
 	if (tx == NULL) {
-		sp_destroy(obj);
-		phia_error(index->env);
+		phia_document_delete(obj);
+		phia_raise();
 	}
 
 	int64_t signature = request->header->lsn;
-	sp_setint(tx, "lsn", signature);
+	phia_tx_set_lsn(tx, signature);
 
-	if (sp_set(tx, obj) != 0)
-		phia_error(index->env); /* obj destroyed by sp_set() */
+	if (phia_replace(tx, obj) != 0)
+		phia_raise();
+	/* obj destroyed by phia_replace() */
 
-	int rc = sp_commit(tx);
+	int rc = phia_commit(tx);
 	switch (rc) {
 	case 0:
 		return;
 	case 1: /* rollback */
 		return;
 	case 2: /* lock */
-		sp_destroy(tx);
+		phia_rollback(tx);
 		/* must never happen during JOIN */
 		tnt_raise(ClientError, ER_TRANSACTION_CONFLICT);
 		return;
 	case -1:
-		phia_error(index->env);
+		phia_raise();
 		return;
 	default:
 		assert(0);
@@ -103,8 +104,8 @@ PhiaSpace::applySnapshotRow(struct space *space, struct request *request)
 
 struct tuple *
 PhiaSpace::executeReplace(struct txn*,
-                            struct space *space,
-                            struct request *request)
+			  struct space *space,
+			  struct request *request)
 {
 	PhiaIndex *index = (PhiaIndex *)index_find(space, 0);
 
@@ -134,16 +135,16 @@ PhiaSpace::executeReplace(struct txn*,
 	}
 
 	/* replace */
-	void *transaction = in_txn()->engine_tx;
+	struct phia_tx *tx = (struct phia_tx *)(in_txn()->engine_tx);
 	const char *value = NULL;
-	void *obj = index->createDocument(key, &value);
+	struct phia_document *obj = index->createDocument(key, &value);
 	size_t valuesize = size - (value - request->tuple);
 	if (valuesize > 0)
-		sp_setstring(obj, "value", value, valuesize);
+		phia_document_set_field(obj, "value", value, valuesize);
 	int rc;
-	rc = sp_set(transaction, obj);
+	rc = phia_replace(tx, obj);
 	if (rc == -1)
-		phia_error(index->env);
+		phia_raise();
 
 	return NULL;
 }
@@ -158,11 +159,11 @@ PhiaSpace::executeDelete(struct txn*, struct space *space,
 	primary_key_validate(index->key_def, key, part_count);
 
 	/* remove */
-	void *obj = index->createDocument(key, NULL);
-	void *transaction = in_txn()->engine_tx;
-	int rc = sp_delete(transaction, obj);
+	struct phia_document *obj = index->createDocument(key, NULL);
+	struct phia_tx *tx = (struct phia_tx *)(in_txn()->engine_tx);
+	int rc = phia_delete(tx, obj);
 	if (rc == -1)
-		phia_error(index->env);
+		phia_raise();
 	return NULL;
 }
 
@@ -199,16 +200,16 @@ PhiaSpace::executeUpdate(struct txn*, struct space *space,
 	/* replace */
 	key = tuple_field_raw(new_tuple->data, new_tuple->bsize,
 	                      index->key_def->parts[0].fieldno);
-	void *transaction = in_txn()->engine_tx;
+	struct phia_tx *tx = (struct phia_tx *)(in_txn()->engine_tx);
 	const char *value = NULL;
-	void *obj = index->createDocument(key, &value);
+	struct phia_document *obj = index->createDocument(key, &value);
 	size_t valuesize = new_tuple->bsize - (value - new_tuple->data);
 	if (valuesize > 0)
-		sp_setstring(obj, "value", value, valuesize);
+		phia_document_set_field(obj, "value", value, valuesize);
 	int rc;
-	rc = sp_set(transaction, obj);
+	rc = phia_replace(tx, obj);
 	if (rc == -1)
-		phia_error(index->env);
+		phia_raise();
 	return NULL;
 }
 
@@ -292,7 +293,7 @@ phia_update_alloc(void *arg, size_t size)
 }
 
 static inline int
-phia_upsert(char **result, uint32_t *result_size,
+phia_upsert_do(char **result, uint32_t *result_size,
               char *tuple, uint32_t tuple_size, uint32_t tuple_size_key,
               char *upsert, int upsert_size)
 {
@@ -341,13 +342,11 @@ phia_upsert(char **result, uint32_t *result_size,
 
 int
 phia_upsert_cb(int count,
-                 char **src,    uint32_t *src_size,
-                 char **upsert, uint32_t *upsert_size,
-                 char **result, uint32_t *result_size,
-                 void *arg)
+	       char **src,    uint32_t *src_size,
+	       char **upsert, uint32_t *upsert_size,
+	       char **result, uint32_t *result_size,
+	       struct key_def *key_def)
 {
-	struct key_def *key_def = (struct key_def *)arg;
-
 	uint32_t value_field;
 	value_field = key_def->part_count;
 
@@ -381,7 +380,7 @@ phia_upsert_cb(int count,
 		return -1;
 
 	/* execute upsert */
-	rc = phia_upsert(&result[value_field],
+	rc = phia_upsert_do(&result[value_field],
 	                   &result_size[value_field],
 	                   tuple, tuple_size, tuple_size_key,
 	                   upsert[value_field],
@@ -417,13 +416,13 @@ PhiaSpace::executeUpsert(struct txn*, struct space *space,
 	uint32_t tuple_size = tuple_end - tuple;
 	uint32_t tuple_value_size;
 	const char *tuple_value;
-	void *obj = index->createDocument(tuple, &tuple_value);
+	struct phia_document *obj = index->createDocument(tuple, &tuple_value);
 	tuple_value_size = tuple_size - (tuple_value - tuple);
 	uint32_t value_size =
 		sizeof(uint8_t) + sizeof(uint32_t) + tuple_value_size + expr_size;
 	char *value = (char *)malloc(value_size);
 	if (value == NULL) {
-		sp_destroy(obj);
+		phia_document_delete(obj);
 		tnt_raise(OutOfMemory, sizeof(value_size), "Phia Space",
 		          "executeUpsert");
 	}
@@ -435,10 +434,10 @@ PhiaSpace::executeUpsert(struct txn*, struct space *space,
 	memcpy(p, tuple_value, tuple_value_size);
 	p += tuple_value_size;
 	memcpy(p, expr, expr_size);
-	sp_setstring(obj, "value", value, value_size);
-	void *transaction = in_txn()->engine_tx;
-	int rc = sp_upsert(transaction, obj);
+	phia_document_set_field(obj, "value", value, value_size);
+	struct phia_tx *tx = (struct phia_tx *)(in_txn()->engine_tx);
+	int rc = phia_upsert(tx, obj);
 	free(value);
 	if (rc == -1)
-		phia_error(index->env);
+		phia_raise();
 }

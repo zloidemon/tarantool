@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -364,7 +364,7 @@ applier_f(va_list ap)
 	while (!fiber_is_cancelled()) {
 		try {
 			applier_connect(applier);
-			if (wal == NULL) {
+			if (tt_uuid_is_nil(&CLUSTER_UUID)) {
 				/*
 				 * Execute JOIN if this is a bootstrap,
 				 * and there is no snapshot. The

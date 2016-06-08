@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_TUPLE_H_INCLUDED
 #define TARANTOOL_BOX_TUPLE_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -271,7 +271,7 @@ extern struct slab_arena memtx_arena;
 /**
  * An atom of Tarantool storage. Represents MsgPack Array.
  */
-struct tuple
+struct PACKED tuple
 {
 	/*
 	 * sic: the header of the tuple is used
@@ -293,7 +293,7 @@ struct tuple
 	 * with BER-packed field length.
 	 */
 	char data[0];
-} __attribute__((packed));
+};
 
 /**
  * Create a new tuple from a sequence of MsgPack encoded fields.

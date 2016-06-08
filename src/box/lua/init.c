@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -47,7 +47,6 @@
 #include "box/lua/space.h"
 #include "box/lua/misc.h"
 #include "box/lua/stat.h"
-#include "box/lua/phia.h"
 #include "box/lua/info.h"
 #include "box/lua/session.h"
 #include "box/lua/net_box.h"
@@ -120,7 +119,6 @@ box_lua_init(struct lua_State *L)
 	box_lua_misc_init(L);
 	box_lua_info_init(L);
 	box_lua_stat_init(L);
-	box_lua_phia_init(L);
 	box_lua_session_init(L);
 	box_lua_sqlite_init(L);
 	luaopen_net_box(L);

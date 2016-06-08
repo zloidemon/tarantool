@@ -1,5 +1,5 @@
-#ifndef INCLUDES_TARANTOOL_LUA_PHIA_H
-#define INCLUDES_TARANTOOL_LUA_PHIA_H
+#ifndef INCLUDES_TARANTOOL_LUA_CRYPTO_H
+#define INCLUDES_TARANTOOL_LUA_CRYPTO_H
 /*
  * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -30,15 +30,18 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+
+#include <openssl/evp.h>
+
 #if defined(__cplusplus)
 extern "C" {
-#endif /* defined(__cplusplus) */
+#endif
 
-struct lua_State;
-void box_lua_phia_init(struct lua_State *L);
+int tnt_EVP_CIPHER_key_length(const EVP_CIPHER *cipher);
+int tnt_EVP_CIPHER_iv_length(const EVP_CIPHER *cipher);
 
 #if defined(__cplusplus)
-} /* extern "C" */
-#endif /* defined(__cplusplus) */
+}
+#endif
 
-#endif /* INCLUDES_TARANTOOL_LUA_PHIA_H */
+#endif /* INCLUDES_TARANTOOL_LUA_CRYPTO_H */

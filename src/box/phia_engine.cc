@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -56,8 +56,9 @@ static int worker_pool_size;
 static volatile int worker_pool_run;
 
 static inline uint32_t
-phia_get_parts(struct key_def *key_def, void *obj, void *value, int valuesize,
-		 struct iovec *parts, uint32_t *field_count)
+phia_get_parts(struct key_def *key_def, struct phia_document *obj,
+	       void *value, int valuesize, struct iovec *parts,
+	       uint32_t *field_count)
 {
 	/* prepare keys */
 	int size = 0;
@@ -67,8 +68,8 @@ phia_get_parts(struct key_def *key_def, void *obj, void *value, int valuesize,
 		"key_4", "key_5", "key_6", "key_7"
 	};
 	for (uint32_t i = 0; i < key_def->part_count; i++) {
-		int len = 0;
-		parts[i].iov_base = sp_getstring(obj, PARTNAMES[i], &len);
+		uint32_t len = 0;
+		parts[i].iov_base = phia_document_field(obj, PARTNAMES[i], &len);
 		parts[i].iov_len = len;
 		assert(parts[i].iov_base != NULL);
 		switch (key_def->parts[i].type) {
@@ -116,14 +117,14 @@ phia_write_parts(struct key_def *key_def, void *value, int valuesize,
 }
 
 struct tuple *
-phia_tuple_new(void *obj, struct key_def *key_def,
-		 struct tuple_format *format)
+phia_tuple_new(struct phia_document *obj, struct key_def *key_def,
+	       struct tuple_format *format)
 {
 	assert(format);
 	assert(key_def->part_count <= 8);
 	struct iovec parts[8];
-	int valuesize = 0;
-	void *value = sp_getstring(obj, "value", &valuesize);
+	uint32_t valuesize = 0;
+	void *value = phia_document_field(obj, "value", &valuesize);
 	uint32_t field_count = 0;
 	size_t size = phia_get_parts(key_def, obj, value, valuesize, parts,
 				       &field_count);
@@ -142,12 +143,13 @@ phia_tuple_new(void *obj, struct key_def *key_def,
 }
 
 static char *
-phia_tuple_data_new(void *obj, struct key_def *key_def, uint32_t *bsize)
+phia_tuple_data_new(struct phia_document *obj, struct key_def *key_def,
+		    uint32_t *bsize)
 {
 	assert(key_def->part_count <= 8);
 	struct iovec parts[8];
-	int valuesize = 0;
-	void *value = sp_getstring(obj, "value", &valuesize);
+	uint32_t valuesize = 0;
+	void *value = phia_document_field(obj, "value", &valuesize);
 	uint32_t field_count = 0;
 	size_t size = phia_get_parts(key_def, obj, value, valuesize, parts,
 				       &field_count);
@@ -163,21 +165,26 @@ phia_tuple_data_new(void *obj, struct key_def *key_def, uint32_t *bsize)
 }
 
 static void*
-phia_worker(void *env)
+phia_worker(void *arg)
 {
+	struct phia_env *env = (struct phia_env *) arg;
+	struct phia_service *srv = phia_service_new(env);
+	if (srv == NULL)
+		tnt_raise(OutOfMemory, sizeof(srv), "phia", "service");
 	while (pm_atomic_load_explicit(&worker_pool_run,
 				       pm_memory_order_relaxed)) {
-		int rc = sp_service(env);
+		int rc = phia_service_do(srv);
 		if (rc == -1)
 			break;
 		if (rc == 0)
 			usleep(10000); /* 10ms */
 	}
+	phia_service_delete(srv);
 	return NULL;
 }
 
 void
-phia_workers_start(void *env)
+phia_workers_start(struct phia_env *env)
 {
 	if (worker_pool_run)
 		return;
@@ -205,37 +212,26 @@ phia_workers_stop(void)
 	free(worker_pool);
 }
 
-void phia_error(void *env)
-{
-	char *error = (char *)sp_getstring(env, "phia.error", NULL);
-	char msg[512];
-	snprintf(msg, sizeof(msg), "%s", error);
-	tnt_raise(ClientError, ER_PHIA, msg);
-}
-
 int phia_info(const char *name, phia_info_f cb, void *arg)
 {
 	PhiaEngine *e = (PhiaEngine *)engine_find("phia");
-	void *cursor = sp_getobject(e->env, NULL);
-	void *o = NULL;
+	struct phia_confcursor *cursor = phia_confcursor_new(e->env);
+	const char *key;
+	const char *value;
 	if (name) {
-		while ((o = sp_get(cursor, o))) {
-			char *key = (char *)sp_getstring(o, "key", 0);
+		while (phia_confcursor_next(cursor, &key, &value) == 0) {
 			if (name && strcmp(key, name) != 0)
 				continue;
-			char *value = (char *)sp_getstring(o, "value", 0);
 			cb(key, value, arg);
 			return 1;
 		}
-		sp_destroy(cursor);
+		phia_confcursor_delete(cursor);
 		return 0;
 	}
-	while ((o = sp_get(cursor, o))) {
-		char *key = (char *)sp_getstring(o, "key", 0);
-		char *value = (char *)sp_getstring(o, "value", 0);
+	while (phia_confcursor_next(cursor, &key, &value) == 0) {
 		cb(key, value, arg);
 	}
-	sp_destroy(cursor);
+	phia_confcursor_delete(cursor);
 	return 0;
 }
 
@@ -243,48 +239,91 @@ static struct mempool phia_read_pool;
 
 struct phia_read_task {
 	struct coio_task base;
-	void *dest;
-	void *key;
-	void *result;
+	struct phia_index *index;
+	struct phia_cursor *cursor;
+	struct phia_tx *tx;
+	struct phia_document *key;
+	struct phia_document *result;
 };
 
 static ssize_t
-phia_read_cb(struct coio_task *ptr)
+phia_get_cb(struct coio_task *ptr)
 {
 	struct phia_read_task *task =
 		(struct phia_read_task *) ptr;
-	task->result = sp_get(task->dest, task->key);
-	return 0;
+	return phia_get(task->tx, task->key, &task->result, false);
 }
 
 static ssize_t
-phia_read_free_cb(struct coio_task *ptr)
+phia_index_get_cb(struct coio_task *ptr)
+{
+	struct phia_read_task *task =
+		(struct phia_read_task *) ptr;
+	return phia_index_get(task->index, task->key, &task->result, false);
+}
+
+static ssize_t
+phia_cursor_next_cb(struct coio_task *ptr)
+{
+	struct phia_read_task *task =
+		(struct phia_read_task *) ptr;
+	return phia_cursor_next(task->cursor, &task->result, false);
+}
+
+static ssize_t
+phia_read_task_free_cb(struct coio_task *ptr)
 {
 	struct phia_read_task *task =
 		(struct phia_read_task *) ptr;
 	if (task->result != NULL)
-		sp_destroy(task->result);
+		phia_document_delete(task->result);
 	mempool_free(&phia_read_pool, task);
 	return 0;
 }
 
-void *
-phia_read(void *dest, void *key)
+static inline int
+phia_read_task(struct phia_index *index, struct phia_tx *tx,
+	       struct phia_cursor *cursor, struct phia_document *key,
+	       struct phia_document **result,
+	       coio_task_cb func)
 {
 	struct phia_read_task *task =
-		(struct phia_read_task *) mempool_alloc(&phia_read_pool);
-	if (task == NULL)
-		return NULL;
-	task->dest = dest;
+		(struct phia_read_task *) mempool_alloc_xc(&phia_read_pool);
+	task->index = index;
+	task->tx = tx;
+	task->cursor = cursor;
 	task->key = key;
 	task->result = NULL;
-	if (coio_task(&task->base, phia_read_cb, phia_read_free_cb,
+	if (coio_task(&task->base, func, phia_read_task_free_cb,
 	              TIMEOUT_INFINITY) == -1) {
-		return NULL;
+		return -1;
 	}
-	void *result = task->result;
+	*result = task->result;
+	int rc = task->base.base.result; /* save original error code */
 	mempool_free(&phia_read_pool, task);
-	return result;
+	assert(rc == 0 || !diag_is_empty(&fiber()->diag));
+	return rc;
+}
+
+int
+phia_index_coget(struct phia_index *index, struct phia_document *key,
+		 struct phia_document **result)
+{
+	return phia_read_task(index, NULL, NULL, key, result, phia_index_get_cb);
+}
+
+int
+phia_coget(struct phia_tx *tx, struct phia_document *key,
+	   struct phia_document **result)
+{
+	return phia_read_task(NULL, tx, NULL, key, result, phia_get_cb);
+}
+
+int
+phia_cursor_conext(struct phia_cursor *cursor, struct phia_document **result)
+{
+	return phia_read_task(NULL, NULL, cursor, NULL, result,
+			      phia_cursor_next_cb);
 }
 
 PhiaEngine::PhiaEngine()
@@ -300,7 +339,7 @@ PhiaEngine::~PhiaEngine()
 {
 	phia_workers_stop();
 	if (env)
-		sp_destroy(env);
+		phia_env_delete(env);
 }
 
 void
@@ -313,39 +352,37 @@ PhiaEngine::init()
 	mempool_create(&phia_read_pool, &cord()->slabc,
 	               sizeof(struct phia_read_task));
 	/* prepare worker pool */
-	env = sp_env();
+	env = phia_env_new();
 	if (env == NULL)
 		panic("failed to create phia environment");
 	worker_pool_size = cfg_geti("phia.threads");
-	sp_setint(env, "phia.path_create", 0);
-	sp_setint(env, "phia.recover", 2);
-	sp_setstring(env, "phia.path", cfg_gets("phia_dir"), 0);
-	sp_setint(env, "memory.limit", cfg_geti64("phia.memory_limit"));
-	sp_setint(env, "compaction.0.async", 1);
-	sp_setint(env, "compaction.0.compact_wm", cfg_geti("phia.compact_wm"));
-	sp_setint(env, "compaction.0.branch_prio", cfg_geti("phia.branch_prio"));
-	sp_setint(env, "compaction.0.branch_age", cfg_geti("phia.branch_age"));
-	sp_setint(env, "compaction.0.branch_age_wm", cfg_geti("phia.branch_age_wm"));
-	sp_setint(env, "compaction.0.branch_age_period", cfg_geti("phia.branch_age_period"));
-	sp_setint(env, "compaction.0.snapshot_period", cfg_geti("phia.snapshot_period"));
-	sp_setint(env, "compaction.0.expire_period", cfg_geti("phia.expire_period"));
-	sp_setint(env, "compaction.0.expire_prio", cfg_geti("phia.expire_prio"));
-	sp_setint(env, "log.enable", 0);
-	sp_setint(env, "phia.recover", 3);
-	int rc = sp_open(env);
-	if (rc == -1)
-		phia_error(env);
+}
+
+void
+PhiaEngine::bootstrap()
+{
+	phia_bootstrap(env);
+	recovery_complete = 1;
+}
+
+void
+PhiaEngine::beginInitialRecovery()
+{
+	phia_begin_initial_recovery(env);
+}
+
+void
+PhiaEngine::beginFinalRecovery()
+{
+	phia_begin_final_recovery(env);
 }
 
 void
 PhiaEngine::endRecovery()
 {
-	if (recovery_complete)
-		return;
+	assert(!recovery_complete);
 	/* complete two-phase recovery */
-	int rc = sp_open(env);
-	if (rc == -1)
-		phia_error(env);
+	phia_end_recovery(env);
 	recovery_complete = 1;
 }
 
@@ -377,30 +414,60 @@ phia_send_row(struct xstream *stream, uint32_t space_id, char *tuple,
 	xstream_write(stream, &row);
 }
 
-static inline struct key_def *
-phia_join_key_def(void *env, void *db)
+struct join_send_space_arg {
+	struct phia_env *env;
+	struct xstream *stream;
+};
+
+static void
+join_send_space(struct space *sp, void *data)
 {
-	uint32_t id = sp_getint(db, "id");
-	uint32_t count = sp_getint(db, "key-count");
-	struct key_def *key_def;
-	struct key_opts key_opts = key_opts_default;
-	key_def = key_def_new(id, 0, "phia_join", TREE, &key_opts, count);
-	unsigned i = 0;
-	while (i < count) {
-		char path[64];
-		snprintf(path, sizeof(path), "db.%d:0.scheme.key_%d", id, i);
-		char *type = (char *)sp_getstring(env, path, NULL);
-		assert(type != NULL);
-		if (strncmp(type, "string", 6) == 0)
-			key_def->parts[i].type = STRING;
-		else
-		if (strncmp(type, "u64", 3) == 0)
-			key_def->parts[i].type = NUM;
-		free(type);
-		key_def->parts[i].fieldno = i;
-		i++;
+	struct xstream *stream = ((struct join_send_space_arg *) data)->stream;
+	if (space_is_temporary(sp))
+		return;
+	if (!space_is_phia(sp))
+		return;
+	PhiaIndex *pk = (PhiaIndex *) space_index(sp, 0);
+	if (!pk)
+		return;
+
+	/* send database */
+	struct phia_document *key = phia_document_new(pk->db);
+	struct phia_cursor *cursor = phia_cursor_new(pk->db, key, PHIA_GE);
+	if (cursor == NULL) {
+		phia_document_delete(key);
+		phia_raise();
 	}
-	return key_def;
+	auto cursor_guard = make_scoped_guard([=]{
+		phia_cursor_delete(cursor);
+	});
+
+	/* tell cursor not to hold a transaction, which
+	 * in result enables compaction process
+	 * for duplicates */
+	phia_cursor_set_read_commited(cursor, true);
+
+	while (1) {
+		struct phia_document *doc;
+		int rc = phia_cursor_next(cursor, &doc, false);
+		if (rc != 0)
+			diag_raise();
+		if (doc == NULL)
+			break; /* eof */
+		int64_t lsn = phia_document_lsn(doc);
+		uint32_t tuple_size;
+		char *tuple = phia_tuple_data_new(doc, pk->key_def,
+						  &tuple_size);
+		phia_document_delete(doc);
+		try {
+			phia_send_row(stream, pk->key_def->space_id,
+				      tuple, tuple_size, lsn);
+		} catch (Exception *e) {
+			free(tuple);
+			throw;
+		}
+		free(tuple);
+	}
 }
 
 /**
@@ -410,58 +477,8 @@ phia_join_key_def(void *env, void *db)
 void
 PhiaEngine::join(struct xstream *stream)
 {
-	/* iterate through a list of databases currently used
-	 * in Phia engine */
-	void *db;
-	void *db_cursor = sp_getobject(env, "db");
-	if (db_cursor == NULL)
-		phia_error(env);
-	while ((db = sp_get(db_cursor, NULL)))
-	{
-		/* prepare space schema */
-		struct key_def *key_def;
-		try {
-			key_def = phia_join_key_def(env, db);
-		} catch (Exception *e) {
-			sp_destroy(db_cursor);
-			throw;
-		}
-		/* send database */
-		void *cursor = sp_cursor(env);
-		if (cursor == NULL) {
-			sp_destroy(db_cursor);
-			key_def_delete(key_def);
-			phia_error(env);
-		}
-		/* tell cursor not to hold a transaction, which
-		 * in result enables compaction process
-		 * for a duplicates */
-		sp_setint(cursor, "read_commited", 1);
-
-		void *obj = sp_document(db);
-		while ((obj = sp_get(cursor, obj)))
-		{
-			int64_t lsn = sp_getint(obj, "lsn");
-			uint32_t tuple_size;
-			char *tuple = phia_tuple_data_new(obj, key_def,
-								 &tuple_size);
-			try {
-				phia_send_row(stream, key_def->space_id,
-						tuple, tuple_size, lsn);
-			} catch (Exception *e) {
-				key_def_delete(key_def);
-				free(tuple);
-				sp_destroy(obj);
-				sp_destroy(cursor);
-				sp_destroy(db_cursor);
-				throw;
-			}
-			free(tuple);
-		}
-		sp_destroy(cursor);
-		key_def_delete(key_def);
-	}
-	sp_destroy(db_cursor);
+	struct join_send_space_arg arg = { env, stream };
+	space_foreach(join_send_space, &arg);
 }
 
 Index*
@@ -480,13 +497,13 @@ PhiaEngine::dropIndex(Index *index)
 {
 	PhiaIndex *i = (PhiaIndex *)index;
 	/* schedule asynchronous drop */
-	int rc = sp_drop(i->db);
+	int rc = phia_index_drop(i->db);
 	if (rc == -1)
-		phia_error(env);
+		phia_raise();
 	/* unref db object */
-	rc = sp_destroy(i->db);
+	rc = phia_index_delete(i->db);
 	if (rc == -1)
-		phia_error(env);
+		phia_raise();
 	i->db  = NULL;
 	i->env = NULL;
 }
@@ -541,9 +558,9 @@ void
 PhiaEngine::begin(struct txn *txn)
 {
 	assert(txn->engine_tx == NULL);
-	txn->engine_tx = sp_begin(env);
+	txn->engine_tx = phia_begin(env);
 	if (txn->engine_tx == NULL)
-		phia_error(env);
+		phia_raise();
 }
 
 void
@@ -560,9 +577,10 @@ PhiaEngine::prepare(struct txn *txn)
 	 * It is important to maintain correct serial
 	 * commit order by wal_writer.
 	 */
-	sp_setint(txn->engine_tx, "half_commit", 1);
+	struct phia_tx *tx = (struct phia_tx *) txn->engine_tx;
+	phia_tx_set_half_commit(tx, true);
 
-	int rc = sp_commit(txn->engine_tx);
+	int rc = phia_commit(tx);
 	switch (rc) {
 	case 1: /* rollback */
 		txn->engine_tx = NULL;
@@ -570,7 +588,7 @@ PhiaEngine::prepare(struct txn *txn)
 		tnt_raise(ClientError, ER_TRANSACTION_CONFLICT);
 		break;
 	case -1:
-		phia_error(env);
+		phia_raise();
 		break;
 	}
 }
@@ -581,6 +599,7 @@ PhiaEngine::commit(struct txn *txn, int64_t signature)
 	if (txn->engine_tx == NULL)
 		return;
 
+	struct phia_tx *tx = (struct phia_tx *) txn->engine_tx;
 	if (txn->n_rows > 0) {
 		/* commit transaction using transaction commit signature */
 		assert(signature >= 0);
@@ -590,11 +609,11 @@ PhiaEngine::commit(struct txn *txn, int64_t signature)
 			      PRIu64, signature);
 		}
 		/* Set tx id in Phia only if tx has WRITE requests */
-		sp_setint(txn->engine_tx, "lsn", signature);
+		phia_tx_set_lsn(tx, signature);
 		m_prev_commit_lsn = signature;
 	}
 
-	int rc = sp_commit(txn->engine_tx);
+	int rc = phia_commit(tx);
 	if (rc == -1) {
 		panic("phia commit failed: txn->signature = %"
 		      PRIu64, signature);
@@ -605,18 +624,12 @@ PhiaEngine::commit(struct txn *txn, int64_t signature)
 void
 PhiaEngine::rollback(struct txn *txn)
 {
-	if (txn->engine_tx) {
-		sp_destroy(txn->engine_tx);
-		txn->engine_tx = NULL;
-	}
-}
+	if (txn->engine_tx == NULL)
+		return;
 
-void
-PhiaEngine::beginWalRecovery()
-{
-	int rc = sp_open(env);
-	if (rc == -1)
-		phia_error(env);
+	struct phia_tx *tx = (struct phia_tx *) txn->engine_tx;
+	phia_rollback(tx);
+	txn->engine_tx = NULL;
 }
 
 int
@@ -627,9 +640,9 @@ PhiaEngine::beginCheckpoint()
 	if (! worker_pool_run)
 		return 0;
 
-	int rc = sp_setint(env, "scheduler.checkpoint", 0);
+	int rc = phia_checkpoint(env);
 	if (rc == -1)
-		phia_error(env);
+		phia_raise();
 	return 0;
 }
 
@@ -639,8 +652,7 @@ PhiaEngine::waitCheckpoint(struct vclock*)
 	if (! worker_pool_run)
 		return 0;
 	for (;;) {
-		int64_t is_active = sp_getint(env, "scheduler.checkpoint_active");
-		if (! is_active)
+		if (!phia_checkpoint_is_active(env))
 			break;
 		fiber_yield_timeout(.020);
 	}

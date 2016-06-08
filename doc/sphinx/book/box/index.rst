@@ -206,7 +206,7 @@ The basic operations are: the five data-change operations
 (insert, update, upsert, delete, replace), and the data-retrieval
 operation (select). There are also minor operations like
 “ping” which can only be used with the binary protocol.
-Also, there are :func:`index iterator <index_object.pairs>` operations, which can only
+Also, there are :ref:`index iterator <index-pairs>` operations, which can only
 be used with Lua code. (Index iterators are for traversing
 indexes one key at a time, taking advantage of features
 that are specific to an index type, for example evaluating
@@ -300,7 +300,7 @@ row#x for the sake of fiber#1, then writes row#y for the sake of fiber#2.
 
 **FACT #3**: yields must happen, otherwise the transaction processor
 thread would stick permanently on the same fiber.
-There are implicit yields: every data-change operation
+There are :ref:`implicit yields <the-implicit-yield-rules>`: every data-change operation
 or network-access causes an implicit yield, and every
 statement that goes through the tarantool client causes
 an implicit yield. And there are explicit yields:

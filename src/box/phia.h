@@ -30,36 +30,188 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdlib.h>
-#include <stdint.h>
+struct phia_env;
+struct phia_service;
+struct phia_tx;
+struct phia_document;
+struct phia_cursor;
+struct phia_index;
+struct phia_confcursor;
+struct phia_confkv;
+struct key_def;
 
-void    *sp_env(void);
-void    *sp_document(void*);
-int      sp_setstring(void*, const char*, const void*, int);
-int      sp_setint(void*, const char*, int64_t);
-int      sp_setobject(void*, const char*, void*);
-void    *sp_getobject(void*, const char*);
-void    *sp_getstring(void*, const char*, int*);
-int64_t  sp_getint(void*, const char*);
-int      sp_open(void*);
-int      sp_close(void*);
-int      sp_drop(void*);
-int      sp_destroy(void*);
-int      sp_error(void*);
-int      sp_service(void*);
-void    *sp_poll(void*);
-int      sp_set(void*, void*);
-int      sp_upsert(void*, void*);
-int      sp_delete(void*, void*);
-void    *sp_get(void*, void*);
-void    *sp_cursor(void*);
-void    *sp_begin(void*);
-int      sp_prepare(void*);
-int      sp_commit(void*);
+/*
+ * Environment
+ */
+
+struct phia_env *
+phia_env_new(void);
+
+int
+phia_env_delete(struct phia_env *e);
+
+void
+phia_raise();
+
+struct phia_confcursor *
+phia_confcursor_new(struct phia_env *env);
+
+void
+phia_confcursor_delete(struct phia_confcursor *confcursor);
+
+int
+phia_confcursor_next(struct phia_confcursor *confcursor, const char **key,
+		     const char **value);
+
+void
+phia_bootstrap(struct phia_env *e);
+
+void
+phia_begin_initial_recovery(struct phia_env *e);
+
+void
+phia_begin_final_recovery(struct phia_env *e);
+
+void
+phia_end_recovery(struct phia_env *e);
+
+int
+phia_checkpoint(struct phia_env *env);
+
+bool
+phia_checkpoint_is_active(struct phia_env *env);
+
+/*
+ * Workers
+ */
+
+struct phia_service *
+phia_service_new(struct phia_env *env);
+
+int
+phia_service_do(struct phia_service *srv);
+
+void
+phia_service_delete(struct phia_service *srv);
+
+/*
+ * Transaction
+ */
+
+struct phia_tx *
+phia_begin(struct phia_env *e);
+
+int
+phia_get(struct phia_tx *tx, struct phia_document *key,
+	 struct phia_document **result, bool cache_only);
+
+int
+phia_replace(struct phia_tx *tx, struct phia_document *doc);
+
+int
+phia_upsert(struct phia_tx *tx, struct phia_document *doc);
+
+int
+phia_delete(struct phia_tx *tx, struct phia_document *doc);
+
+int
+phia_commit(struct phia_tx *tx);
+
+int
+phia_rollback(struct phia_tx *tx);
+
+void
+phia_tx_set_lsn(struct phia_tx *tx, int64_t lsn);
+
+void
+phia_tx_set_half_commit(struct phia_tx *tx, bool half_commit);
+
+/*
+ * Index
+ */
+
+struct phia_index *
+phia_index_by_name(struct phia_env *env, const char *name);
+
+struct phia_index *
+phia_index_new(struct phia_env *e, struct key_def *);
+
+int
+phia_index_open(struct phia_index *index);
+
+int
+phia_index_close(struct phia_index *index);
+
+int
+phia_index_drop(struct phia_index *index);
+
+int
+phia_index_delete(struct phia_index *index);
+
+int
+phia_index_get(struct phia_index *index, struct phia_document *key,
+	        struct phia_document **result, bool cache_only);
+
+size_t
+phia_index_bsize(struct phia_index *db);
+
+uint64_t
+phia_index_size(struct phia_index *db);
+
+/*
+ * Index Cursor
+ */
+
+enum phia_order {
+	PHIA_LT,
+	PHIA_LE,
+	PHIA_GT,
+	PHIA_GE,
+	PHIA_EQ
+};
+
+struct phia_cursor *
+phia_cursor_new(struct phia_index *index, struct phia_document *key,
+		enum phia_order order);
+
+void
+phia_cursor_delete(struct phia_cursor *cursor);
+
+void
+phia_cursor_set_read_commited(struct phia_cursor *cursor, bool read_commited);
+
+int
+phia_cursor_next(struct phia_cursor *cursor, struct phia_document **result,
+		 bool cache_only);
+
+/*
+ * Document
+ */
+
+struct phia_document *
+phia_document_new(struct phia_index *index);
+
+int
+phia_document_delete(struct phia_document *doc);
+
+int
+phia_document_set_field(struct phia_document *doc, const char *path,
+			const char *value, int size);
+
+char *
+phia_document_field(struct phia_document *doc, const char *path, uint32_t *size);
+
+int64_t
+phia_document_lsn(struct phia_document *doc);
 
 #ifdef __cplusplus
 }

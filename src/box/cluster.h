@@ -1,7 +1,7 @@
 #ifndef INCLUDES_BOX_CLUSTER_H
 #define INCLUDES_BOX_CLUSTER_H
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -33,7 +33,7 @@
 #include "tt_uuid.h"
 #include <stdint.h>
 #define RB_COMPACT 1
-#include <third_party/rb.h> /* serverset_t */
+#include <small/rb.h> /* serverset_t */
 
 /**
  * @module cluster - global state of multi-master
