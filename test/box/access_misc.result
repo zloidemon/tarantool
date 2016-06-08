@@ -613,6 +613,10 @@ box.space._space:select()
         'type': 'num'}, {'name': 'privilege', 'type': 'num'}]]
   - [320, 1, '_cluster', 'memtx', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'uuid',
         'type': 'str'}]]
+  - [325, 1, '_trigger', 'memtx', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'iid',
+        'type': 'num'}, {'name': 'owner', 'type': 'num'}, {'name': 'name', 'type': 'str'},
+      {'name': 'table', 'type': 'str'}, {'name': 'sql', 'type': 'str'}, {'name': 'setuid',
+        'type': 'num'}, {'name': 'opts', 'type': 'array'}]]
 ...
 box.space._func:select()
 ---
