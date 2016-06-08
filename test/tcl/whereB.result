@@ -1,0 +1,46 @@
+whereB-1.1...
+Expected: [1 2 0]
+     Got: [1 2 1]
+whereB-2.1...
+Expected: [1 2 0]
+     Got: [1 2 1]
+whereB-3.1...
+Expected: [1 2 0]
+     Got: [1 2 1]
+whereB-4.1... Ok
+whereB-4.2... Ok
+whereB-4.3... Ok
+whereB-4.4... Ok
+whereB-4.100... Ok
+whereB-4.101... Ok
+whereB-4.102... Ok
+whereB-5.1... Ok
+whereB-5.2... Ok
+whereB-5.3... Ok
+whereB-5.4... Ok
+whereB-5.100... Ok
+whereB-5.101... Ok
+whereB-5.102... Ok
+whereB-7.1... Ok
+whereB-7.2... Ok
+whereB-7.3... Ok
+whereB-7.4... Ok
+whereB-7.100... Ok
+whereB-7.101... Ok
+whereB-7.102... Ok
+whereB-8.1... Ok
+whereB-8.2... Ok
+whereB-8.3... Ok
+whereB-8.4... Ok
+whereB-8.100... Ok
+whereB-8.101... Ok
+whereB-8.102... Ok
+whereB-9.1... Ok
+whereB-9.2... Ok
+whereB-9.3... Ok
+whereB-9.4... Ok
+whereB-9.100... Ok
+whereB-9.101... Ok
+whereB-9.102... Ok
+3 errors out of 39 tests
+Failures on these tests: whereB-1.1 whereB-2.1 whereB-3.1
