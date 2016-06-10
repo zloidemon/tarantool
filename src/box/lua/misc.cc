@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -57,7 +57,7 @@ lbox_encode_tuple_on_gc(lua_State *L, int idx, size_t *p_len)
 
 /* }}} */
 
-/** {{{ Lua/C implementation of index:select(): used only by Sophia **/
+/** {{{ Lua/C implementation of index:select(): used only by Phia **/
 
 static inline void
 lbox_port_to_table(lua_State *L, struct port *port)

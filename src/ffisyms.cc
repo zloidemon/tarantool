@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -37,7 +37,7 @@
 #include <box/tuple.h>
 #include <box/index.h>
 #include <box/func.h>
-#include <box/sophia_engine.h>
+#include <box/phia_engine.h>
 #include <box/request.h>
 #include <box/port.h>
 #include <box/xrow.h>
@@ -52,12 +52,13 @@
 #include <lib/salad/guava.h>
 #include "latch.h"
 #include <lib/csv/csv.h>
-#include <lua/clock.h>
+#include "clock.h"
 #include "title.h"
 #include "exception.h"
 
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include "lua/crypto.h"
 
 /*
  * A special hack to cc/ld to keep symbols in an optimized binary.
@@ -153,5 +154,7 @@ void *ffi_symbols[] = {
 	(void *) tuple_id_get_data_end,
 	(void *) tuple_id_get_data_size,
 	(void *) exception_get_string,
-	(void *) exception_get_int
+	(void *) exception_get_int,
+	(void *) tnt_EVP_CIPHER_key_length,
+	(void *) tnt_EVP_CIPHER_iv_length,
 };

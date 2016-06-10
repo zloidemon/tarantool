@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -368,7 +368,8 @@ MemtxBitset::initIterator(struct iterator *iterator, enum iterator_type type,
 						       bitset_key_size);
 			break;
 		default:
-			return initIterator(iterator, type, key, part_count);
+			return Index::initIterator(iterator, type, key,
+						   part_count);
 		}
 
 		if (rc != 0) {

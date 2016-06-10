@@ -80,7 +80,9 @@ for login, a password, a host name or host IP address, and a port number. Only
 the port number is always mandatory. The password is mandatory if the user
 name is specified, unless the user name is 'guest'. So, formally, the URI
 syntax is ``[host:]port`` or ``[username:password@]host:port``.
-If host is omitted, then 'localhost' is assumed.
+If host is omitted, then '0.0.0.0' or '[::]' is assumed,
+meaning respectively any IPv4 address or any IPv6 address,
+on the local machine.
 If username:password is omitted, then 'guest' is assumed. Some examples:
 
 .. _generic syntax for a URI schema: http://en.wikipedia.org/wiki/URI_scheme#Generic_syntax
@@ -191,47 +193,47 @@ for binary logging and snapshots, for replication, for networking, and for loggi
                  Basic parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-basic.rst
+.. include:: cfg_basic.rst
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                  Configuring the storage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-storage.rst
+.. include:: cfg_storage.rst
 
-.. _book-cfg-snapshot_daemon:
+.. _book_cfg_snapshot_daemon:
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     Snapshot daemon
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-snapshot_daemon.rst
+.. include:: cfg_snapshot_daemon.rst
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             Binary logging and snapshots
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-binary_logging_snapshots.rst
+.. include:: cfg_binary_logging_snapshots.rst
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     Replication
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-replication.rst
+.. include:: cfg_replication.rst
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                        Networking
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-networking.rst
+.. include:: cfg_networking.rst
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                          Logging
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: cfg-logging.rst
+.. include:: cfg_logging.rst
 
-.. _book-cfg-local_hot_standy:
+.. _book_cfg_local_hot_standby:
 
 =====================================================================
                          Local hot standby

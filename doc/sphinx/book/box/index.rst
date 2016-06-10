@@ -206,7 +206,7 @@ The basic operations are: the five data-change operations
 (insert, update, upsert, delete, replace), and the data-retrieval
 operation (select). There are also minor operations like
 “ping” which can only be used with the binary protocol.
-Also, there are :func:`index iterator <index_object.pairs>` operations, which can only
+Also, there are :ref:`index iterator <index-pairs>` operations, which can only
 be used with Lua code. (Index iterators are for traversing
 indexes one key at a time, taking advantage of features
 that are specific to an index type, for example evaluating
@@ -232,7 +232,7 @@ Six examples of basic operations:
     tarantool> box.space.tester:update({999}, {{'=', 2, 'Tarantino'}})
 
     -- Upsert the tuple, changing field field[2] again.
-    -- The syntax of upsert is the same as the syntax of update,
+    -- The syntax of upsert is similar to the syntax of update,
     -- but the return value will be different.
     tarantool> box.space.tester:upsert({999}, {{'=', 2, 'Tarantism'}})
 
@@ -300,7 +300,7 @@ row#x for the sake of fiber#1, then writes row#y for the sake of fiber#2.
 
 **FACT #3**: yields must happen, otherwise the transaction processor
 thread would stick permanently on the same fiber.
-There are implicit yields: every data-change operation
+There are :ref:`implicit yields <the-implicit-yield-rules>`: every data-change operation
 or network-access causes an implicit yield, and every
 statement that goes through the tarantool client causes
 an implicit yield. And there are explicit yields:
@@ -323,8 +323,8 @@ the function holds a consistent view of the database until the UPDATE ends.
 For the combination “UPDATE plus SELECT” the view is not consistent,
 because after the UPDATE the transaction processor thread can switch
 to another fiber, and delete the tuple that was just updated.
-Note re storage engine: sophia handles yields differently, see
-:ref:`differences between memtx and sophia <sophia_diff>`.
+Note re storage engine: phia handles yields differently, see
+:ref:`differences between memtx and phia <phia_diff>`.
 Note re multi-request transactions: there is a way to delay yields,
 see :ref:`Atomic execution <atomic_execution>`.
 
@@ -342,9 +342,9 @@ Since not all Tarantool operations can be expressed with the data-manipulation
 functions, or with Lua, to gain complete access to data manipulation
 functionality one must use a :ref:`Perl, PHP, Python or other programming language connector <box-connectors>`.
 The client/server protocol is open and documented: an annotated BNF can be found
-in the source tree, file `doc/box-protocol.html`_.
+in the source tree, file `doc/dev_guide/box-protocol.html`_.
 
-.. _doc/box-protocol.html: http://tarantool.org/doc/box-protocol.html
+.. _doc/dev_guide/box-protocol.html: http://tarantool.org/doc/dev_guide/box-protocol.html
 
 --------------
 Saving To Disk
@@ -360,7 +360,7 @@ is lost when the power goes off, Tarantool recovers it automatically
 when it starts up again, by reading the WAL files and redoing the requests
 (this is called the "recovery process").
 Users can change the timing of the WAL writer,
-or turn it off, by setting :confval:`wal_mode <wal_mode>`.
+or turn it off, by setting :ref:`wal_mode <confval-wal-mode>`.
 
 Tarantool also maintains a set of snapshot files.
 A snapshot file is an on-disk copy of the entire data set for a given moment.
@@ -470,131 +470,107 @@ The simple index-creation operation which has been illustrated before is: |br|
 By default, this creates a unique "tree" index on the first field of all
 tuples (often called "Field#1"), which is assumed to be numeric.
 
-These variations exist:
-
+These variations exist: |br|
 (1) A indexed field may be a string rather than a number. |br|
-    :codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{parts = {1, 'STR'}})` |br|
-    For an ordinary index, the two possible data types are 'NUM' = numeric = any
-    positive integer, or 'STR' ='string' = any series of bytes. Numbers are
-    ordered according to their point on the number line -- so 2345 is greater
-    than 500 -- while strings are ordered according to the encoding of the first
-    byte then the encoding of the second byte then the encoding of the third
-    byte and so on -- so '2345' is less than '500'.
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name',{parts = {1, 'STR'}})` |br|
+For an ordinary index, the two possible data types are 'NUM'
+= numeric = any positive integer, or 'STR' ='string' = any
+series of bytes. Numbers are ordered
+according to their point on the number line -- so 2345 is
+greater than 500 -- while strings are ordered according to the
+encoding of the first byte then the encoding of the second
+byte then the encoding of the third byte and so on -- so
+'2345' is less than '500'. |br|
 (2) There may be more than one field. |br|
-    :codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {parts = {3, 'NUM', 2, 'STR'}})` |br|
-    For an ordinary index, the maximum number of parts is 255. The specification
-    of each part consists of a field number and a type. |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {parts = {3, 'NUM', 2, 'STR'}})` |br|
+For an ordinary index, the maximum number of parts is 255.
+The specification of each part consists of a field number and
+a type. |br|
 (3) The index does not have to be unique. |br|
-    :codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {unique = false})` |br|
-    The first index of a tuple set must be unique, but other indexes ("secondary"
-    indexes) may be non-unique. |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {unique=false})` |br|
+The first index of a tuple set must be unique, but other indexes ("secondary"
+indexes) may be non-unique. |br|
 (4) The index does not have to be a tree. |br|
-    :codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {type = 'hash'})` |br|
-    The two ordinary index types are 'tree' which is the default, and 'hash'
-    which must be unique and which may be faster or smaller. The third type is
-    'bitset' which is not unique and which works best for combinations of binary
-    values. The fourth type is 'rtree' which is not unique and which, instead of
-    'STR' or 'NUM' values, works with arrays.
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:create_index('index-name', {type='hash'})` |br|
+The two ordinary index types are 'tree' which is the default,
+and 'hash' which must be unique and which may be faster or
+smaller. The third type is 'bitset' which is not unique and
+which works best for combinations of binary values.
+The fourth type is 'rtree' which is not unique and
+which, instead of 'STR' or 'NUM' values, works with arrays.
 
 The existence of indexes does not affect the syntax of data-change requests, but
 does cause select requests to have more variety.
 
 The simple select request which has been illustrated before is: |br|
 :samp:`box.space.{space-name}:select(value)` |br|
-By default, this looks for a single tuple via the first index. Since the first
-index is always unique, the maximum number of returned tuples will be: one.
+By default, this looks for a single tuple
+via the first index. Since the first index is always unique,
+the maximum number of returned tuples will be: one.
 
-These variations exist:
-
-(1) The search can use comparisons other than equality.
-    :codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select('value', {iterator='GT'})`
-    The comparison operators are:
-
-    * ``LT`` - "less than"
-    * ``LE`` - "less than or equal"
-    * ``EQ`` - "equal"
-    * ``REQ`` - "reversed equal"
-    * ``GE`` - "greater than or equal"
-    * ``GT`` - "greater than"
-
-    Comparisons make sense if and only if the index type is 'tree'. This type of
-    search may return more than one tuple; if so, the tuples will be in
-    descending order by key when the comparison operator is ``LT`` or ``LE``
-    or ``REQ``, otherwise in ascending order. |br|
-    Note re storage engines: sophia does not allow ``REQ``.
+These variations exist: |br|
+(1) The search can use comparisons other than equality. |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select('value', {iterator='GT'})` |br|
+The comparison operators are LT LE EQ REQ REQ GE GT for
+"less than" "less than or equal" " "reversed
+equal" "greater than or equal" "greater than" respectively.
+Comparisons make sense if and only if the index type
+is 'tree'.
+This type of search may return more than one tuple;
+if so, the tuples will be in descending order by key
+when the comparison operator is LT or LE or REQ,
+otherwise in ascending order. |br|
+Note re storage engines: phia does not allow REQ. |br|
 (2) The search can use a secondary index. |br|
-    :samp:`box.space.{space-name}.index.{index-name}:select('value')` |br|
-    For a primary-key search, it is optional to specify and index name. For a
-    secondary-key search, it is mandatory.
-(3) The search may be for some or all key parts. Suppose an index has two parts:
-    ``{1,'NUM', 2, 'STR'}``. Suppose the space has three tuples: ``{1, 'A'}``,
-    ``{1, 'B'}``, ``{2, ''}``. The search can be for all fields, using a table
-    for the value:
-    :codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select({1, 'A'})`
-    or the search can be for one field, using a table or a scalar:
-    :samp:`box.space.{space-name}:select(1)` |br|
-    in the second case, the result will be two tuples: {1, 'A'} and {1, 'B'}.
-    It's even possible to specify zero fields, causing all three tuples to be
-    returned. |br|
-    Note re storage engines: sophia requires that all fields, or none, be specified.
+:samp:`box.space.{space-name}.index.{index-name}:select('value')` |br|
+For a primary-key search, it is optional to specify
+an index name. For a secondary-key search, it is mandatory. |br|
+(3) The search may be for some or all key parts. |br|
+Suppose an index has two parts: {1,'NUM', 2, 'STR'}.
+Suppose the space has three tuples: {1, 'A'},{1, 'B'},{2, ''}.
+The search can be for all fields, using a table for the value: |br|
+:codenormal:`box.space.`:codeitalic:`space-name`:codenormal:`:select({1, 'A'})` |br|
+or the search can be for one field, using a table or a scalar: |br|
+:samp:`box.space.{space-name}:select(1)` |br|
+in the second case, the result will be two tuples:
+{1, 'A'} and {1, 'B'}. It's even possible to specify zero
+fields, causing all three tuples to be
+returned.
+Note re storage engines: phia requires that all fields, or none, be specified.
 
-(1) BITSET example:
+(1) BITSET example: |br|
+:codenormal:`box.schema.space.create('bitset_example')` |br|
+:codenormal:`box.space.bitset_example:create_index('primary')` |br|
+:codenormal:`box.space.bitset_example:create_index('bitset',{unique=false,type='BITSET', parts={2,'NUM'}})` |br|
+:codenormal:`box.space.bitset_example:insert{1,1}` |br|
+:codenormal:`box.space.bitset_example:insert{2,4}` |br|
+:codenormal:`box.space.bitset_example:insert{3,7}` |br|
+:codenormal:`box.space.bitset_example:insert{4,3}` |br|
+:codenormal:`box.space.bitset_example.index.bitset:select(2, {iterator='BITS_ANY_SET'})` |br|
+The result will be: |br|
+:codenormal:`---` |br|
+:codenormal:`- - [3, 7]` |br|
+|nbsp| |nbsp| :codenormal:`- [4, 3]` |br|
+:codenormal:`...` |br|
+because (7 AND 2) is not equal to 0, and (3 AND 2) is not equal to 0.
+Searches on BITSET indexes can be for BITS_ANY_SET, BITS_ALL_SET,
+BITS_ALL_NOT_SET, EQ, or ALL.
 
-    .. code-block:: lua
-
-        box.schema.space.create('bitset_example')
-        box.space.bitset_example:create_index('primary')
-        box.space.bitset_example:create_index('bitset', {
-            unique = false,
-            type = 'BITSET',
-            parts = {2, 'NUM'}
-        })
-        box.space.bitset_example:insert{1, 1}
-        box.space.bitset_example:insert{2, 4}
-        box.space.bitset_example:insert{3, 7}
-        box.space.bitset_example:insert{4, 3}
-        box.space.bitset_example.index.bitset:select(2, {iterator = 'BITS_ANY_SET'})
-
-    The result will be:
-
-    .. code-block:: yaml
-
-        ---
-        - - [3, 7]
-          - [4, 3]
-        ...
-
-    because (7 AND 2) is not equal to 0, and (3 AND 2) is not equal to 0.
-    Searches on BITSET indexes can be for ``BITS_ANY_SET``, ``BITS_ALL_SET``,
-    ``BITS_ALL_NOT_SET``, ``EQ``, or ``ALL``.
-
-(2) RTREE example:
-
-    .. code-block:: lua
-
-        box.schema.space.create('rtree_example')
-        box.space.rtree_example:create_index('primary')
-        box.space.rtree_example:create_index('rtree', {
-            unique = false,
-            type = 'RTREE',
-            parts = {2, 'ARRAY'}
-        })
-        box.space.rtree_example:insert{1, {3, 5, 9, 10}}
-        box.space.rtree_example:insert{2, {10, 11}}
-        box.space.rtree_example.index.rtree:select({4, 7, 5, 9}, {iterator = 'GT'})
-
-    The result will be:
-
-    .. code-block:: yaml
-
-        ---
-        - - [1, [3, 5, 9, 10]]
-        ...
-
-    because a rectangle whose corners are at coordinates 4,7,5,9 is entirely
-    within a rectangle whose corners are at coordinates 3,5,9,10. Searches on
-    RTREE indexes can be for ``GT``, ``GE``, ``LT``, ``LE``, ``OVERLAPS``, or
-    ``NEIGHBOR``.
+(2) RTREE example |br|
+:codenormal:`box.schema.space.create('rtree_example')` |br|
+:codenormal:`box.space.rtree_example:create_index('primary')` |br|
+:codenormal:`box.space.rtree_example:create_index('rtree',{unique=false,type='RTREE', parts={2,'ARRAY'}})` |br|
+:codenormal:`box.space.rtree_example:insert{1, {3, 5, 9, 10}}` |br|
+:codenormal:`box.space.rtree_example:insert{2, {10, 11}}` |br|
+:codenormal:`box.space.rtree_example.index.rtree:select({4, 7, 5, 9}, {iterator = 'GT'})` |br|
+The result will be:
+:codenormal:`---` |br|
+:codenormal:`- - [1, [3, 5, 9, 10]]` |br|
+:codenormal:`...` |br|
+because a rectangle whose corners are at coordinates
+4,7,5,9 is entirely within a rectangle whose corners
+are at coordinates 3,5,9,10. Searches on RTREE indexes
+can be for GT, GE, LT, LE, OVERLAPS, or NEIGHBOR.
 
 .. _box-library:
 
@@ -621,7 +597,8 @@ introspection (inspecting contents of spaces, accessing server configuration).
 
 .. container:: table
 
-    **Complexity Factors that may affect data manipulation functions in the box library**
+    **Complexity Factors that may affect data
+    manipulation functions in the box library**
 
     .. rst-class:: left-align-column-1
     .. rst-class:: left-align-column-2
@@ -648,8 +625,8 @@ introspection (inspecting contents of spaces, accessing server configuration).
     |                   | important than the others.                          |
     +-------------------+-----------------------------------------------------+
     | WAL settings      | The important setting for the write-ahead log is    |
-    |                   | :ref:`wal_mode <wal_mode>`. If the setting causes   |
-    |                   | no writing or                                       |
+    |                   | :ref:`wal_mode <confval-wal-mode>`. If the setting  |
+    |                   | causes no writing or                                |
     |                   | delayed writing, this factor is unimportant. If the |
     |                   | setting causes every data-change request to wait    |
     |                   | for writing to finish on a slow device, this factor |
@@ -659,26 +636,26 @@ introspection (inspecting contents of spaces, accessing server configuration).
 In the discussion of each data-manipulation function there will be a note about
 which Complexity Factors might affect the function's resource usage.
 
+.. _two-storage-engines:
+
 =====================================================================
-            The two storage engines: memtx and sophia
+            The two storage engines: memtx and phia
 =====================================================================
 
 A storage engine is a set of very-low-level routines which actually store and
 retrieve tuple values. Tarantool offers a choice of two storage engines: memtx
-(the in-memory storage engine) and sophia (the on-disk storage engine).
-To specify that the engine should be sophia, add a clause: ``engine = 'sophia'``.
+(the in-memory storage engine) and phia (the on-disk storage engine).
+To specify that the engine should be phia, add a clause: ``engine = 'phia'``.
 The manual concentrates on memtx because it is the default and has been around
-longer. But sophia is a working key-value engine and will especially appeal to
+longer. But phia is a working key-value engine and will especially appeal to
 users who like to see data go directly to disk, so that recovery time might be
 shorter and database size might be larger. For architectural explanations and
-benchmarks, see `sphia.org`_ and Appendix E: :ref:`sophia <sophia>`.
-On the other hand, sophia lacks some functions and
+benchmarks, see Appendix E: :ref:`phia <phia>`.
+On the other hand, phia lacks some functions and
 options that are available with memtx. Where that is the case, the relevant
 description will contain a note beginning with the words
-"Note re storage engine: sophia". The end of this chapter has coverage
-for all :ref:`the differences between memtx and sophia <sophia_diff>`.
-
-.. _sphia.org: http://sphia.org
+"Note re storage engine: phia". The end of this chapter has coverage
+for all :ref:`the differences between memtx and phia <phia_diff>`.
 
 =====================================================================
                         Library Reference
@@ -698,6 +675,6 @@ for all :ref:`the differences between memtx and sophia <sophia_diff>`.
     authentication
     triggers
     limitations
-    sophia_diff
+    phia_diff
 
 

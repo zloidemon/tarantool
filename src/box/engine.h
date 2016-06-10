@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_ENGINE_H_INCLUDED
 #define TARANTOOL_BOX_ENGINE_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -124,26 +124,25 @@ public:
 	 */
 	virtual void rollback(struct txn *);
 	/**
-	 * Recover the engine to a checkpoint it has.
-	 * After that the engine will be given rows
-	 * from the binary log to replay.
+	 * Bootstrap an empty data directory
 	 */
-	virtual void recoverToCheckpoint(int64_t checkpoint_id);
+	virtual void bootstrap() {};
 	/**
-	 * Inform the engine about the end of recovery from the
-	 * binary log.
+	 * Begin initial recovery from snapshot or dirty disk data.
 	 */
-	virtual void endRecovery();
-	/**
-	 * Notify engine about a JOIN start (slave-side)
-	 */
-	virtual void beginJoin();
+	virtual void beginInitialRecovery() {};
 	/**
 	 * Notify engine about a start of recovering from WALs
 	 * that could be local WALs during local recovery
 	 * of WAL catch up durin join on slave side
 	 */
-	virtual void beginWalRecovery() {}
+	virtual void beginFinalRecovery() {};
+	/**
+	 * Inform the engine about the end of recovery from the
+	 * binary log.
+	 */
+	virtual void endRecovery() {};
+
 	/**
 	 * Begin a two-phase snapshot creation in this
 	 * engine (snapshot is a memtx idea of a checkpoint).
@@ -234,31 +233,23 @@ engine_id(Handler *space)
 }
 
 /**
- * Tell the engine what the last LSN to recover from is
- * (during server start.
+ * Initialize an empty data directory
  */
 void
-engine_recover_to_checkpoint(int64_t checkpoint_id);
+engine_bootstrap();
 
 /**
- * Called at the start of JOIN routine
- * on the replica.
+ * Called at the start of recovery.
  */
 void
-engine_begin_join();
+engine_begin_initial_recovery();
 
 /**
  * Called in the middle of JOIN stage,
  * when xlog catch-up process is started
  */
 void
-engine_begin_wal_recovery();
-
-/**
- * Called at the end of JOIN routine.
- */
-void
-engine_end_join();
+engine_begin_final_recovery();
 
 /**
  * Called at the end of recovery.

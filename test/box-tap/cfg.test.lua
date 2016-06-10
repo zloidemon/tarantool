@@ -4,7 +4,7 @@ local tap = require('tap')
 local test = tap.test('cfg')
 local socket = require('socket')
 local fio = require('fio')
-test:plan(36)
+test:plan(42)
 
 --------------------------------------------------------------------------------
 -- Invalid values
@@ -17,6 +17,11 @@ local function invalid(name, val)
     test:ok(not status and result:match('Incorrect'), 'invalid '..name)
 end
 
+invalid('slab_alloc_minimal', 7)
+invalid('slab_alloc_minimal', 0)
+invalid('slab_alloc_minimal', -1)
+invalid('slab_alloc_minimal', 1048281)
+invalid('slab_alloc_minimal', 1000000000)
 invalid('replication_source', '//guest@localhost:3301')
 invalid('wal_mode', 'invalid')
 invalid('rows_per_wal', -1)
@@ -40,15 +45,15 @@ local status, result = pcall(testfun)
 test:ok(not status and result:match('Please call box.cfg{}'),
     'exception on unconfigured box')
 
-os.execute("rm -rf sophia")
+os.execute("rm -rf phia")
 box.cfg{
     logger="tarantool.log",
     slab_alloc_arena=0.1,
     wal_mode = "", -- "" means default value
 }
 
--- gh-678: sophia engine creates sophia dir with empty 'snapshot' file
-test:isnil(io.open("sophia", 'r'), 'sophia_dir is not auto-created')
+-- gh-678: phia engine creates phia dir with empty 'snapshot' file
+test:isnil(io.open("phia", 'r'), 'phia_dir is not auto-created')
 
 status, result = pcall(testfun)
 test:ok(status and result == 'table', 'configured box')
@@ -134,8 +139,8 @@ local code;
 code = [[ box.cfg{ work_dir='invalid' } ]]
 test:is(run_script(code), PANIC, 'work_dir is invalid')
 
-code = [[ box.cfg{ sophia_dir='invalid' } ]]
-test:is(run_script(code), PANIC, 'sophia_dir is invalid')
+code = [[ box.cfg{ phia_dir='invalid' } ]]
+test:is(run_script(code), PANIC, 'phia_dir is invalid')
 
 code = [[ box.cfg{ snap_dir='invalid' } ]]
 test:is(run_script(code), PANIC, 'snap_dir is invalid')
@@ -178,6 +183,19 @@ os.remove(path2)
 code = " box.cfg{ listen='unix/:'" .. path .. "' } "
 run_script(code)
 test:isnil(fio.stat(path), "delete socket at exit")
+
+-- gh-1499: AUTH raises ER_LOADING if wal_mode is 'none'
+code = [[
+box.cfg{wal_mode = 'none', listen='unix/:./tarantool.sock' }
+box.once("bootstrap", function()
+    box.schema.user.create("test", { password = '123'  })
+end)
+local conn = require('net.box').new('unix/:./tarantool.sock',
+    { user = 'test', password = '123' })
+if not conn:ping() then os.exit(1) end
+os.exit(0)
+]]
+test:is(run_script(code), 0, "wal_mode none and ER_LOADING")
 
 test:check()
 os.exit(0)

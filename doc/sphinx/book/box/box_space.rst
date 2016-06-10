@@ -18,65 +18,87 @@ A list of all ``box.space`` functions follows, then comes a list of all
         .. rst-class:: left-align-column-1
         .. rst-class:: left-align-column-2
 
-        +---------------------------------------------------------------------+---------------------------------+
-        | Name                                                                | Use                             |
-        +=====================================================================+=================================+
-        | :func:`space_object:create_index() <space_object.create_index>`     | Create an index                 |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:insert() <space_object.insert>`                 | Insert a tuple                  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:select() <space_object.select>`                 | Select one or more tuples       |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:get() <space_object.get>`                       | Select a tuple                  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:drop() <space_object.drop>`                     | Destroy a space                 |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:rename() <space_object.rename>`                 | Rename a space                  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:replace() <space_object.replace>`               | Insert or replace a tuple       |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:put() <space_object.replace>`                   | Insert or replace a tuple       |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:update() <space_object.update>`                 | Update a tuple                  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:upsert() <space_object.upsert>`                 | Update a tuple                  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:delete() <space_object.delete>`                 | Delete a tuple                  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:count() <space_object.count>`                   | Get count of tuples             |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:len() <space_object.len>`                       | Get count of tuples             |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:truncate() <space_object.truncate>`             | Delete all tuples               |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:inc{} <space_object.inc>`                       | Increment a tuple's counter     |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:dec{} <space_object.dec>`                       | Decrement a tuple's counter     |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:auto_increment{} <space_object.auto_increment>` | Generate key + Insert a tuple   |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object:pairs() <space_object.pairs>`                   | Prepare for iterating           |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object.id <space_object.id>`                           | .Numeric identifier of space    |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object.enabled <space_object.enabled>`                 | .Flag, true if space is enabled |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object.field_count <space_object.field_count>`         | .Required number of fields      |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :func:`space_object.index <space_object.index>`                     | .Container of space's indexes   |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :class:`box.space._schema`                                          | .(Metadata) List of schemas     |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :class:`box.space._space`                                           | .(Metadata) List of spaces      |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :class:`box.space._index`                                           | .(Metadata) List of indexes     |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :class:`box.space._user`                                            | .(Metadata) List of users       |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :class:`box.space._priv`                                            | .(Metadata) List of privileges  |
-        +---------------------------------------------------------------------+---------------------------------+
-        | :class:`box.space._cluster`                                         | .(Metadata) List of clusters    |
-        +---------------------------------------------------------------------+---------------------------------+
+        +--------------------------------------+---------------------------------+
+        | Name                                 | Use                             |
+        +======================================+=================================+
+        | :func:`space_object:create_index()   | Create an index                 |
+        | <space_object.create_index>`         |                                 | 
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:insert()         | Insert a tuple                  |
+        | <space_object.insert>`               |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:select()         | Select one or more tuples       |
+        | <space_object.select>`               |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:get()            | Select a tuple                  |
+        | <space_object.get>`                  |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:drop()           | Destroy a space                 |
+        | <space_object.drop>`                 |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:rename()         | Rename a space                  |
+        | <space_object.rename>`               |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:replace()        | Insert or replace a tuple       |
+        | <space_object.replace>`              |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:put()            | Insert or replace a tuple       |
+        | <space_object.replace>`              |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:update()         | Update a tuple                  |
+        | <space_object.update>`               |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:upsert()         | Update a tuple                  |
+        | <space_object.upsert>`               |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:delete()         | Delete a tuple                  |
+        | <space_object.delete>`               |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:count()          | Get count of tuples             |
+        | <space_object.count>`                |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:len()            | Get count of tuples             |
+        | <space_object.len>`                  |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:truncate()       | Delete all tuples               |
+        | <space_object.truncate>`             |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:inc()            | Increment a tuple's counter     |
+        | <space_object.inc>`                  |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:dec()            | Decrement a tuple's counter     |
+        | <space_object.dec>`                  |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:auto_increment() | Generate key + Insert a tuple   |
+        | <space_object.auto_increment>`       |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object:pairs()          | Prepare for iterating           |
+        | <space_object.pairs>`                |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object.id               | .Numeric identifier of space    |
+        | <space_object.id>`                   |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object.enabled          | .Flag, true if space is enabled |
+        | <space_object.enabled>`              |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object.field_count      | .Required number of fields      |
+        | <space_object.field_count>`          |                                 |
+        +--------------------------------------+---------------------------------+
+        | :func:`space_object.index            | .Container of space's indexes   |
+        | <space_object.field_count>`          |                                 |
+        +--------------------------------------+---------------------------------+
+        | :class:`box.space._schema`           | .(Metadata) List of schemas     |
+        +--------------------------------------+---------------------------------+
+        | :class:`box.space._space`            | .(Metadata) List of spaces      |
+        +--------------------------------------+---------------------------------+
+        | :class:`box.space._index`            | .(Metadata) List of indexes     |
+        +--------------------------------------+---------------------------------+
+        | :class:`box.space._user`             | .(Metadata) List of users       |
+        +--------------------------------------+---------------------------------+
+        | :class:`box.space._priv`             | .(Metadata) List of privileges  |
+        +--------------------------------------+---------------------------------+
+        | :class:`box.space._cluster`          | .(Metadata) List of clusters    |
+        +--------------------------------------+---------------------------------+
 
 
 .. module:: box.space
@@ -90,12 +112,10 @@ A list of all ``box.space`` functions follows, then comes a list of all
         first created index, which will be used as the primary-key index, must be
         unique.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`index_name` (type = string) = name of index, which should
-          not be a number and should not contain special characters;
-        * :codeitalic:`options`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`index_name` (type = string) = name of index, which should not be a number
+        and should not contain special characters;
+        :codeitalic:`options`.
 
         :return: index object
         :rtype:  index_object
@@ -130,9 +150,9 @@ A list of all ``box.space`` functions follows, then comes a list of all
             |               | types              |                             |                     |
             +---------------+--------------------+-----------------------------+---------------------+
 
-        Possible errors: too many parts.
+        Possible errors: too many parts. Index '...' already exists. Primary key must be unique.
 
-        Note re storage engine: sophia supports only the TREE index type,
+        Note re storage engine: phia supports only the TREE index type,
         and supports only one index per space,
         and supports only the unique = true option,
         and requires that field numbers be in order starting with 1.
@@ -146,14 +166,14 @@ A list of all ``box.space`` functions follows, then comes a list of all
             ---
             ...
 
+    .. _space_insert:
+
     .. method:: insert(tuple)
 
         Insert a tuple into a space.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`tuple` (type = Lua table or tuple) = tuple to be inserted.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`tuple` (type = Lua table or tuple) = tuple to be inserted.
 
         :return: the inserted tuple
         :rtype:  tuple
@@ -161,7 +181,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
         Possible errors: If a tuple with the same unique-key value already exists,
         returns :errcode:`ER_TUPLE_FOUND`.
 
-        Note re storage engine: sophia will return nil, rather than the inserted tuple.
+        Note re storage engine: phia will return nil, rather than the inserted tuple.
 
         **Example:**
 
@@ -172,15 +192,15 @@ A list of all ``box.space`` functions follows, then comes a list of all
             - [5000, 'tuple number five thousand']
             ...
 
+    .. _space-select:
+
     .. method:: select(key)
 
         Search for a tuple or a set of tuples in the given space.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`key` (type = Lua table or scalar) = key to be matched
-          against the index key, which may be multi-part.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`key` (type = Lua table or scalar) = key to be matched against the index key,
+        which may be multi-part.
 
         :return: the tuples whose primary-key fields are equal to the passed
                  field-values. If the number of passed field-values is less
@@ -249,11 +269,9 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
         Search for a tuple in the given space.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`key` (type = Lua table or scalar) = key to be matched
-          against the index key, which may be multi-part.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`key` (type = Lua table or scalar) = key to be matched against the index
+        key, which may be multi-part.
 
         :return: the tuple whose index key matches :codeitalic:`key`, or null.
         :rtype:  tuple
@@ -277,13 +295,13 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
             box.space.tester:get{1}
 
+    .. _space_drop:
+
     .. method:: drop()
 
         Drop a space.
 
-        Parameters:
-        
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         :return: nil
 
@@ -302,10 +320,8 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
         Rename a space.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`space-name` (type = string) = new name for space.
+        Parameters::samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`space-name` (type = string) = new name for space.
 
         :return: nil
 
@@ -322,6 +338,8 @@ A list of all ``box.space`` functions follows, then comes a list of all
             ---
             ...
 
+    .. _space_replace:
+
     .. method:: replace(tuple)
                   put(tuple)
 
@@ -331,10 +349,8 @@ A list of all ``box.space`` functions follows, then comes a list of all
         ``box.space...:put()`` have the same effect; the latter is sometimes used
         to show that the effect is the converse of ``box.space...:get()``.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`tuple` (type = Lua table or tuple) = tuple to be inserted.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`tuple` (type = Lua table or tuple) = tuple to be inserted.
 
         :return: the inserted tuple.
         :rtype:  tuple
@@ -347,13 +363,15 @@ A list of all ``box.space`` functions follows, then comes a list of all
         **Complexity Factors:** Index size, Index type,
         Number of indexes accessed, WAL settings.
 
-        Note re storage engine: sophia will return nil, rather than the inserted tuple.
+        Note re storage engine: phia will return nil, rather than the inserted tuple.
 
         **Example:**
 
         .. code-block:: lua
 
             box.space.tester:replace{5000, 'tuple number five thousand'}
+
+    .. _space_update:
 
     .. method:: update(key, {{operator, field_no, value}, ...})
 
@@ -386,26 +404,24 @@ A list of all ``box.space`` functions follows, then comes a list of all
         For ``!`` and ``=`` operations the field number can be ``-1``, meaning the last field in the tuple.
 
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`key` (type = Lua table or scalar) = primary-key field
-          values, must be passed as a Lua table if key is multi-part;
-        * :codeitalic:`{operator, field_no, value}` (type = table): a group of
-          arguments for each operation, indicating what the operation is, what
-          field the operation will apply to, and what value will be applied. The
-          field number can be negative, meaning the position from the end of
-          tuple (#tuple + negative field number + 1).
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`key` (type = Lua table or scalar) = primary-key field values, must be passed as a Lua
+        table if key is multi-part;
+        :codeitalic:`{operator, field_no, value}` (type = table): a group of arguments for each
+        operation, indicating what the operation is, what field the
+        operation will apply to, and what value will be applied. The
+        field number can be negative, meaning the position from the end of
+        tuple (#tuple + negative field number + 1).
 
         :return: the updated tuple.
         :rtype:  tuple
 
         Possible errors: it is illegal to modify a primary-key field.
 
-        **Complexity Factors:** Index size, Index type, number of indexes
-        accessed, WAL settings.
+        **Complexity Factors:** Index size, Index type, number of indexes accessed, WAL
+        settings.
 
-        Note re storage engine: sophia will return nil, rather than the updated tuple.
+        Note re storage engine: phia will return nil, rather than the updated tuple.
 
         Thus, in the instruction:
 
@@ -413,11 +429,11 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
             s:update(44, {{'+', 1, 55 }, {'=', 3, 'x'}})
 
-        the primary-key value is ``44``, the operators are ``'+'`` and ``'='``
-        meaning *add a value to a field and then assign a value to a field*, the
-        first affected field is field ``1`` and the value which will be added to
-        it is ``55``, the second affected field is field ``3`` and the value
-        which will be assigned to it is ``'x'``.
+        the primary-key value is ``44``, the operators are ``'+'`` and ``'='`` meaning
+        *add a value to a field and then assign a value to a field*, the first
+        affected field is field ``1`` and the value which will be added to it is
+        ``55``, the second affected field is field ``3`` and the value which will be
+        assigned to it is ``'x'``.
 
         **Example:**
 
@@ -521,6 +537,8 @@ A list of all ``box.space`` functions follows, then comes a list of all
         The seventh argument is ``'!!'``, because ``'!!'`` is to be added at this position.
         Therefore, after this update, ``field[1]`` = ``999``, ``field[2]`` = ``'X!!Z'``.
 
+    .. _space_upsert:
+
     .. method:: upsert(tuple_value, {{operator, field_no, value}, ...}, )
 
         Update or insert a tuple.
@@ -535,16 +553,14 @@ A list of all ``box.space`` functions follows, then comes a list of all
         error checks before returning -- this is a design feature which
         enhances throughput but requires more caution on the part of the user.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :samp:`{tuple_value}` (type = Lua table or scalar) = field values,
-          must be passed as a Lua table if tuple_value contains more than one field;
-        * :codeitalic:`{operator, field_no, value}` (type = Lua table) = a group
-          of arguments for each operation, indicating what the operation is,
-          what field the operation will apply to, and what value will be applied.
-          The field number can be negative, meaning the position from the end of
-          tuple (#tuple + negative field number + 1).
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :samp:`{tuple_value}` (type = Lua table or scalar) =
+        field values, must be passed as a Lua table;
+        :codeitalic:`{operator, field_no, value}` (type = Lua table) = a group of arguments for each
+        operation, indicating what the operation is, what field the
+        operation will apply to, and what value will be applied. The
+        field number can be negative, meaning the position from the end of
+        the tuple (#tuple + negative field number + 1).
 
         :return: null.
 
@@ -560,22 +576,22 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
                 box.space.tester:upsert({12,'c'}, {{'=', 3, 'a'}, {'=', 4, 'b'}})
 
+    .. _space_delete:
+
     .. method:: delete(key)
 
         Delete a tuple identified by a primary key.
 
-        Parameters:
-        
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`
-        * :codeitalic:`key` (type = Lua table or scalar) = key to be matched
-          against the index key, which may be multi-part.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`
+        :codeitalic:`key` (type = Lua table or scalar) = key to be matched against the index
+        key, which may be multi-part.
 
         :return: the deleted tuple
         :rtype:  tuple
 
         **Complexity Factors:** Index size, Index type
 
-        Note re storage engine: sophia will return nil, rather than the deleted tuple.
+        Note re storage engine: phia will return nil, rather than the deleted tuple.
 
         **Example:**
 
@@ -601,9 +617,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
         ``box.space.tester:insert{0}`` and ``box.space[800]:insert{0}``
         are equivalent requests.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         **Example:**
 
@@ -619,9 +633,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
         Whether or not this space is enabled.
         The value is ``false`` if the space has no index.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
     .. _space-object-field-count:
 
@@ -641,9 +653,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
         The default value is ``0``, which means there is no required field count.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         **Example:**
 
@@ -656,13 +666,11 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
     .. data:: index
 
-        A container for all defined indexes. An index is a Lua object of type
-        :mod:`box.index` with methods to search tuples and iterate over them in
+        A container for all defined indexes. There is a Lua object of type
+        :ref:`box.index <box_index>` with methods to search tuples and iterate over them in
         predefined order.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         :rtype: table
 
@@ -696,15 +704,13 @@ A list of all ``box.space`` functions follows, then comes a list of all
             - 1
             ...
 
-    Note re storage engine: sophia does not support :codenormal:`count(...)`.
+    Note re storage engine: phia does not support :codenormal:`count(...)`.
     One possible workaround is to say :codenormal:`#select(...)`.
 
 
     .. method:: len()
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         :return: Number of tuples in the space.
 
@@ -723,15 +729,13 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
         Deletes all tuples.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         **Complexity Factors:** Index size, Index type, Number of tuples accessed.
 
         :return: nil
 
-        Note re storage engine: sophia does not support ``truncate``.
+        Note re storage engine: phia does not support ``truncate``.
 
         **Example:**
 
@@ -754,11 +758,8 @@ A list of all ``box.space`` functions follows, then comes a list of all
         value set to ``1``.
 
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`field-value(s)` (type = Lua table or scalar) = values
-          which must match the primary key.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`field-value(s)` (type = Lua table or scalar) = values which must match the primary key.
 
         :return: the new counter value
         :rtype:  number
@@ -795,11 +796,8 @@ A list of all ``box.space`` functions follows, then comes a list of all
         ``field-value(s)``, a new one is not inserted. If the counter value drops
         to zero, the tuple is deleted.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`field-value(s)` (type = Lua table or scalar) = values
-          which must match the primary key.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`field-value(s)` (type = Lua table or scalar) = values which must match the primary key.
 
         :return: the new counter value
         :rtype:  number
@@ -839,13 +837,10 @@ A list of all ``box.space`` functions follows, then comes a list of all
         Insert a new tuple using an auto-increment primary key. The space specified
         by space_object must have a ``NUM`` primary key index of type ``TREE``. The
         primary-key field will be incremented before the insert.
-        Note re storage engine: sophia does not support auto_increment.
+        Note re storage engine: phia does not support auto_increment.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
-        * :codeitalic:`field-value(s)` (type = Lua table or scalar) = tuple's
-          fields, other than the primary-key field.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`;
+        :codeitalic:`field-value(s)` (type = Lua table or scalar) = tuple's fields, other than the primary-key field.
 
         :return: the inserted tuple.
         :rtype:  tuple
@@ -872,9 +867,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
 
         A helper function to prepare for iterating over all tuples in a space.
 
-        Parameters:
-
-        * :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
+        Parameters: :samp:`{space_object}` = an :ref:`object reference <object-reference>`.
 
         :return: function which can be used in a for/end loop. Within the loop, a value is returned for each iteration.
         :rtype:  function, tuple
@@ -991,7 +984,7 @@ A list of all ``box.space`` functions follows, then comes a list of all
           - '313 1 _vpriv sysview 0  '
           - '320 1 _cluster memtx 0  '
           - '512 1 tester memtx 0  '
-          - '513 1 origin sophia 0  '
+          - '513 1 origin phia 0  '
           - '514 1 archive memtx 0  '
         ...
 
@@ -1098,9 +1091,9 @@ A list of all ``box.space`` functions follows, then comes a list of all
     ``_cluster`` is a system tuple set
     for support of the :ref:`replication feature <box-replication>`.
 
-===================================================================
-          Example showing use of the box.space functions
-===================================================================
+=============================================================================
+          Example: use box.space functions to read _space tuples
+=============================================================================
 
 This function will illustrate how to look at all the spaces, and for each
 display: approximately how many tuples it contains, and the first field of
@@ -1155,3 +1148,61 @@ And here is what happens when one invokes the function:
       - _vpriv tuple_count =1 or more. first field in first tuple = 1
       - _cluster tuple_count =1 or more. first field in first tuple = 1
     ...
+
+===========================================================================
+          Example: use box.space functions to organize a _space tuple
+===========================================================================
+
+The objective is to display field names and field types of a system space --
+using metadata to find metadata.
+
+To begin: how can one select the _space tuple that describes _space?
+
+A simple way is to look at the constants in box.schema,
+which tell us that there is an item named SPACE_ID == 288,
+so these statements will retrieve the correct tuple: |br|
+:codenormal:`box.space._space:select{288}` |br|
+or |br|
+:codenormal:`box.space._space:select{box.schema.SPACE_ID}` |br|
+
+Another way is to look at the tuples in box.space._index,
+which tell us that there is a secondary index named 'name' for space
+number 288, so this statement also will retrieve the correct tuple: |br|
+:codenormal:`box.space._space.index.name:select{'_space'}`
+
+However, the retrieved tuple is not easy to read: |br|
+:codenormal:`tarantool>` :codebold:`box.space._space.index.name:select{'_space'}` |br|
+:codenormal:`---` |br|
+:codenormal:`- - [280, 1, '_space', 'memtx', 0, '', [{'name': 'id',` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`'type': 'num'}, {'name': 'owner','type': 'num'},` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`{'name': 'name','type': 'str'}, {'name': 'engine',` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`'type': 'str'},{'name': 'field_count', 'type': 'num'},` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`{'name': 'flags','type': 'str'}, {'name': 'format',` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`'type': '*'}]]` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`...`
+
+It looks disorganized because field number 7
+has been formatted with recommended names and data types.
+How can one get those specific sub-fields?
+Since it's visible that field number 7 is an array of maps,
+this `for` loop will do the organizing: |br|
+:codenormal:`local tuple_of_space, field_name, field_type` |br|
+:codenormal:`tuple_of_space = box.space._space.index.name:select{'_space'}[1]` |br|
+:codenormal:`for i = 1, #tuple_of_space[7], 1` |br|
+:codenormal:`do` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`field_name = tuple_of_space[7][i]['name']` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`field_type = tuple_of_space[7][i]['type']` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`print(field_name .. ',' ..field_type)` |br|
+:codenormal:`end`
+
+And here is what happens when one executes the `for` loop: |br|
+:codenormal:`id,num` |br|
+:codenormal:`owner,num` |br|
+:codenormal:`name,str` |br|
+:codenormal:`engine,str` |br|
+:codenormal:`field_count,num` |br|
+:codenormal:`flags,str` |br|
+:codenormal:`format,*`
+
+
+

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -160,7 +160,7 @@ txn_commit_stmt(struct txn *txn, struct request *request)
 	 * If there are triggers, and they are not disabled, and
 	 * the statement found any rows, run triggers.
 	 * XXX:
-	 * - sophia doesn't set old/new tuple, so triggers don't
+	 * - phia doesn't set old/new tuple, so triggers don't
 	 *   work for it
 	 * - perhaps we should run triggers even for deletes which
 	 *   doesn't find any rows

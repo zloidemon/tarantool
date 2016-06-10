@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_RECOVERY_H_INCLUDED
 #define TARANTOOL_RECOVERY_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -70,9 +70,6 @@ recovery_delete(struct recovery *r);
 /* to be called at exit */
 void
 recovery_exit(struct recovery *r);
-
-void
-recovery_bootstrap(struct recovery *r, struct xstream *stream);
 
 void
 recovery_follow_local(struct recovery *r, struct xstream *stream,

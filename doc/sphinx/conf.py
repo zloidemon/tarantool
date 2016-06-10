@@ -18,7 +18,8 @@ extensions = [
     'ext.LuaLexer',
     'ext.TapLexer',
     'ext.TarantoolSessionLexer',
-    'breathe'
+    'breathe',
+    'sphinx.ext.intersphinx',
 ]
 primary_domain = 'lua'
 templates_path = ['../_templates']
@@ -37,9 +38,9 @@ version = '.'.join(release.split('.')[0:2])
 exclude_patterns = [
     '_build',
     'book/connectors/__*',
-    'book/replication/*-1.rst',
-    'book/replication/*-2.rst',
-    'book/configuration/cfg-*'
+    'book/replication/*_1.rst',
+    'book/replication/*_2.rst',
+    'book/configuration/cfg_*'
 ]
 
 pygments_style = 'sphinx'
@@ -83,13 +84,13 @@ rst_prolog = """
 
 .. role:: codebolditalic
    :class: ccodebi
-   
+
 .. role:: codegreen
    :class: ccodegreen
-   
+
 .. role:: codered
    :class: ccodered
-   
+
 .. role:: codeblue
    :class: ccodeblue
 
@@ -103,11 +104,8 @@ rst_epilog = """
     <br />
 """
 
-# def setup(sphinx):
-#     sys.path.insert(0, os.path.abspath('./ext'))
-#     from LuaLexer import LuaLexer
-#     sphinx.add_lexer("lua_tarantool", LuaLexer())
-#     from TarantoolSessionLexer import TarantoolSessionLexer
-#     sphinx.add_lexer("tarantoolsession", TarantoolSessionLexer())
-#     from TapLexer import TAPLexer
-#     sphinx.add_lexer('tap', TAPLexer())
+intersphinx_mapping = {
+    'tarantoolc': ('http://tarantool.github.io/tarantool-c/', None)
+}
+
+intersphinx_cache_limit = 0

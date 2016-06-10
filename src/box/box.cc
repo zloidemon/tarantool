@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -48,7 +48,7 @@
 #include "memtx_engine.h"
 #include "memtx_index.h"
 #include "sysview_engine.h"
-#include "sophia_engine.h"
+#include "phia_engine.h"
 #include "space.h"
 #include "port.h"
 #include "request.h"
@@ -95,6 +95,15 @@ box_check_writable(void)
 	 */
 	if (is_ro || recovery->server_id == 0)
 		tnt_raise(LoggedError, ER_READONLY);
+}
+
+static void
+box_check_slab_alloc_minimal(ssize_t slab_alloc_minimal)
+{
+
+	if (slab_alloc_minimal < 8 || slab_alloc_minimal > 1048280)
+	tnt_raise(ClientError, ER_CFG, "slab_alloc_minimal",
+		  "specified value is out of bounds");
 }
 
 void
@@ -341,6 +350,7 @@ box_check_config()
 	box_check_readahead(cfg_geti("readahead"));
 	box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
 	box_check_wal_mode(cfg_gets("wal_mode"));
+	box_check_slab_alloc_minimal(cfg_geti64("slab_alloc_minimal"));
 }
 
 /*
@@ -405,7 +415,7 @@ box_sync_replication_source(void)
 extern "C" void
 box_set_replication_source(void)
 {
-	if (wal == NULL) {
+	if (!box_init_done) {
 		/*
 		 * Do nothing, we're in local hot standby mode, the server
 		 * will automatically begin following the replica when local
@@ -768,7 +778,7 @@ box_register_server(uint32_t id, const struct tt_uuid *uuid)
 {
 	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
 	     (unsigned) id, tt_uuid_str(uuid));
-	assert(vclock_has(&recovery->vclock, id));
+	assert(server_by_uuid(uuid) != NULL);
 }
 
 /**
@@ -962,7 +972,7 @@ box_process_auth(struct request *request, struct obuf *out)
 	assert(request->type == IPROTO_AUTH);
 
 	/* Check that bootstrap has been finished */
-	if (wal == NULL)
+	if (!box_init_done)
 		tnt_raise(ClientError, ER_LOADING);
 
 	const char *user = request->key;
@@ -989,7 +999,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 * <= INSERT
 	 *    ...
 	 *    Initial data: a stream of engine-specifc rows, e.g. snapshot
-	 *    rows for memtx or dirty cursor data for Sophia. Engine can
+	 *    rows for memtx or dirty cursor data for Phia. Engine can
 	 *    use SERVER_ID, LSN and other fields for internal purposes.
 	 *    ...
 	 * <= INSERT
@@ -1021,7 +1031,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	xrow_decode_join(header, &server_uuid);
 
 	/* Check that bootstrap has been finished */
-	if (wal == NULL)
+	if (!box_init_done)
 		tnt_raise(ClientError, ER_LOADING);
 
 	/* Forbid connection to itself */
@@ -1061,8 +1071,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 
 	/* Remember master's vclock after the last request */
 	struct vclock stop_vclock;
-	/* TODO: use WAL vclock instead of TX vclock */
-	vclock_copy(&stop_vclock, &recovery->vclock);
+	wal_checkpoint(wal, &stop_vclock, false);
 
 	/* Send end of initial stage data marker */
 	xrow_encode_vclock(&row, &stop_vclock);
@@ -1077,7 +1086,9 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	say_info("final data sent.");
 
 	/* Send end of WAL stream marker */
-	xrow_encode_vclock(&row, &recovery->vclock);
+	struct vclock current_vclock;
+	wal_checkpoint(wal, &current_vclock, false);
+	xrow_encode_vclock(&row, &current_vclock);
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
 }
@@ -1088,7 +1099,7 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	assert(header->type == IPROTO_SUBSCRIBE);
 
 	/* Check that bootstrap has been finished */
-	if (wal == NULL)
+	if (!box_init_done)
 		tnt_raise(ClientError, ER_LOADING);
 
 	struct tt_uuid cluster_uuid = uuid_nil, replica_uuid = uuid_nil;
@@ -1096,10 +1107,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	vclock_create(&replica_clock);
 	xrow_decode_subscribe(header, &cluster_uuid, &replica_uuid,
 			      &replica_clock);
-
-	/* Check that bootstrap has been finished */
-	if (wal == NULL)
-		tnt_raise(ClientError, ER_LOADING);
 
 	/* Forbid connection to itself */
 	if (tt_uuid_is_equal(&replica_uuid, &SERVER_UUID))
@@ -1133,7 +1140,9 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 * and identify ourselves with our own server id.
 	 */
 	struct xrow_header row;
-	xrow_encode_vclock(&row, &recovery->vclock);
+	struct vclock current_vclock;
+	wal_checkpoint(wal, &current_vclock, true);
+	xrow_encode_vclock(&row, &current_vclock);
 	/*
 	 * Identify the message with the server id of this
 	 * server, this is the only way for a replica to find
@@ -1213,9 +1222,9 @@ engine_init()
 	SysviewEngine *sysview = new SysviewEngine();
 	engine_register(sysview);
 
-	SophiaEngine *sophia = new SophiaEngine();
-	sophia->init();
-	engine_register(sophia);
+	PhiaEngine *phia = new PhiaEngine();
+	phia->init();
+	engine_register(phia);
 }
 
 /**
@@ -1224,13 +1233,7 @@ engine_init()
 static void
 bootstrap_cluster(void)
 {
-	/* Add a surrogate server id for snapshot rows */
-	vclock_add_server(&recovery->vclock, 0);
-
-	/* Process bootstrap.bin */
-	struct xstream bootstrap_stream;
-	xstream_create(&bootstrap_stream, apply_row);
-	recovery_bootstrap(recovery, &bootstrap_stream);
+	engine_bootstrap();
 
 	uint32_t server_id = 1;
 
@@ -1256,9 +1259,6 @@ bootstrap_cluster(void)
 
 	/* Ugly hack: bootstrap always starts from scratch */
 	vclock_create(&recovery->vclock);
-	server_foreach(server)
-		vclock_add_server(&recovery->vclock, server->id);
-	assert(vclock_sum(&recovery->vclock) == 0);
 }
 
 /**
@@ -1287,17 +1287,14 @@ bootstrap_from_master(struct server *master)
 	/*
 	 * Process initial data (snapshot or dirty disk data).
 	 */
-	engine_begin_join();
-
-	/* Add a surrogate server id for snapshot rows */
-	vclock_add_server(&recovery->vclock, 0);
+	engine_begin_initial_recovery();
 
 	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
 
 	/*
 	 * Process final data (WALs).
 	 */
-	engine_begin_wal_recovery();
+	engine_begin_final_recovery();
 
 	applier_resume_to_state(applier, APPLIER_JOINED, TIMEOUT_INFINITY);
 
@@ -1305,7 +1302,7 @@ bootstrap_from_master(struct server *master)
 	vclock_copy(&recovery->vclock, &applier->vclock);
 
 	/* Finalize the new replica */
-	engine_end_join();
+	engine_end_recovery();
 
 	/* Switch applier to initial state */
 	applier_resume_to_state(applier, APPLIER_CONNECTED, TIMEOUT_INFINITY);
@@ -1371,13 +1368,11 @@ box_init(void)
 		recovery = recovery_new(cfg_gets("wal_dir"),
 					cfg_geti("panic_on_wal_error"),
 					&checkpoint_vclock);
-		/* Add a surrogate server id for snapshot rows */
-		vclock_add_server(&recovery->vclock, 0);
-		/* Tell Sophia engine LSN it must recover to. */
-		engine_recover_to_checkpoint(lsn);
+		engine_begin_initial_recovery();
+
 		/* Replace server vclock using the data from snapshot */
 		vclock_copy(&recovery->vclock, &checkpoint_vclock);
-		engine_begin_wal_recovery();
+		engine_begin_final_recovery();
 		title("orphan");
 		recovery_follow_local(recovery, &wal_stream.base, "hot_standby",
 				      cfg_getd("wal_dir_rescan_delay"));
@@ -1391,6 +1386,8 @@ box_init(void)
 		recovery_finalize(recovery, &wal_stream.base);
 
 		box_sync_replication_source();
+
+		engine_end_recovery();
 	} else {
 		/* TODO: don't create recovery for this case */
 		vclock_create(&checkpoint_vclock);
@@ -1416,7 +1413,6 @@ box_init(void)
 		wal_writer_start(wal_mode, cfg_gets("wal_dir"), &SERVER_UUID,
 				 &recovery->vclock, rows_per_wal);
 	}
-	engine_end_recovery();
 
 	rmean_cleanup(rmean_box);
 
@@ -1472,9 +1468,8 @@ box_snapshot()
 	struct vclock vclock;
 	if (wal == NULL) {
 		vclock_copy(&vclock, &recovery->vclock);
-	} else if (wal_checkpoint(wal, &vclock) == -1) {
-		rc = EIO;
-		goto end;
+	} else {
+		wal_checkpoint(wal, &vclock, true);
 	}
 	rc = engine_commit_checkpoint(&vclock);
 end:

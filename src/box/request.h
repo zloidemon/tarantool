@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_REQUEST_H_INCLUDED
 #define TARANTOOL_BOX_REQUEST_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -33,6 +33,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "tuple_id.h"
+
+#include "trivia/config.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -78,13 +80,13 @@ struct request
 } /* extern "C" */
 
 /** The snapshot row metadata repeats the structure of REPLACE request. */
-struct request_replace_body {
+struct PACKED request_replace_body {
 	uint8_t m_body;
 	uint8_t k_space_id;
 	uint8_t m_space_id;
 	uint32_t v_space_id;
 	uint8_t k_tuple;
-} __attribute__((packed));
+};
 
 void
 request_create(struct request *request, uint32_t code);

@@ -1,3 +1,5 @@
+.. _box_index:
+
 -------------------------------------------------------------------------------
                             Package `box.index`
 -------------------------------------------------------------------------------
@@ -56,6 +58,8 @@ API is a direct binding to corresponding methods of index objects of type
               type: TREE
             ...
 
+.. _index-pairs:
+
     .. method:: pairs(bitset-value | search-value, iterator-type)
 
         This method provides iteration support within an index.
@@ -71,12 +75,16 @@ API is a direct binding to corresponding methods of index objects of type
         To understand consistency of tuples returned by an iterator, it's essential
         to know the principles of the Tarantool transaction processing subsystem. An
         iterator in Tarantool does not own a consistent read view. Instead, each
-        procedure is granted exclusive access to all tuples and spaces until it
-        encounters a "context switch": by causing a write to disk, network, or by an
+        procedure is granted exclusive access to all tuples and spaces until
+        there is a "context switch": which may happen due to
+        :ref:`the-implicit-yield-rules <the-implicit-yield-rules>`,
+        or by an
         explicit call to :func:`fiber.yield`. When the execution flow returns
         to the yielded procedure, the data set could have changed significantly.
         Iteration, resumed after a yield point, does not preserve the read view,
         but continues with the new content of the database.
+        The tutorial :ref:`Indexed pattern search <tutorial-indexed-pattern-search>`
+        shows one way that iterators and yields can be used together.
 
         Parameters:
 
@@ -113,7 +121,7 @@ API is a direct binding to corresponding methods of index objects of type
             the comparison-result for equality is always true when a search-value-part is ``nil``
             or is missing. This behavior of searches with nil is subject to change.
 
-            Note re storage engine: sophia does not allow search-value-parts to be ``nil`` or missing.
+            Note re storage engine: phia does not allow search-value-parts to be ``nil`` or missing.
 
             .. rst-class:: left-align-column-1
             .. rst-class:: left-align-column-2
@@ -126,13 +134,13 @@ API is a direct binding to corresponding methods of index objects of type
             | or 'EQ'       | value     | If an index key is equal to a search value, |
             |               |           | it matches.                                 |
             |               |           | Tuples are returned in ascending order by   |
-            |               |           | index key.                                  |
+            |               |           | index key. This is the default.             |
             +---------------+-----------+---------------------------------------------+
             | box.index.REQ | search    | Matching is the same as for                 |
             | or 'REQ'      | value     | ``box.index.EQ``.                           |
             |               |           | Tuples are returned in descending order by  |
             |               |           | index key.                                  |
-            |               |           | Note re storage engine: sophia does not     |
+            |               |           | Note re storage engine: phia does not     |
             |               |           | REQ.                                        |
             +---------------+-----------+---------------------------------------------+
             | box.index.GT  | search    | The comparison operator is '>' (greater     |
@@ -186,6 +194,7 @@ API is a direct binding to corresponding methods of index objects of type
             | or 'EQ'       | value     | If an index key is equal to a search value,    |
             |               |           | it matches.                                    |
             |               |           | The number of returned tuples will be 0 or 1.  |
+            |               |           | This is the default.                           |
             +---------------+-----------+------------------------------------------------+
             | box.index.GT  | search    | The comparison operator is '>' (greater than). |
             | or 'GT'       | value     | If a hash of an index key is greater than a    |
@@ -217,7 +226,7 @@ API is a direct binding to corresponding methods of index objects of type
             | box.index.EQ               | bitset    | If an index key is equal to a bitset value,  |
             | or 'EQ'                    | value     | it matches.                                  |
             |                            |           | Tuples are returned in their order within    |
-            |                            |           | the space.                                   |
+            |                            |           | the space. This is the default.              |
             +----------------------------+-----------+----------------------------------------------+
             | box.index.BITS_ALL_SET     | bitset    | If all of the bits which are 1 in the bitset |
             |                            | value     | value are 1 in the index key, it matches.    |
@@ -254,7 +263,7 @@ API is a direct binding to corresponding methods of index objects of type
             |                    |           | defined by the index key, it matches.                   |
             |                    |           | Tuples are returned in their order within the space.    |
             |                    |           | "Rectangle-or-box" means "rectangle-or-box as           |
-            |                    |           | explained in section RTREE_".                           |
+            |                    |           | explained in section RTREE_". This is the default.      |
             +--------------------+-----------+---------------------------------------------------------+
             | box.index.GT       | search    | If all points of the rectangle-or-box defined by the    |
             | or 'GT'            | value     | search value are within the rectangle-or-box            |
@@ -287,7 +296,7 @@ API is a direct binding to corresponding methods of index objects of type
             |                    |           | Tuples are returned in order: nearest neighbor first.   |
             +--------------------+-----------+---------------------------------------------------------+
 
-        **Example:**
+        **First Example of index pairs():**
 
         Default 'TREE' Index and ``pairs()`` function:
 
@@ -336,6 +345,36 @@ API is a direct binding to corresponding methods of index objects of type
             tarantool> s:drop()
             ---
             ...
+
+        **Second Example of index pairs():**
+
+        This Lua code finds all the tuples whose primary key values begin with 'XY'.
+        The assumptions include that there is a one-part primary-key
+        TREE index on the first field, which must be a string. The iterator loop ensures
+        that the search will return tuples where the first value
+        is greater than or equal to 'XY'. The conditional statement
+        within the loop ensures that the looping will stop when the
+        first two letters are not 'XY'. |br|
+        :codenormal:`for _,tuple in box.space.t.index.primary:pairs("XY",{iterator = "GE"}) do` |br|
+        |nbsp| |nbsp| :codenormal:`if (string.sub(tuple[1], 1, 2) ~= "XY") then break end` |br|
+        |nbsp| |nbsp| :codenormal:`print(tuple)` |br|
+        |nbsp| |nbsp| :codenormal:`end` |br|
+
+        **Third Example of index pairs():**
+
+        This Lua code finds all the tuples whose primary key values are
+        greater than or equal to 1000, and less than or equal to 1999
+        (this type of request is sometimes called a "range search" or a "between search").
+        The assumptions include that there is a one-part primary-key
+        TREE index on the first field, which must be a number. The iterator loop ensures
+        that the search will return tuples where the first value
+        is greater than or equal to 1000. The conditional statement
+        within the loop ensures that the looping will stop when the
+        first value is greater than 1999. |br|
+        :codenormal:`for _,tuple in box.space.t2.index.primary:pairs(1000,{iterator = "GE"}) do` |br|
+        |nbsp| |nbsp| :codenormal:`if (tuple[1] > 1999) then break end` |br|
+        |nbsp| |nbsp| :codenormal:`print(tuple)` |br|
+        |nbsp| |nbsp| :codenormal:`end` |br|
 
     .. _index_object_select:
 
@@ -495,7 +534,7 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
-        Note re storage engine: sophia does not support ``min()``.
+        Note re storage engine: phia does not support ``min()``.
 
         **Example:**
 
@@ -526,7 +565,7 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
-        Note re storage engine: sophia does not support ``max()``.
+        Note re storage engine: phia does not support ``max()``.
 
         **Example:**
 
@@ -555,7 +594,7 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
-        Note re storage engine: sophia does not support ``random()``.
+        Note re storage engine: phia does not support ``random()``.
 
         **Example:**
 
@@ -584,7 +623,7 @@ API is a direct binding to corresponding methods of index objects of type
         :return: the number of matching index keys.
         :rtype:  number
 
-        Note re storage engine: sophia does not support :codenormal:`count(...)`.
+        Note re storage engine: phia does not support :codenormal:`count(...)`.
         One possible workaround is to say :codenormal:`#select(...)`.
 
 
@@ -655,7 +694,7 @@ API is a direct binding to corresponding methods of index objects of type
         the first index cannot be changed to {unique = false}, or
         the alter function is only applicable for the memtx storage engine.
 
-        Note re storage engine: sophia does not support ``alter()``.
+        Note re storage engine: phia does not support ``alter()``.
 
         **Example:**
 
@@ -789,6 +828,44 @@ Lua functions `os.date()`_ and `string.sub()`_.
     ---
     - error: 'This tuple already has 3 fields'
     ...
+
+=================================================================
+              Example showing a user-defined iterator
+=================================================================
+
+Here is an example that shows how to build one's own iterator.
+The paged_iter function is an "iterator function", which will only be
+understood by programmers who have read the Lua
+manual section
+`Iterators and Closures <https://www.lua.org/pil/7.1.html>`_.
+It does paginated retrievals, that is, it returns 10
+tuples at a time from a table named "t", whose
+primary key was defined with :codenormal:`create_index('primary',{parts={1,'STR'}})`. |br|
+|nbsp| |nbsp| :codenormal:`function paged_iter(search_key, tuples_per_page)` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`local iterator_string = "GE"` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`return function ()` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`local page = box.space.t.index[0]:select(search_key,` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`{iterator = iterator_string, limit=tuples_per_page})` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`if #page == 0 then return nil end` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`search_key = page[#page][1]` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`iterator_string = "GT"` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`return page` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`end` |br|
+|nbsp| |nbsp| :codenormal:`end`
+
+Programmers who use paged_iter do not need to know
+why it works, they only need to know that, if they
+call it within a loop, they will get 10 tuples
+at a time until there are no more tuples. In this
+example the tuples are merely printed, a page at a time.
+But it should be simple to change the functionality,
+for example by yielding after each retrieval, or
+by breaking when the tuples fail to match some
+additional criteria. |br|
+|nbsp| |nbsp| :codenormal:`for page in paged_iter("X", 10) do` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`print("New Page. Number Of Tuples = " .. #page)` |br|
+|nbsp| |nbsp| |nbsp| |nbsp| :codenormal:`for i=1,#page,1 do print(page[i]) end` |br|
+|nbsp| |nbsp| :codenormal:`end`
 
 .. _RTREE:
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -44,6 +44,7 @@
 #include "iproto_constants.h"
 #include "xrow.h"
 #include "xstream.h"
+#include "bootstrap.h"
 #include "cluster.h"
 #include "relay.h"
 #include "schema.h"
@@ -618,8 +619,10 @@ MemtxEngine::MemtxEngine(const char *snap_dirname, bool panic_on_snap_error,
 	struct vclock *vclock = vclockset_last(&m_snap_dir.index);
 	if (vclock) {
 		vclock_copy(&m_last_checkpoint, vclock);
+		m_has_checkpoint = true;
 	} else {
 		vclock_create(&m_last_checkpoint);
+		m_has_checkpoint = false;
 	}
 }
 
@@ -632,10 +635,12 @@ MemtxEngine::~MemtxEngine()
 int64_t
 MemtxEngine::lastCheckpoint(struct vclock *vclock)
 {
-	if (vclock)
-		vclock_copy(vclock, &m_last_checkpoint);
+	if (!m_has_checkpoint)
+		return -1;
+	assert(vclock);
+	vclock_copy(vclock, &m_last_checkpoint);
 	/* Return the lsn of the last checkpoint. */
-	return vclock_size(&m_last_checkpoint) ? vclock_sum(&m_last_checkpoint) : -1;
+	return vclock->signature;
 }
 
 void
@@ -664,7 +669,7 @@ MemtxEngine::recoverSnapshotRow(struct xrow_header *row)
 
 /** Called at start to tell memtx to recover to a given LSN. */
 void
-MemtxEngine::recoverToCheckpoint(int64_t lsn)
+MemtxEngine::beginInitialRecovery()
 {
 	assert(m_state == MEMTX_INITIALIZED);
 	/*
@@ -677,11 +682,19 @@ MemtxEngine::recoverToCheckpoint(int64_t lsn)
 	 * discard duplicates in the snapshot.
 	 */
 	m_state = (m_snap_dir.panic_if_error ?
-		   MEMTX_READING_SNAPSHOT : MEMTX_OK);
+		   MEMTX_INITIAL_RECOVERY : MEMTX_OK);
+
+	/*
+	 * JOIN from remote master - empty data directory.
+	 */
+	if (!m_has_checkpoint)
+		return;
 
 	/* Process existing snapshot */
 	say_info("recovery start");
-	struct xlog *snap = xlog_open_xc(&m_snap_dir, lsn);
+	assert(m_has_checkpoint);
+	int64_t signature = m_last_checkpoint.signature;
+	struct xlog *snap = xlog_open_xc(&m_snap_dir, signature);
 	auto guard = make_scoped_guard([=]{ xlog_close(snap); });
 	/* Save server UUID */
 	SERVER_UUID = snap->server_uuid;
@@ -712,29 +725,35 @@ MemtxEngine::recoverToCheckpoint(int64_t lsn)
 	 */
 	if (!cursor.eof_read)
 		panic("snapshot `%s' has no EOF marker", snap->filename);
+}
 
-	if (m_state == MEMTX_READING_SNAPSHOT) {
-		/* End of the fast path: loaded the primary key. */
-		space_foreach(memtx_end_build_primary_key, this);
+void
+MemtxEngine::beginFinalRecovery()
+{
+	if (m_state == MEMTX_OK)
+		return;
 
-		if (m_panic_on_wal_error) {
-			/*
-			 * Fast start path: "play out" WAL
-			 * records using the primary key only,
-			 * then bulk-build all secondary keys.
-			 */
-			m_state = MEMTX_READING_WAL;
-		} else {
-			/*
-			 * If panic_on_wal_error = false, it's
-			 * a disaster recovery mode. Build
-			 * secondary keys before reading the WAL,
-			 * to detect and discard duplicates in
-			 * unique keys.
-			 */
-			m_state = MEMTX_OK;
-			space_foreach(memtx_build_secondary_keys, this);
-		}
+	assert(m_state == MEMTX_INITIAL_RECOVERY);
+	/* End of the fast path: loaded the primary key. */
+	space_foreach(memtx_end_build_primary_key, this);
+
+	if (m_panic_on_wal_error) {
+		/*
+		 * Fast start path: "play out" WAL
+		 * records using the primary key only,
+		 * then bulk-build all secondary keys.
+		 */
+		m_state = MEMTX_FINAL_RECOVERY;
+	} else {
+		/*
+		 * If panic_on_wal_error = false, it's
+		 * a disaster recovery mode. Build
+		 * secondary keys before reading the WAL,
+		 * to detect and discard duplicates in
+		 * unique keys.
+		 */
+		m_state = MEMTX_OK;
+		space_foreach(memtx_build_secondary_keys, this);
 	}
 }
 
@@ -748,6 +767,7 @@ MemtxEngine::endRecovery()
 	 * - it's a replication join
 	 */
 	if (m_state != MEMTX_OK) {
+		assert(m_state == MEMTX_FINAL_RECOVERY);
 		m_state = MEMTX_OK;
 		space_foreach(memtx_build_secondary_keys, this);
 	}
@@ -767,11 +787,11 @@ memtx_add_primary_key(struct space *space, enum memtx_recovery_state state)
 	case MEMTX_INITIALIZED:
 		panic("can't create a new space before snapshot recovery");
 		break;
-	case MEMTX_READING_SNAPSHOT:
+	case MEMTX_INITIAL_RECOVERY:
 		((MemtxIndex *) space->index[0])->beginBuild();
 		handler->replace = memtx_replace_build_next;
 		break;
-	case MEMTX_READING_WAL:
+	case MEMTX_FINAL_RECOVERY:
 		((MemtxIndex *) space->index[0])->beginBuild();
 		((MemtxIndex *) space->index[0])->endBuild();
 		handler->replace = memtx_replace_primary_key;
@@ -1001,9 +1021,29 @@ MemtxEngine::commit(struct txn *txn, int64_t signature)
 }
 
 void
-MemtxEngine::beginJoin()
+MemtxEngine::bootstrap()
 {
+	assert(m_state == MEMTX_INITIALIZED);
 	m_state = MEMTX_OK;
+
+	/* Recover from bootstrap.snap */
+	say_info("initializing an empty data directory");
+	struct xdir dir;
+	xdir_create(&dir, "", SNAP, &uuid_nil);
+	FILE *f = fmemopen((void *) &bootstrap_bin,
+			   sizeof(bootstrap_bin), "r");
+	struct xlog *snap = xlog_open_stream_xc(&dir, 0, f, "bootstrap.snap");
+	struct xlog_cursor cursor;
+	xlog_cursor_open(&cursor, snap);
+	auto guard = make_scoped_guard([&]{
+		xlog_cursor_close(&cursor);
+		xlog_close(snap);
+		xdir_destroy(&dir);
+	});
+
+	struct xrow_header row;
+	while (xlog_cursor_next_xc(&cursor, &row) == 0)
+		recoverSnapshotRow(&row);
 }
 
 static void
@@ -1268,6 +1308,7 @@ MemtxEngine::commitCheckpoint()
 		panic("can't rename .snap.inprogress");
 
 	vclock_copy(&m_last_checkpoint, &m_checkpoint->vclock);
+	m_has_checkpoint = true;
 	checkpoint_destroy(m_checkpoint);
 	m_checkpoint = 0;
 }
@@ -1307,6 +1348,15 @@ MemtxEngine::abortCheckpoint()
 void
 MemtxEngine::join(struct xstream *stream)
 {
+	/*
+	 * The only case when the directory index is empty is
+	 * when someone has deleted a snapshot and tries to join
+	 * as a replica. Our best effort is to not crash in such
+	 * case: raise ER_MISSING_SNAPSHOT.
+	 */
+	if (!m_has_checkpoint)
+		tnt_raise(ClientError, ER_MISSING_SNAPSHOT);
+
 	struct xdir dir;
 	struct xlog *snap = NULL;
 	/*
@@ -1314,20 +1364,12 @@ MemtxEngine::join(struct xstream *stream)
 	 * safe to use in another thread.
 	 */
 	xdir_create(&dir, m_snap_dir.dirname, SNAP, &SERVER_UUID);
-
 	auto guard = make_scoped_guard([&]{
 		xdir_destroy(&dir);
 		if (snap)
 			xlog_close(snap);
 	});
-	/*
-	 * The only case when the directory index is empty is
-	 * when someone has deleted a snapshot and tries to join
-	 * as a replica. Our best effort is to not crash in such
-	 * case: xlog_open_xc will throw "file not found" error.
-	 */
 	struct vclock *last = &m_last_checkpoint;
-	assert(vclock_size(last));
 	snap = xlog_open_xc(&dir, vclock_sum(last));
 	struct xlog_cursor cursor;
 	xlog_cursor_open(&cursor, snap);

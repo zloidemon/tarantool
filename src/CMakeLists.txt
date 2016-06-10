@@ -104,6 +104,7 @@ set (server_sources
      backtrace.cc
      proc_title.c
      coeio_file.c
+     clock.c
      lua/console.c
      lua/digest.c
      lua/init.c
@@ -116,7 +117,7 @@ set (server_sources
      lua/socket.c
      lua/pickle.c
      lua/fio.c
-     lua/clock.c
+     lua/crypto.c
      ${lua_sources}
      ${PROJECT_SOURCE_DIR}/third_party/lua-yaml/lyaml.cc
      ${PROJECT_SOURCE_DIR}/third_party/lua-yaml/b64.c
@@ -141,6 +142,7 @@ set(api_headers
     ${CMAKE_SOURCE_DIR}/src/box/error.h
     ${CMAKE_SOURCE_DIR}/src/box/lua/call.h
     ${CMAKE_SOURCE_DIR}/src/latch.h
+    ${CMAKE_SOURCE_DIR}/src/clock.h
 )
 rebuild_module_api(${api_headers})
 

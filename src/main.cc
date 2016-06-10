@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -466,6 +466,9 @@ tarantool_free(void)
 	if (getpid() != master_pid)
 		return;
 
+	/* Shutdown worker pool. Waits until threads terminate. */
+	coeio_shutdown();
+
 	box_free();
 
 	if (history) {
@@ -626,6 +629,7 @@ main(int argc, char **argv)
 	/* Init iobuf library with default readahead */
 	iobuf_init();
 	coeio_init();
+	coeio_enable();
 	signal_init();
 	tarantool_lua_init(tarantool_bin, main_argc, main_argv);
 	box_lua_init(tarantool_L);

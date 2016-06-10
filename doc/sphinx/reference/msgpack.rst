@@ -1,3 +1,5 @@
+.. _package-msgpack:
+
 -------------------------------------------------------------------------------
                                     Package `msgpack`
 -------------------------------------------------------------------------------
@@ -74,8 +76,12 @@ array and as a map, then displays each result in hexadecimal.
     end
 
     msgpack = require('msgpack')
-    m1 = msgpack.encode(setmetatable({'A', 'B'}, { __serialize = "seq" }))
-    m2 = msgpack.encode(setmetatable({'A', 'B'}, { __serialize = "map" }))
+    m1 = msgpack.encode(setmetatable({'A', 'B'}, {
+                                 __serialize = "seq"
+                              }))
+    m2 = msgpack.encode(setmetatable({'A', 'B'}, {
+                                 __serialize = "map"
+                              }))
     print('array encoding: ', hexdump(m1))
     print('map encoding: ', hexdump(m2))
 
@@ -142,6 +148,9 @@ with the MsgPack format name and encoding on the right.
         +--------------+-------------------------------------------------+
         | 1.5          | 'float 64' = cb 3f f8 0 0 0 0 0 0               |
         +--------------+-------------------------------------------------+
+
+Also, some MsgPack configuration settings for encoding can be changed, in the
+same way that they can be changed for :ref:`JSON <package-json-cfg>`.
 
 .. _MsgPack: http://msgpack.org/
 .. _Specification: http://github.com/msgpack/msgpack/blob/master/spec.md

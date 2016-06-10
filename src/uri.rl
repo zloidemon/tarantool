@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -138,7 +138,7 @@ uri_parse(struct uri *uri, const char *p)
 			>{ s = p; }
 			%{ login = s; login_len = p - s; };
 
-		password = (unreserved | pct_encoded | sub_delims )+
+		password = (unreserved | pct_encoded | sub_delims )*
 			>{ s = p; }
 			%{ uri->password = s; uri->password_len = p - s; };
 

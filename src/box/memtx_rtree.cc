@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -277,7 +277,7 @@ MemtxRTree::initIterator(struct iterator *iterator, enum iterator_type type,
 		op = SOP_NEIGHBOR;
 		break;
 	default:
-		return initIterator(iterator, type, key, part_count);
+		return Index::initIterator(iterator, type, key, part_count);
 	}
 	rtree_search(&m_tree, &rect, op, &it->impl);
 }

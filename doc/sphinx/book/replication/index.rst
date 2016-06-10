@@ -71,7 +71,7 @@ a master and vice versa with the help of the :func:`box.cfg` statement.
 
 NOTE:
 The replica does not inherit the master's configuration parameters, such
-as the ones that cause the :ref:`snapshot daemon <book-cfg-snapshot_daemon>` to run on the master.
+as the ones that cause the :ref:`snapshot daemon <book_cfg_snapshot_daemon>` to run on the master.
 To get the same behavior, one would have to set the relevant parameters explicitly
 so that they are the same on both master and replica.
 
@@ -167,6 +167,8 @@ If a primary server is started with:
 then there will be lines in the log file, containing the word "relay",
 when a replica connects or disconnects.
 
+.. _preventing-duplicate-actions:
+
 =====================================================================
                     Preventing Duplicate Actions
 =====================================================================
@@ -210,7 +212,7 @@ Starting with the simple configuration, the first server has to say:
     box.cfg{ replication_source = *uri#2* }
 
 This request can be performed at any time --
-:ref:`replication_source <box-cfg-replication-source> is a dynamic parameter.
+:ref:`replication_source <box-cfg-replication-source>` is a dynamic parameter.
 
 In this configuration, both servers are "masters" and both servers are
 "replicas". Henceforth every change that happens on either server will
@@ -228,75 +230,68 @@ servers will end up with different contents.
                 All the "What If?" Questions
 =====================================================================
 
-.. container:: faq
+Q: What if there are more than two servers with master-master? |br|
+A: On each server, specify the :confval:`replication_source` for all the
+others. For example, server #3 would have a request: |br|
+:codenormal:`box.cfg{` |br|
+|nbsp| |nbsp| |nbsp| :codenormal:`replication_source = {`:codeitalic:`uri#1, uri#2`:codenormal:`}` |br|
+:codenormal:`}`
 
-    :Q: What if there are more than two servers with master-master?
-    :A: On each server, specify the :confval:`replication_source` for all the
-        others. For example, server #3 would have a request:
+Q: What if a server should be taken out of the cluster? |br|
+A: Run ``box.cfg{}`` again specifying a blank replication source: |br|
+``box.cfg{replication_source=''}``
 
-        .. cssclass:: highlight
-        .. parsed-literal::
+Q: What if a server leaves the cluster? |br|
+A: The other servers carry on. If the wayward server rejoins, it will
+receive all the updates that the other servers made while it was away.
 
-            box.cfg{
-                replication_source = { *uri#1*, *uri#2* }
-            }
+Q: What if two servers both change the same tuple? |br|
+A: The last changer wins. For example, suppose that server#1 changes the
+tuple, then server#2 changes the tuple. In that case server#2's change
+overrides whatever server#1 did. In order to keep track of who came last,
+Tarantool implements a `vector clock`_.
 
+Q: What if two servers both insert the same tuple? |br|
+A: If a master tries to insert a tuple which a replica has inserted
+already, this is an example of a severe error. Replication stops.
+It will have to be restarted manually.
 
-    :Q: What if a server should be taken out of the cluster?
-    :A: Run ``box.cfg{}`` again specifying a blank replication source: |br|
-        ``box.cfg{replication_source=''}``
+Q: What if a master disappears and the replica must take over? |br|
+A: A message will appear on the replica stating that the connection is
+lost. The replica must now become independent, which can be done by
+saying ``box.cfg{replication_source=''}``.
 
-    :Q: What if a server leaves the cluster?
-    :A: The other servers carry on. If the wayward server rejoins, it will
-        receive all the updates that the other servers made while it was away.
+Q: What if it's necessary to know what cluster a server is in? |br|
+A: The identification of the cluster is a UUID which is generated when the
+first master starts for the first time. This UUID is stored in a tuple
+of the :data:`box.space._schema` system space. So to see it, say:
+``box.space._schema:select{'cluster'}``
 
-    :Q: What if two servers both change the same tuple?
-    :A: The last changer wins. For example, suppose that server#1 changes the
-        tuple, then server#2 changes the tuple. In that case server#2's change
-        overrides whatever server#1 did. In order to keep track of who came last,
-        Tarantool implements a `vector clock`_.
+Q: What if it's necessary to know what other servers belong in the cluster? |br|
+A: The universal identification of a server is a UUID in ``box.info.server.uuid``.
+The ordinal identification of a server within a cluster is a number in ``box.info.server.id``.
+To see all the servers in the cluster, say:
+``box.space._cluster:select{}``. This will return a table with all
+{server.id, server.uuid} tuples for every server that has ever joined
+the cluster.
 
-    :Q: What if two servers both insert the same tuple?
-    :A: If a master tries to insert a tuple which a replica has inserted
-        already, this is an example of a severe error. Replication stops.
-        It will have to be restarted manually.
+Q: What if one of the server's files is corrupted or deleted? |br|
+A: Stop the server, destroy all the database files (the ones with extension
+"snap" or "xlog" or ".inprogress"), restart the server, and catch up
+with the master by contacting it again (just say
+``box.cfg{...replication_source=...}``).
 
-    :Q: What if a master disappears and the replica must take over?
-    :A: A message will appear on the replica stating that the connection is
-        lost. The replica must now become independent, which can be done by
-        saying ``box.cfg{replication_source=''}``.
+Q: What if replication causes security concerns? |br|
+A: Prevent unauthorized replication sources by associating a password with
+every user that has access privileges for the relevant spaces, and every
+user that has a replication :ref:`role <rep-role>`. That way,
+the :ref:`URI` for the :confval:`replication_source` parameter will
+always have to have the long form |br|
+``replication_source='username:password@host:port'``
 
-    :Q: What if it's necessary to know what cluster a server is in?
-    :A: The identification of the cluster is a UUID which is generated when the
-        first master starts for the first time. This UUID is stored in a tuple
-        of the :data:`box.space._schema` system space. So to see it, say:
-        ``box.space._schema:select{'cluster'}``
-
-    :Q: What if it's necessary to know what other servers belong in the cluster?
-    :A: The universal identification of a server is a UUID in ``box.info.server.uuid``.
-        The ordinal identification of a server within a cluster is a number in
-        ``box.info.server.id``. To see all the servers in the cluster, say:
-        ``box.space._cluster:select{}``. This will return a table with all
-        {server.id, server.uuid} tuples for every server that has ever joined
-        the cluster.
-
-    :Q: What if one of the server's files is corrupted or deleted?
-    :A: Stop the server, destroy all the database files (the ones with extension
-        "snap" or "xlog" or ".inprogress"), restart the server, and catch up
-        with the master by contacting it again (just say
-        ``box.cfg{...replication_source=...}``).
-
-    :Q: What if replication causes security concerns?
-    :A: Prevent unauthorized replication sources by associating a password with
-        every user that has access privileges for the relevant spaces, and every
-        user that has a replication :ref:`role <rep-role>`. That way, the
-        :ref:`URI` for the :confval:`replication_source` parameter will always
-        have to have the long form |br|
-        ``replication_source='username:password@host:port'``
-
-    :Q: What if advanced users want to understand better how it all works?
-    :A: See the description of server startup with replication in the
-        :ref:`Internals <internals-replication>` appendix.
+Q: What if advanced users want to understand better how it all works? |br|
+A: See the description of server startup with replication in the
+:ref:`Internals <internals-replication>` appendix.
 
 .. _vector clock: https://en.wikipedia.org/wiki/Vector_clock
 
@@ -385,7 +380,6 @@ On the first shell, which we'll call Terminal #1, execute these commands:
     $ ~/tarantool/src/tarantool
     tarantool> box.cfg{listen = 3301}
     tarantool> box.schema.user.create('replicator', {password = 'password'})
-    tarantool> box.schema.role.grant('replication','read,write','universe')
     tarantool> box.schema.user.grant('replicator','execute','role','replication')
     tarantool> box.space._cluster:select({0}, {iterator = 'GE'})
 
@@ -414,12 +408,12 @@ screen looks like this: (except that UUID values are always different):
         .. container:: b-documentation_tab
             :name: terminal-2-1
 
-            .. include:: 1-1.rst
+            .. include:: 1_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-2-2
 
-            .. include:: 1-2.rst
+            .. include:: 1_2.rst
 
     .. raw:: html
 
@@ -495,12 +489,12 @@ on Terminal #1, because both servers are in the same cluster.
         .. container:: b-documentation_tab
             :name: terminal-3-1
 
-            .. include:: 2-1.rst
+            .. include:: 2_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-3-2
 
-            .. include:: 2-2.rst
+            .. include:: 2_2.rst
 
     .. raw:: html
 
@@ -564,12 +558,12 @@ Now the screen looks like this:
         .. container:: b-documentation_tab
             :name: terminal-4-1
 
-            .. include:: 3-1.rst
+            .. include:: 3_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-4-2
 
-            .. include:: 3-2.rst
+            .. include:: 3_2.rst
 
     .. raw:: html
 
@@ -636,12 +630,12 @@ Now the screen looks like this (remember to click on the "Terminal #2" tab when 
         .. container:: b-documentation_tab
             :name: terminal-5-1
 
-            .. include:: 4-1.rst
+            .. include:: 4_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-5-2
 
-            .. include:: 4-2.rst
+            .. include:: 4_2.rst
 
     .. raw:: html
 
@@ -710,12 +704,12 @@ similar sizes because they both contain the same tuples.
         .. container:: b-documentation_tab
             :name: terminal-6-1
 
-            .. include:: 5-1.rst
+            .. include:: 5_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-6-2
 
-            .. include:: 5-2.rst
+            .. include:: 5_2.rst
 
     .. raw:: html
 
@@ -747,7 +741,7 @@ similar sizes because they both contain the same tuples.
             })();
         </script>
 
-On Terminal #2, ignore the repeated messages saying "failed to connect",
+On Terminal #2, ignore the error messages,
 and execute these requests:
 
 .. code-block:: tarantoolsession
@@ -755,8 +749,8 @@ and execute these requests:
     tarantool> box.space.tester:select({0}, {iterator = 'GE'})
     tarantool> box.space.tester:insert{3, 'Another'}
 
-Now the screen looks like this (ignoring the repeated messages saying
-"failed to connect"):
+Now the screen looks like this (ignoring the error
+messages):
 
 .. container:: b-block-wrapper_doc
 
@@ -780,12 +774,12 @@ Now the screen looks like this (ignoring the repeated messages saying
         .. container:: b-documentation_tab
             :name: terminal-7-1
 
-            .. include:: 6-1.rst
+            .. include:: 6_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-7-2
 
-            .. include:: 6-2.rst
+            .. include:: 6_2.rst
 
     .. raw:: html
 
@@ -825,10 +819,9 @@ On Terminal #1 execute these commands:
 
     $ ~/tarantool/src/tarantool
     tarantool> box.cfg{listen = 3301}
-    tarantool> box.space.tester:select({0}, {iteratir = 'GE'})
+    tarantool> box.space.tester:select({0}, {iterator = 'GE'})
 
-Now the screen looks like this (ignoring the repeated messages on terminal #2
-saying "failed to connect"):
+Now the screen looks like this:
 
 .. container:: b-block-wrapper_doc
 
@@ -852,12 +845,12 @@ saying "failed to connect"):
         .. container:: b-documentation_tab
             :name: terminal-8-1
 
-            .. include:: 7-1.rst
+            .. include:: 7_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-8-2
 
-            .. include:: 7-2.rst
+            .. include:: 7_2.rst
 
     .. raw:: html
 
@@ -926,12 +919,12 @@ The screen now looks like this:
         .. container:: b-documentation_tab
             :name: terminal-9-1
 
-            .. include:: 8-1.rst
+            .. include:: 8_1.rst
 
         .. container:: b-documentation_tab
             :name: terminal-9-2
 
-            .. include:: 8-2.rst
+            .. include:: 8_2.rst
 
     .. raw:: html
 

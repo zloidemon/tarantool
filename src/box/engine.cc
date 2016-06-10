@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -87,11 +87,6 @@ bool Engine::needToBuildSecondaryKey(struct space * /* space */)
 	return true;
 }
 
-void
-Engine::beginJoin()
-{
-}
-
 int
 Engine::beginCheckpoint()
 {
@@ -112,16 +107,6 @@ Engine::commitCheckpoint()
 
 void
 Engine::abortCheckpoint()
-{
-}
-
-void
-Engine::endRecovery()
-{
-}
-
-void
-Engine::recoverToCheckpoint(int64_t /* lsn */)
 {
 }
 
@@ -214,7 +199,7 @@ Handler::executeSelect(struct txn *, struct space *space,
 	tuple_id tuple;
 	while ((tuple = it->next(it)) != TUPLE_ID_NIL) {
 		/*
-		 * This is for Sophia, which returns a tuple
+		 * This is for Phia, which returns a tuple
 		 * with zero refs from the iterator, expecting
 		 * the caller to GC it after use.
 		 */
@@ -259,37 +244,30 @@ void engine_shutdown()
 }
 
 void
-engine_recover_to_checkpoint(int64_t checkpoint_id)
+engine_bootstrap()
 {
-	/* recover engine snapshot */
 	Engine *engine;
 	engine_foreach(engine) {
-		engine->recoverToCheckpoint(checkpoint_id);
+		engine->bootstrap();
 	}
 }
 
 void
-engine_begin_join()
+engine_begin_initial_recovery()
 {
 	/* recover engine snapshot */
 	Engine *engine;
 	engine_foreach(engine) {
-		engine->beginJoin();
+		engine->beginInitialRecovery();
 	}
 }
 
 void
-engine_begin_wal_recovery()
+engine_begin_final_recovery()
 {
 	Engine *engine;
 	engine_foreach(engine)
-		engine->beginWalRecovery();
-}
-
-void
-engine_end_join()
-{
-	/* just for symmetry with engine_begin_join() */
+		engine->beginFinalRecovery();
 }
 
 void

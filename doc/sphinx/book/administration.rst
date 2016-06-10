@@ -58,7 +58,7 @@ A Tarantool server's process title has these components:
   - "running" (ordinary node "ready to accept requests"),
   - "loading" (ordinary node recovering from old snap and wal files),
   - "orphan" (not in a cluster),
-  - "hot_standby" (see section :ref:`local hot standby <book-cfg-local_hot_standy>`), or
+  - "hot_standby" (see section :ref:`local hot standby <book_cfg_local_hot_standby>`), or
   - "dumper" + process-id (saving a snapshot).
 * **custom_proc_title** is taken from the :confval:`custom_proc_title` configuration parameter, if one was specified.
 
@@ -69,6 +69,8 @@ For example:
     $ ps -AF | grep tarantool
     1000     17337 16716  1 91362  6916   0 11:07 pts/5    00:00:13 tarantool script.lua <running>
 
+
+.. _using-tarantool-as-a-client:
 
 =====================================================================
                         Using ``tarantool`` as a client
@@ -190,7 +192,7 @@ declaration does not have an ``end`` keyword). Example:
     console.delimiter('')!
 
 For a condensed Backus-Naur Form [BNF] description of the suggested form
-of client requests, see http://tarantool.org/doc/box-protocol.html.
+of client requests, see http://tarantool.org/doc/dev_guide/box-protocol.html.
 
 In *interactive* mode, one types requests and gets results. Typically the
 requests are typed in by the user following prompts. Here is an example of
@@ -244,10 +246,10 @@ Explanatory notes about what tarantool displayed in the above example:
 With ``tarantoolctl`` one can say: "start an instance of the Tarantool server
 which runs a single user-written Lua program, allocating disk resources
 specifically for that program, via a standardized deployment method."
-If Tarantool was downloaded from source, then the script is in
-:file:`[tarantool]/extra/dist/tarantoolctl`. If Tarantool was installed with Debian or
-Red Hat installation packages, the script is renamed :program:`tarantoolctl`
-and is in :file:`/usr/bin/tarantoolctl`. The script handles such things as:
+If Tarantool was installed with Debian or
+Red Hat installation packages, the script is 
+in :file:`/usr/bin/tarantoolctl` or :file:`/usr/local/bin/tarantoolctl`.
+The script handles such things as:
 starting, stopping, rotating logs, logging in to the application's console,
 and checking status.
 
@@ -255,12 +257,15 @@ and checking status.
             configuring for tarantoolctl
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The :program:`tarantoolctl` script will read a configuration file named
-:file:`~/.config/tarantool/default`, or
-:file:`/etc/sysconfig/tarantool`, or :file:`/etc/default/tarantool`. Most
+"The :codenormal:`tarantoolctl` script will look for a configuration file
+in the current directory (:codenormal:`$PWD/.tarantoolctl`).
+If that fails, it looks in the current user's home directory (:codenormal:`$HOME/.config/tarantool/tarantool`).
+If that fails, it looks in the SYSCONFDIR directory (usually :codenormal:`/etc/sysconfig/tarantool`
+but it may be different on some platforms).
+Most
 of the settings are similar to the settings used by ``box.cfg{...};``
 however, tarantoolctl adjusts some of them by adding an application name.
-A copy of :file:`/etc/sysconfig/tarantool`, with defaults for all settings,
+A copy of :file:`usr/local/etc/default/tarantool`, with defaults for all settings,
 would look like this:
 
 .. code-block:: lua
@@ -269,7 +274,7 @@ would look like this:
         pid_file   = "/var/run/tarantool",
         wal_dir    = "/var/lib/tarantool",
         snap_dir   = "/var/lib/tarantool",
-        sophia_dir = "/var/lib/tarantool",
+        phia_dir = "/var/lib/tarantool",
         logger     = "/var/log/tarantool",
         username   = "tarantool",
     }
@@ -289,20 +294,20 @@ The settings in the above script are:
     The directory for the snapshot :file:`*.snap` files. The script
     will add ":samp:`/{instance-name}`" to the directory-name.
 
-``sophia_dir``
-    The directory for the sophia-storage-engine files. The script
-    will add ":samp:`/sophia/{instance-name}`" to the directory-name.
+``phia_dir``
+    The directory for the phia-storage-engine files. The script
+    will add ":samp:`/phia/{instance-name}`" to the directory-name.
 
 ``logger``
     The place where the application log will go. The script will
     add ":samp:`/{instance-name}.log`" to the name.
 
 ``username``
-    the user that runs the tarantool server. This is the operating-system
+    The user that runs the tarantool server. This is the operating-system
     user name rather than the Tarantool-client user name.
 
 ``instance_dir``
-    the directory where all applications for this host are stored. The user
+    The directory where all applications for this host are stored. The user
     who writes an application for :program:`tarantoolctl` must put the
     application's source code in this directory, or a symbolic link. For
     examples in this section the application name my_app will be used, and
@@ -318,11 +323,11 @@ operation is one of: start, stop, enter, logrotate, status, eval. Thus ...
 
 .. option:: start <application>
 
-    Starts application *<application>*
+    Start application *<application>*
 
 .. option:: stop <application>
 
-    Stops application
+    Stop application
 
 .. option:: enter <application>
 
@@ -334,7 +339,7 @@ operation is one of: start, stop, enter, logrotate, status, eval. Thus ...
 
 .. option:: status <application>
 
-    Check application's status status
+    Check application's status
 
 .. option:: eval <application> <scriptname>
 
@@ -386,6 +391,7 @@ can start a long-running application and monitor it.
 
 The assumptions are: the root password is known, the computer is only being used
 for tests, the Tarantool server is ready to run but is not currently running,
+tarantoolctl is installed along the user's path,
 and there currently is no directory named :file:`tarantool_test`.
 
 Create a directory named /tarantool_test:
@@ -394,37 +400,8 @@ Create a directory named /tarantool_test:
 
     $ sudo mkdir /tarantool_test
 
-Copy tarantoolctl to /tarantool_test. If you made a source
-download to ~/tarantool-1.6, then
-
-.. code-block:: console
-
-    $ sudo cp ~/tarantool-1.6/extra/dist/tarantoolctl /tarantool_test/tarantoolctl
-
-If the file was named tarantoolctl and placed on :file:`/usr/bin/tarantoolctl`, then
-
-.. code-block:: console
-
-    $ sudo cp /usr/bin/tarantoolctl /tarantool_test/tarantoolctl
-
-Check and possibly change the first line of :file:`code/tarantool_test/tarantoolctl`.
-Initially it says
-
-.. code-block:: bash
-
-    #!/usr/bin/env tarantool
-
-If that is not correct, edit tarantoolctl and change the line. For example,
-if the Tarantool server is actually on :file:`/home/user/tarantool-1.6/src/tarantool`,
-change the line to
-
-.. code-block:: bash
-
-    #!/usr/bin/env /home/user/tarantool-1.6/src/tarantool
-
-Save a copy of :file:`/etc/sysconfig/tarantool`, if it exists.
-
-Edit /etc/sysconfig/tarantool. It might be necessary to say sudo mkdir /etc/sysconfig first. Let the new file contents be:
+Edit /usr/local/etc/default/tarantool. It might be necessary to
+say :codenormal:`sudo mkdir /usr/local/etc/default` first. Let the new file contents be:
 
 .. code-block:: lua
 
@@ -432,7 +409,7 @@ Edit /etc/sysconfig/tarantool. It might be necessary to say sudo mkdir /etc/sysc
         pid_file = "/tarantool_test/my_app.pid",
         wal_dir = "/tarantool_test",
         snap_dir = "/tarantool_test",
-        sophia_dir = "/tarantool_test",
+        phia_dir = "/tarantool_test",
         logger = "/tarantool_test/log",
         username = "tarantool",
     }
@@ -461,7 +438,7 @@ Tell tarantoolctl to start the application ...
 .. code-block:: console
 
     $ cd /tarantool_test
-    $ sudo ./tarantoolctl start my_app
+    $ sudo tarantoolctl start my_app
 
 ... expect to see messages indicating that the instance has started. Then ...
 
@@ -469,11 +446,11 @@ Tell tarantoolctl to start the application ...
 
     $ ls -l /tarantool_test/my_app
 
-... expect to see the .snap file, .xlog file, and sophia directory. Then ...
+... expect to see the .snap file and the .xlog file. Then ...
 
 .. code-block:: console
 
-    $ less /tarantool_test/log/my_app.log
+    $ sudo less /tarantool_test/log/my_app.log
 
 ... expect to see the contents of my_app's log, including error messages, if any. Then ...
 
@@ -493,9 +470,10 @@ Stop. The only clean way to stop my_app is with tarantoolctl, thus:
 
 .. code-block:: console
 
-    $ sudo ./tarantoolctl stop my_app
+    $ sudo tarantoolctl stop my_app
 
-Clean up. Restore the original contents of :file:`/etc/sysconfig/tarantool`, and ...
+Clean up. Restore the original contents of :file:`/usr/local/etc/default/tarantool`, and ...
+
 .. code-block:: console
 
     $ cd /
@@ -973,4 +951,279 @@ specification in :file:`RPM.spec` and the :file:`/debian` directory.
 
 Finally, clients make a CALL to ``myapp.api_for_call`` and other API functions.
 
-In case of ``tarantool-http``, there is no need to start the binary protocol at all.
+In the case of ``tarantool-http``, there is no need to start the binary protocol at all.
+
+.. _modules-luarocks-and-requiring-packages:
+
+=====================================================================
+       Modules, LuaRocks, and requiring packages
+=====================================================================
+
+To extend Tarantool there are packages, which are also called "modules",
+which in Lua are also called "rocks".
+Users who are unfamiliar with Lua modules may benefit from following
+the Lua-Modules-Tutorial_
+before reading this section.
+
+**Install a module**
+
+The modules that come from Tarantool developers and community contributors are
+on rocks.tarantool.org_. Some of them
+-- :ref:`expirationd <package-expirationd>`,
+:ref:`mysql <d_plugins-mysql-example>`,
+:ref:`postgresql <d_plugins-postgresql-example>`,
+:ref:`shard <package-shard>` --
+are discussed elsewhere in this manual.
+
+Step 1: Install LuaRocks.
+A general description for installing LuaRocks on a Unix system is in
+the LuaRocks-Quick-Start-Guide_.
+For example on Ubuntu one could say: |br|
+:codenormal:`$` :codebold:`sudo apt-get install luarocks`
+
+Step 2: Add the Tarantool repository to the list of rocks servers.
+This is done by putting rocks.tarantool.org in the .luarocks/config.lua file: |br|
+:codenormal:`$` :codebold:`mkdir ~/.luarocks` |br|
+:codenormal:`$` :codebold:`echo "rocks_servers = {[[http://rocks.tarantool.org/]]}" >> ~/.luarocks/config.lua` |br|
+
+Once these steps are complete, the repositories can be searched with |br|
+:codenormal:`$` :codebold:`luarocks search` :codeitalic:`module-name` |br|
+and new modules can be added to the local repository with |br|
+:codenormal:`$` :codebold:`luarocks install` :codeitalic:`module-name` :codenormal:`--local` |br|
+and any package/module can be loaded for Tarantool with |br|
+:codenormal:`tarantool>` :codeitalic:`local-name` :codenormal:`=` :codebold:`require('`:codeitalic:`module-name`:codenormal:`')` |br|
+... and that is why the examples in the manual's Packages section often begin with `require` requests.
+See rocks_ on github.com/tarantool for more examples
+and information about contributing.
+
+**Example: making a new Lua module locally**
+
+In this example, create a new Lua file named `mymodule.lua`,
+containing a named function which will be exported.
+Then, in Tarantool: load, examine, and call.
+
+The Lua file should look like this:
+
+.. code-block:: lua
+
+    -- mymodule - a simple Tarantool module
+    local exports = {}
+    exports.myfun = function(input_string)
+        print('Hello', input_string)
+    end
+    return exports
+
+The requests to load and examine and call look like this: |br|
+:codenormal:`tarantool>`:codebold:`mymodule = require('mymodule')` |br|
+:codenormal:`>---` |br|
+:codenormal:`>...` |br|
+|br|
+:codenormal:`tarantool>`:codebold:`mymodule` |br|
+:codenormal:`---` |br|
+:codenormal:`>- myfun: 'function: 0x405edf20'` |br|
+:codenormal:`>...` |br|
+:codenormal:`tarantool>`:codebold:`mymodule.myfun(os.getenv('USER'))` |br|
+:codenormal:`Hello world` |br|
+:codenormal:`>---` |br|
+:codenormal:`>...`
+
+**Example: making a new C/C++ module locally**
+
+In this example, create a new C file named `mycmodule.c`,
+containing a named function which will be exported.
+Then, in Tarantool: load, examine, and call.
+
+Prerequisite: install `tarantool-dev` first.
+
+The C file should look like this:
+
+.. code-block:: bash
+
+    /* mycmodule - a simple Tarantool module */
+    #include <lua.h>
+    #include <lauxlib.h>
+    #include <lualib.h>
+    #include <tarantool.h>
+    static int
+    myfun(lua_State *L)
+    {
+        if (lua_gettop(L) < 1)
+            return luaL_error(L, "Usage: myfun(name)");
+
+        /* Get first argument */
+        const char *name = lua_tostring(L, 1);
+
+        /* Push one result to Lua stack */
+        lua_pushfstring(L, "Hello, %s", name);
+        return 1; /* the function returns one result */
+    }
+    LUA_API int
+    luaopen_mycmodule(lua_State *L)
+    {
+        static const struct luaL_reg reg[] = {
+            { "myfun", myfun },
+            { NULL, NULL }
+        };
+        luaL_register(L, "mycmodule", reg);
+        return 1;
+    }
+
+Use :codenormal:`gcc` to compile the code for a shared library (without a "lib" prefix),
+then use :codenormal:`ls` to examine it: |br|
+
+:codenormal:`$` :codebold:`gcc mycmodule.c -shared -fPIC -I/usr/include/tarantool -o mycmodule.so` |br|
+:codenormal:`$` :codebold:`ls mycmodule.so -l` |br|
+:codenormal:`-rwxr-xr-x 1 roman roman 7272 Jun  3 16:51 mycmodule.so`
+
+Tarantool's developers recommend use of Tarantool's CMake-scripts_
+which will handle some of the build steps automatically.
+
+The requests to load and examine and call look like this: |br|
+:codenormal:`tarantool>`:codebold:`myсmodule = require('myсmodule')` |br|
+:codenormal:`---` |br|
+:codenormal:`...` |br|
+:codenormal:`tarantool>`:codebold:`myсmodule` |br|
+:codenormal:`---` |br|
+:codenormal:`- myfun: 'function: 0x4100ec98'` |br|
+:codenormal:`...` |br|
+:codenormal:`tarantool>`:codebold:`mycmodule.myfun(os.getenv('USER'))` |br|
+:codenormal:`---` |br|
+:codenormal:`- Hello, world` |br|
+:codenormal:`...` |br|
+
+One can also make modules with C++, provided that the code does not throw exceptions.
+
+**Tips for special situations**
+
+Lua caches all loaded modules in the :code:`package.loaded` table.
+To reload a module from disk, set its key to `nil`: |br|
+:codenormal:`tarantool>` :codebold:`package.loaded['`:codeitalic:`modulename`:codebold:`'] = nil`
+
+Use ``package.path`` to search for ``.lua`` modules, and use
+``package.cpath`` to search for C binary modules. |br|
+:codenormal:`tarantool>`:codebold:`package.path` |br|
+:codenormal:`---` |br|
+:codenormal:`- ./?.lua;./?/init.lua;/home/roman/.luarocks/share/lua/5.1/?.lua;/home/roman/.luarocks/share/lua/5.1/?/init.lua;/home/roman/.luarocks/share/lua/?.lua;/home/roman/.luarocks/share/lua/?/init.lua;/usr/share/tarantool/?.lua;/usr/share/tarantool/?/init.lua;./?.lua;/usr/local/share/luajit-2.0.3/?.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua` |br|
+:codenormal:`...`
+:codenormal:`tarantool>`:codebold:`package.cpath` |br|
+:codenormal:`---` |br|
+:codenormal:`- ./?.so;/home/roman/.luarocks/lib/lua/5.1/?.so;/home/roman/.luarocks/lib/lua/?.so;/usr/lib/tarantool/?.so;./?.so;/usr/local/lib/lua/5.1/?.so;/usr/local/lib/lua/5.1/loadall.so` |br|
+:codenormal:`...` |br|
+Substitute question-mark with :code:`modulename` when calling
+:code:`require('modulename')`.
+
+To see the internal state from within a Lua module, use `state`
+and create a local variable inside the scope of the file:
+
+.. code-block:: lua
+
+    -- mymodule
+    local exports = {}
+    local state = {}
+    exports.myfun = function()
+        state.x = 42 -- use state
+    end
+    return exports
+
+Notice that the Lua examples use local variables.
+Use global variables with caution, since the module's users
+may be unaware of them.
+
+To see a sample Lua + C module, go to http_ on github.com/tarantool.
+
+=====================================================================
+       Backups
+=====================================================================
+
+The exact procedure for backing up a database depends on:
+how up-to-date the database must be,
+how frequently backups must be taken,
+whether it is okay to disrupt other users,
+and whether the procedure should be optimized for size (saving disk space) or for speed (saving time).
+So there is a spectrum of possible policies, ranging from cold-and-simple to hot-and-difficult.
+
+**Cold Backup**
+
+In essence:
+The last snapshot file is a backup of the entire database;
+and the WAL files that are made after the last snapshot are incremental backups.
+Therefore taking a backup is a matter of copying the snapshot and WAL files. |br|
+(1) Prevent all users from writing to the database.This can be done by
+shutting down the server, or by saying
+:codenormal:`box.cfg{read_only=true}` and then ensuring that all earlier
+writes are complete (fsync can be used for this purpose). |br|
+(2) If this is a backup of the whole database, say
+:codenormal:`box.snapshot()`. |br|
+(3) Use tar to make a (possibly compressed) copy of the
+latest .snap and .xlog files on the :ref:`snap_dir <box-cfg-snap-dir>` and :ref:`wal_dir <box-cfg-wal-dir>`
+directories. |br|
+(4) If there is a security policy, encrypt the tar file. |br|
+(5) Copy the tar file to a safe place. |br|
+... Later, restoring the database is a matter of taking the
+tar file and putting its contents back in the snap_dir and wal_dir
+directories.
+
+**Continuous remote backup**
+
+In essence: :ref:`replication <box-replication>`
+is useful for backup as well as for load balancing.
+Therefore taking a backup is a matter of ensuring that any given
+replica is up to date, and doing a cold backup on it.
+Since all the other replicas continue to operate, this is not a
+cold backup from the end user's point of view. This could be
+done on a regular basis, with a cron job or with a Tarantool fiber.
+
+**Hot backup**
+
+In essence:
+The logged changes done since the last cold backup must be
+secured, while the system is running.
+
+For this purpose one needs a "file copy" utility that will
+do the copying remotely and continuously, copying only the
+parts of a file that are changing. One such utility is
+rsync_.
+
+Alternatively, one needs an ordinary file copy utility,
+but there should be frequent production of new snapshot files or
+new WAL files as
+changes occur, so that only the new files need to be copied.
+One such utility is
+`tarantar <https://github.com/tarantool/tarantool/wiki/Tarantar>`_
+but it will require some modifications to work with the latest
+Tarantool version. Setting the :ref:`rows_per_wal <box-cfg-rows-per-wal>` configuration
+parameter is another option.
+
+Note re storage engines:
+sophia databases require additional steps, see the
+explanation in
+`the sophia manual <http://sophia.systems/v2.1/sophia_v21_manual.pdf>`_.
+
+=====================================================================
+       Upgrades
+=====================================================================
+
+This information applies for users who created databases with older
+versions of the Tarantool server, and have now installed a newer version.
+The request to make in this case is: :codenormal:`box.schema.upgrade()`.
+
+For example, here is what happens when one runs :codenormal:`box.schema.upgrade()`
+with a database that was created in early 2015. Only a small part of the output is shown. |br|
+:codenormal:`tarantool>` :codebold:`box.schema.upgrade()` |br|
+:codenormal:`alter index primary on _space set options to {"unique":true}, parts to [[0,"num"]]` |br|
+:codenormal:`alter space _schema set options to {}` |br|
+:codenormal:`create view _vindex...` |br|
+:codenormal:`grant read access to 'public' role for _vindex view` |br|
+:codenormal:`set schema version to 1.6.8` |br|
+:codenormal:`---` |br|
+:codenormal:`...` |br|
+
+.. _Lua-Modules-Tutorial: http://lua-users.org/wiki/ModulesTutorial
+.. _LuaRocks: http://rocks.tarantool.org
+.. _LuaRocks-Quick-Start-Guide: http://luarocks.org/#quick-start
+.. _rocks.tarantool.org: http://rocks.tarantool.org
+.. _rocks: github.com/tarantool/rocks <https://github.com/tarantool/rocks
+.. _CMake-scripts: https://github.com/tarantool/http
+.. _http: https://github.com/tarantool/http
+.. _rsync: https://en.wikipedia.org/wiki/rsync
+

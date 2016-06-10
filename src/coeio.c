@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -39,7 +39,6 @@
 #include <sys/socket.h>
 
 #include "fiber.h"
-#include "diag.h"
 #include "third_party/tarantool_ev.h"
 
 /*
@@ -108,13 +107,39 @@ coeio_done_poll_cb(void *ptr)
 	(void)ptr;
 }
 
+static int
+coeio_on_start(void *data)
+{
+	(void) data;
+	struct cord *cord = (struct cord *)calloc(sizeof(struct cord), 1);
+	if (!cord)
+		return -1;
+	cord_create(cord, "coeio");
+	return 0;
+}
+
+static int
+coeio_on_stop(void *data)
+{
+	(void) data;
+	cord_destroy(cord());
+	return 0;
+}
+
+void
+coeio_init(void)
+{
+	eio_set_thread_on_start(coeio_on_start, NULL);
+	eio_set_thread_on_stop(coeio_on_stop, NULL);
+}
+
 /**
  * Init coeio subsystem.
  *
  * Create idle and async watchers, init eio.
  */
 void
-coeio_init(void)
+coeio_enable(void)
 {
 	eio_init(&coeio_manager, coeio_want_poll_cb, coeio_done_poll_cb);
 	coeio_manager.loop = loop();
@@ -125,11 +150,19 @@ coeio_init(void)
 	ev_async_start(loop(), &coeio_manager.coeio_async);
 }
 
+void
+coeio_shutdown(void)
+{
+	eio_set_max_parallel(0);
+}
+
 static void
 coio_on_exec(eio_req *req)
 {
 	struct coio_task *task = (struct coio_task *) req;
 	req->result = task->task_cb(task);
+	if (req->result)
+		diag_move(diag_get(), &task->diag);
 }
 
 /**
@@ -192,6 +225,7 @@ coio_task(struct coio_task *task, coio_task_cb func,
 	task->task_cb = func;
 	task->timeout_cb = on_timeout;
 	task->complete = 0;
+	diag_create(&task->diag);
 
 	eio_submit(&task->base);
 	fiber_yield_timeout(timeout);
@@ -204,7 +238,10 @@ coio_task(struct coio_task *task, coio_task_cb func,
 			diag_set(TimedOut);
 		return -1;
 	}
-	diag_clear(&fiber()->diag);
+	if (task->base.result) {
+		diag_move(&task->diag, &fiber()->diag);
+		return -1;
+	}
 	return 0;
 }
 
@@ -213,6 +250,8 @@ coio_on_call(eio_req *req)
 {
 	struct coio_task *task = (struct coio_task *) req;
 	req->result = task->call_cb(task->ap);
+	if (req->result)
+		diag_move(diag_get(), &task->diag);
 }
 
 ssize_t
@@ -231,6 +270,7 @@ coio_call(ssize_t (*func)(va_list ap), ...)
 	task->fiber = fiber();
 	task->call_cb = func;
 	task->complete = 0;
+	diag_create(&task->diag);
 
 	bool cancellable = fiber_set_cancellable(false);
 
@@ -247,6 +287,8 @@ coio_call(ssize_t (*func)(va_list ap), ...)
 
 	ssize_t result = task->base.result;
 	int save_errno = errno;
+	if (result)
+		diag_move(&task->diag, diag_get());
 	free(task);
 	errno = save_errno;
 	return result;
