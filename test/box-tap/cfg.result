@@ -1,6 +1,11 @@
 TAP version 13
-1..36
+1..42
 ok - box is not started
+ok - invalid slab_alloc_minimal
+ok - invalid slab_alloc_minimal
+ok - invalid slab_alloc_minimal
+ok - invalid slab_alloc_minimal
+ok - invalid slab_alloc_minimal
 ok - invalid replication_source
 ok - invalid wal_mode
 ok - invalid rows_per_wal
@@ -36,3 +41,4 @@ ok - dynamic listen
 ok - dynamic listen
 ok - reuse unix socket
 ok - delete socket at exit
+ok - wal_mode none and ER_LOADING

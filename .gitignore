@@ -5,6 +5,8 @@ _CPack_Packages
 *.dylib
 *.gcno
 *.gcda
+*.gcov
+coverage.info
 *.o
 *.reject
 *.so
@@ -16,6 +18,8 @@ CMakeFiles
 CMakeCache.txt
 CPackConfig.cmake
 CPackSourceConfig.cmake
+CTestTestfile.cmake
+Testing/
 ./build
 /build
 # Ignore Makefile in the stupid way for `tar --exclude-vcs-ignores`

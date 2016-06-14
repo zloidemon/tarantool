@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_KEY_DEF_H_INCLUDED
 #define TARANTOOL_BOX_KEY_DEF_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -35,7 +35,7 @@
 #include "error.h"
 #include <msgpuck.h>
 #define RB_COMPACT 1
-#include "third_party/rb.h"
+#include "small/rb.h"
 #include <limits.h>
 #include <wchar.h>
 #include <wctype.h>
@@ -88,7 +88,7 @@ schema_object_name(enum schema_object_type type);
  * since there is a mismatch between enum name (STRING) and type
  * name literal ("STR"). STR is already used as Objective C type.
  */
-enum field_type { UNKNOWN = 0, NUM, STRING, ARRAY, NUMBER, field_type_MAX };
+enum field_type { UNKNOWN = 0, NUM, STRING, ARRAY, NUMBER, INT, SCALAR, field_type_MAX };
 extern const char *field_type_strs[];
 
 /* MsgPack type names */
@@ -173,7 +173,6 @@ struct key_opts {
 	uint32_t node_size;
 	uint32_t page_size;
 	uint32_t sync;
-	uint32_t mmap;
 	uint32_t amqf;
 	uint32_t read_oldest;
 	uint32_t expire;

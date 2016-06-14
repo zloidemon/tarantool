@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_PHIA_SPACE_H_INCLUDED
 #define TARANTOOL_BOX_PHIA_SPACE_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -49,11 +49,13 @@ struct PhiaSpace: public Handler {
 	              struct request *request);
 };
 
-int
+struct key_def;
+/* TODO: move to phia.c */
+extern "C" int
 phia_upsert_cb(int count,
-                 char **src,    uint32_t *src_size,
-                 char **upsert, uint32_t *upsert_size,
-                 char **result, uint32_t *result_size,
-                 void *arg);
+	       char **src,    uint32_t *src_size,
+	       char **upsert, uint32_t *upsert_size,
+	       char **result, uint32_t *result_size,
+	       struct key_def *key_def);
 
 #endif /* TARANTOOL_BOX_PHIA_SPACE_H_INCLUDED */

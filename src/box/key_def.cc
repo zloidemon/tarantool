@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -35,7 +35,7 @@
 #include <stdio.h>
 #include "scoped_guard.h"
 
-const char *field_type_strs[] = {"UNKNOWN", "NUM", "STR", "ARRAY", "NUMBER", ""};
+const char *field_type_strs[] = {"UNKNOWN", "NUM", "STR", "ARRAY", "NUMBER", "INT", "SCALAR", ""};
 
 const char *mp_type_strs[] = {
 	/* .MP_NIL    = */ "nil",
@@ -63,6 +63,9 @@ const uint32_t key_mp_type[] = {
 	/* [STR]     =  */  1U << MP_STR,
 	/* [ARRAY]   =  */  1U << MP_ARRAY,
 	/* [NUMBER]  =  */  (1U << MP_UINT) | (1U << MP_INT) | (1U << MP_FLOAT) | (1U << MP_DOUBLE),
+	/* [INT]     =  */  (1U << MP_UINT) | (1U << MP_INT),
+	/* [SCALAR]     =  */  (1U << MP_UINT) | (1U << MP_INT) | (1U << MP_FLOAT) | (1U << MP_DOUBLE) |
+		(1U << MP_NIL) | (1U << MP_STR) | (1U << MP_BIN) | (1U << MP_BOOL),
 };
 
 const struct key_opts key_opts_default = {
@@ -77,7 +80,6 @@ const struct key_opts key_opts_default = {
 	/* .node_size           = */ 67108864,
 	/* .page_size           = */ 131072,
 	/* .sync                = */ 2,
-	/* .mmap                = */ 0,
 	/* .amqf                = */ 0,
 	/* .read_oldest         = */ 0,
 	/* .expire              = */ 0,
@@ -96,10 +98,7 @@ const struct opt_def key_opts_reg[] = {
 	OPT_DEF("node_size", MP_UINT, struct key_opts, node_size),
 	OPT_DEF("page_size", MP_UINT, struct key_opts, page_size),
 	OPT_DEF("sync", MP_UINT, struct key_opts, sync),
-	OPT_DEF("mmap", MP_UINT, struct key_opts, mmap),
 	OPT_DEF("amqf", MP_UINT, struct key_opts, amqf),
-	OPT_DEF("read_oldest", MP_UINT, struct key_opts, read_oldest),
-	OPT_DEF("expire", MP_UINT, struct key_opts, expire),
 	{ NULL, MP_NIL, 0, 0 }
 };
 

@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_UTIL_H_INCLUDED
 #define TARANTOOL_UTIL_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -84,8 +84,8 @@ uint32_t
 strindex(const char **haystack, const char *needle, uint32_t hmax);
 
 #define nelem(x)     (sizeof((x))/sizeof((x)[0]))
-#define likely(x)    __builtin_expect((x),1)
-#define unlikely(x)  __builtin_expect((x),0)
+#define likely(x)    __builtin_expect(!! (x),1)
+#define unlikely(x)  __builtin_expect(!! (x),0)
 #define field_sizeof(compound_type, field) sizeof(((compound_type *)NULL)->field)
 
 #ifndef offsetof

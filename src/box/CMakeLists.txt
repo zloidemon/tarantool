@@ -79,7 +79,6 @@ add_library(box STATIC
     lua/misc.cc
     lua/info.c
     lua/stat.c
-    lua/phia.c
     lua/error.cc
     lua/session.c
     lua/net_box.c
