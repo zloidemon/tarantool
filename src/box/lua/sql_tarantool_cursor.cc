@@ -29,6 +29,9 @@
  * SUCH DAMAGE.
  */
 
+extern "C" {
+#include "sqliteInt.h"
+}
 #include "sql_tarantool_cursor.h"
 #include "space_iterator.h"
 
@@ -502,30 +505,37 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 }
 
 TarantoolCursor::TarantoolCursor() : space_id(0), index_id(0), type(-1), key(NULL),
-	key_end(NULL), it(NULL), tpl(NULL), sql_index(NULL), wrFlag(-1), db(NULL), data(NULL), size(0) { }
+	key_end(NULL), it(NULL), tpl(NULL), sql_index(NULL), wrFlag(-1), original(NULL),
+	db(NULL), data(NULL), size(0) { }
 
 TarantoolCursor::TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag_)
-: space_id(space_id_), index_id(index_id_), type(type_), key(key_), key_end(key_end_),
-	tpl(NULL), sql_index(sql_index_), wrFlag(wrFlag_), db(db_), data(NULL), size(0) {
+               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag_, BtCursor *cursor_)
+: space_id(space_id_), index_id(index_id_), type(type_), key(key_), key_end(key_end_), it(NULL),
+	tpl(NULL), sql_index(sql_index_), wrFlag(wrFlag_), original(cursor_), db(db_), data(NULL), size(0) {
 	if (!wrFlag)
 		it = box_index_iterator(space_id, index_id, type, key, key_end);
 }
 
 int TarantoolCursor::MoveToFirst(int *pRes) {
-	static const char *__func_name = "TarantoolCursor::MoveToFirst";
 	if (it) box_iterator_free(it);
+	if (type != ITER_ALL) {
+		say_debug("%s(): change type of iterator to ITER_ALL\n", __FUNCTION__);
+	}
+	type = ITER_ALL;
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
 	int rc = box_iterator_next(it, &tpl);
+	original->eState = CURSOR_VALID;
 	if (rc) {
-		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
+		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __FUNCTION__, rc);
 		*pRes = 1;
+		original->eState = CURSOR_INVALID;
 		tpl = NULL;
 	} else {
 		*pRes = 0;
 	}
 	if (tpl == NULL) {
 		*pRes = 1;
+		original->eState = CURSOR_INVALID;
 		return SQLITE_OK;
 	}
 	rc = this->make_btree_cell_from_tuple();
@@ -576,14 +586,18 @@ const void *TarantoolCursor::KeyFetch(u32 *pAmt) {
 }
 
 int TarantoolCursor::Next(int *pRes) {
-	static const char *__func_name = "TarantoolCursor::Next";
 	if (type == ITER_LE) {
+		*pRes = 1;
+		return SQLITE_OK;
+	}
+	if (!it) {
+		say_debug("%s(): iterator is empty\n", __FUNCTION__);
 		*pRes = 1;
 		return SQLITE_OK;
 	}
 	int rc = box_iterator_next(it, &tpl);
 	if (rc) {
-		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
+		say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __FUNCTION__, rc);
 		*pRes = 1;
 		return SQLITE_OK;
 	}
@@ -684,8 +698,11 @@ int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pR
 		say_debug("%s(): intKey not supported, intKey = %lld\n", __func_name, intKey);
 		return SQLITE_ERROR;
 	} else {
-		rc = this->MoveToFirst(pRes);
+		bool reversed = *pRes < 0;
+		if (reversed) rc = this->MoveToLast(pRes);
+		else rc = this->MoveToFirst(pRes);
 		if (!tpl) {
+			if (original) original->eState = CURSOR_INVALID;
 			*pRes = -1;
 			rc = SQLITE_OK;
 			say_debug("%s(): space is empty\n", __func_name);
@@ -707,25 +724,26 @@ int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pR
 			const void *data = this->KeyFetch(&tmp_);
 			data_size = tmp_;
 			int c = xRecordCompare(data_size, data, pIdxKey);
-			if (!c) {
-				*pRes = 0;
-          		rc = SQLITE_OK;
-          		say_debug("%s(): find match\n", __func_name);
-          		return rc;
-			}
-			if (c > 0) {
-				*pRes = 1;
+			if ((reversed && (c == pIdxKey->r1)) || ((!reversed) && (c == pIdxKey->r2)) ||
+				((pIdxKey->default_rc == 0) && (c == 0))) {
+				if (c == 0) *pRes = 0;
+				else if (!reversed) *pRes = 1;
+				else *pRes = -1;
 				rc = SQLITE_OK;
-				say_debug("%s(): no matches found\n", __func_name);
+				say_debug("%s(): end of search\n", __func_name);
 				return rc;
 			}
-			rc = this->Next(pRes);
+			if (reversed) rc = this->Previous(pRes);
+			else rc = this->Next(pRes);
 			if (rc) {
-				say_debug("%s(): Next return rc = %d <> 0\n", __func_name, rc);
+				say_debug("%s(): Next/Prev return rc = %d <> 0\n", __func_name, rc);
 				return rc;
 			}
 		}
-		*pRes = -1;
+		if (!reversed)
+			*pRes = -1;
+		else
+			*pRes = 1;
 		rc = SQLITE_OK;
 	}
 	return rc;
@@ -744,6 +762,10 @@ TarantoolCursor &TarantoolCursor::operator=(const TarantoolCursor &ob) {
 	tpl = ob.tpl;
 	db = ob.db;
 	sql_index = ob.sql_index;
+	wrFlag = ob.wrFlag;
+	original = ob.original;
+	it = NULL;
+
 	if (ob.size) {
 		size = ob.size;
 		data = sqlite3DbMallocZero(db, size);

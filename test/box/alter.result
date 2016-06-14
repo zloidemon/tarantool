@@ -97,7 +97,7 @@ space = box.space[t[1]]
 ...
 space.id
 ---
-- 321
+- 326
 ...
 space.field_count
 ---
@@ -142,7 +142,7 @@ space_deleted
 ...
 space:replace{0}
 ---
-- error: Space '321' does not exist
+- error: Space '326' does not exist
 ...
 _index:insert{_space.id, 0, 'primary', 'tree', 1, 1, 0, 'num'}
 ---
@@ -193,6 +193,7 @@ _index:select{}
   - [313, 2, 'object', 'tree', {'unique': false}, [[2, 'str'], [3, 'num']]]
   - [320, 0, 'primary', 'tree', {'unique': true}, [[0, 'num']]]
   - [320, 1, 'uuid', 'tree', {'unique': true}, [[1, 'str']]]
+  - [325, 0, 'primary', 'tree', {'unique': true}, [[0, 'num']]]
 ...
 -- modify indexes of a system space
 _index:delete{_index.id, 0}
@@ -428,7 +429,7 @@ index = s:create_index('primary', {unique = true, parts = 'bug'})
 ...
 index = s:create_index('test', {unique = true, parts = {1, 'NUM'}, mmap = true})
 ---
-- error: 'Wrong index options (field 4): ''mmap'' must be unsigned int'
+- error: 'Wrong index options (field 4): unexpected option ''mmap'''
 ...
 s:drop()
 ---

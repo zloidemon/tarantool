@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_COEIO_H_INCLUDED
 #define TARANTOOL_COEIO_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -37,6 +37,7 @@
 #include <stdarg.h>
 
 #include "third_party/tarantool_eio.h"
+#include "diag.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -49,6 +50,8 @@ extern "C" {
  */
 
 void coeio_init(void);
+void coeio_enable(void);
+
 
 struct coio_task;
 
@@ -75,6 +78,8 @@ struct coio_task {
 	};
 	/** Callback results. */
 	int complete;
+	/** Task diag **/
+	struct diag diag;
 };
 
 ssize_t

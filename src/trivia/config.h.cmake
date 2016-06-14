@@ -46,6 +46,12 @@
 #define TARANTOOL_LIBEXT "dylib"
 #endif
 
+#if defined(__CC_ARM)         /* set the alignment to 1 for armcc compiler */
+#define PACKED    __packed
+#else
+#define PACKED  __attribute__((packed))
+#endif
+
 /*
  * Defined if gcov instrumentation should be enabled.
  */
@@ -196,6 +202,56 @@
 #cmakedefine HAVE_SETPROCTITLE 1
 #cmakedefine HAVE_SETPROGNAME 1
 #cmakedefine HAVE_GETPROGNAME 1
+
+/* {{{ SQLITE */
+#cmakedefine HAVE_DLFCN_H 1
+#cmakedefine HAVE_GMTIME_R 1
+#cmakedefine HAVE_LOCALTIME_R 1
+#cmakedefine HAVE_LOCALTIME_S 1
+#cmakedefine HAVE_MEMORY_H 1
+#cmakedefine HAVE_MALLOC_H 1
+#cmakedefine HAVE_MALLOC_USABLE_SIZE 1
+
+#cmakedefine HAVE_STRCHRNUL 1
+#cmakedefine HAVE_STRINGS_H 1
+
+#cmakedefine HAVE_USLEEP 1
+#cmakedefine HAVE_UTIME 1
+
+#define STDC_HEADERS 1
+#define HAVE_STDINT_H 1
+#define HAVE_INT16_T 1
+#define HAVE_INT32_T 1
+#define HAVE_INT64_T 1
+#define HAVE_INT8_T 1
+#define HAVE_INTPTR_T 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_ISNAN 1
+#define HAVE_UINT16_T 1
+#define HAVE_UINT32_T 1
+#define HAVE_UINT64_T 1
+#define HAVE_UINT8_T 1
+#define HAVE_UINTPTR_T 1
+
+#define HAVE_SYS_STAT_H 1
+#define HAVE_SYS_TYPES_H 1
+
+#define HAVE_UNISTD_H 1
+#define HAVE_STRING_H 1
+
+
+/* SQLITE }}} */
+
+/* {{{ LibYAML */
+#cmakedefine ENABLE_BUNDLED_LIBYAML 1
+#ifdef ENABLE_BUNDLED_LIBYAML
+#define YAML_VERSION_MAJOR 0
+#define YAML_VERSION_MINOR 1
+#define YAML_VERSION_PATCH 6
+#define YAML_VERSION_STRING "0.1.6"
+#endif
+
+/* LibYAML }}} */
 
 /** \cond public */
 

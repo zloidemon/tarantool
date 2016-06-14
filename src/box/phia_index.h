@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_PHIA_INDEX_H_INCLUDED
 #define TARANTOOL_BOX_PHIA_INDEX_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -57,10 +57,10 @@ public:
 	virtual size_t bsize() const override;
 
 public:
-	void *env;
-	void *db;
+	struct phia_env *env;
+	struct phia_index *db;
 
-	void *createDocument(const char *key, const char **keyend);
+	struct phia_document *createDocument(const char *key, const char **keyend);
 private:
 	struct tuple_format *format;
 };

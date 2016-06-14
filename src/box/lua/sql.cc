@@ -1248,7 +1248,11 @@ make_msgpuck_from(const SIndex *index, int &size) {
 	it = mp_encode_str(it, type, type_len);
 	it = mp_encode_map(it, 1);
 		it = mp_encode_str(it, "unique", 6);
+	if (index->idxType == 0) {
+		it = mp_encode_bool(it, false);
+	} else {
 		it = mp_encode_bool(it, true);
+	}
 	it = mp_encode_array(it, index->nKeyCol);
 	for (int i = 0; i < index->nKeyCol; ++i) {
 		int col = index->aiColumn[i];
@@ -1401,6 +1405,7 @@ insert_new_view_as_space(Table *table, char *crt_stmt) {
 	if (rc) {
 		db = get_global_db();
 	}
+	(void) db;
 	return rc;
 }
 
@@ -1683,7 +1688,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	char key[128], *key_end;
 	key_end = mp_encode_array(key, 1);
 	key_end = mp_encode_uint(key_end, tbl_id.GetUint64());
-	int index_len = 0;
+	int index_len = 200;
 	void *argv[1];
 	argv[0] = (void *)&index_len;
 	SpaceIterator::SIteratorCallback callback =
@@ -1694,8 +1699,9 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		MValue space_id = MValue::FromMSGPuck(&data);
 		data = box_tuple_field(tpl, 1);
 		MValue index_id = MValue::FromMSGPuck(&data);
-		*index_len = box_index_len(space_id.GetUint64(),
+		int tmp = box_index_len(space_id.GetUint64(),
 			index_id.GetUint64());
+		if (tmp > *index_len) *index_len = tmp;
 		return 1;
 	};
 	SpaceIterator iterator(1, argv, callback, BOX_INDEX_ID,
@@ -1764,7 +1770,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		}
 		table = (Table *)sqlite3HashFind(&pSchema->tblHash, space_name.GetStr());
 		if (!table) {
-			say_debug("%s(): space with id %llu was not found\n", __func_name, space_id.GetUint64());
+			say_debug("%s(): space with id %llu was not found\n", __func_name, (unsigned long long)space_id.GetUint64());
 			return NULL;
 		}
 	}
@@ -1835,7 +1841,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	index->aSortOrder[0] = 0;
 	index->szIdxRow = ESTIMATED_ROW_SIZE;
 	index->nColumn = table->nCol;
-	index->onError = OE_Abort;
+	index->onError = OE_None;
 	for (int j = 0; j < table->nCol; ++j) {
 		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, sizeof(char) * (strlen("BINARY") + 1)));
 		memcpy(index->azColl[j], "BINARY", strlen("BINARY"));
@@ -1890,9 +1896,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 	if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
 		if (value.GetBool()) {
 			if (index->idxType != 2) index->idxType = 1;
-			index->uniqNotNull = 1;
 		}
-		else index->uniqNotNull = 0;
 	}
 
 	//---- INDEX FORMAT ----
@@ -2341,16 +2345,26 @@ add_new_index_to_self(sql_trntl_self *self, SIndex *new_index) {
 
 void
 remove_old_index_from_self(sql_trntl_self *self, SIndex *old_index) {
-	SIndex **new_indices = new SIndex*[self->cnt_indices];
-	bool found = false;
+	SIndex **new_indices = nullptr;
+	int new_count = 0;
+	for (int i = 0; i < self->cnt_indices; ++i) {
+		if ((self->indices[i] != old_index) &&
+			(self->indices[i]->tnum != old_index->tnum))
+		{
+			new_count++;
+		}
+	}
+	new_indices = new SIndex*[new_count];
 	for (int i = 0, j = 0; i < self->cnt_indices; ++i) {
 		if ((self->indices[i] != old_index) &&
 			(self->indices[i]->tnum != old_index->tnum))
-			new_indices[j++] = self->indices[i];
-		else found = true;
+		{
+			new_indices[j] = self->indices[i];
+			j++;
+		}
 	}
+	self->cnt_indices = new_count;
 	delete[] self->indices;
-	if (found) self->cnt_indices--;
 	self->indices = new_indices;
 }
 
@@ -2482,7 +2496,7 @@ trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 		delete[] c->key;
 		return SQLITE_ERROR;
 	}
-	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index, wrFlag);
+	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index, wrFlag, pCur);
 	c->brother = pCur;
 	pCur->trntl_cursor = (void *)c;
 	pCur->pBtree = p;

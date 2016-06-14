@@ -1,0 +1,7 @@
+#!/bin/bash
+if [ -z $1 ]; then
+    echo Test name must be specified
+    exit 1
+fi
+chmod +x tcl/$1.test.lua
+

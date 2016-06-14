@@ -110,3 +110,12 @@ host/port.
 
         console = require('console')
         console.start()
+
+.. _console-ac:
+
+.. function:: ac([true|false])
+
+   Set the auto-completion flag. If auto-completion is `true`,
+   and the user is using tarantool as a client, then hitting
+   the TAB key may cause tarantool to complete a word automatically.
+   The default auto-completion value is `true`.

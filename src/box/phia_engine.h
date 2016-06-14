@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_PHIA_ENGINE_H_INCLUDED
 #define TARANTOOL_BOX_PHIA_ENGINE_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -47,7 +47,9 @@ struct PhiaEngine: public Engine {
 	virtual void prepare(struct txn *txn) override;
 	virtual void commit(struct txn *txn, int64_t signature) override;
 	virtual void rollback(struct txn *txn) override;
-	virtual void beginWalRecovery() override;
+	virtual void bootstrap() override;
+	virtual void beginInitialRecovery() override;
+	virtual void beginFinalRecovery() override;
 	virtual void endRecovery() override;
 	virtual void join(struct xstream *stream) override;
 	virtual int beginCheckpoint() override;
@@ -55,7 +57,7 @@ struct PhiaEngine: public Engine {
 private:
 	int64_t m_prev_commit_lsn;
 public:
-	void *env;
+	struct phia_env *env;
 	int recovery_complete;
 };
 
@@ -63,12 +65,23 @@ extern "C" {
 typedef void (*phia_info_f)(const char*, const char*, void*);
 int phia_info(const char*, phia_info_f, void*);
 }
-void  phia_error(void*);
-void *phia_read(void*, void*);
-void  phia_workers_start(void*);
+void phia_workers_start(struct phia_env *);
+
+struct phia_document;
+struct phia_tx;
+struct phia_cursor;
+
+int
+phia_coget(struct phia_tx *tx, struct phia_document *key,
+	   struct phia_document **result);
+int
+phia_index_coget(struct phia_index *index, struct phia_document *key,
+		 struct phia_document **result);
+int
+phia_cursor_conext(struct phia_cursor *tx, struct phia_document **result);
 
 struct tuple *
-phia_tuple_new(void *obj, struct key_def *key_def,
-                 struct tuple_format *format);
+phia_tuple_new(struct phia_document *obj, struct key_def *key_def,
+               struct tuple_format *format);
 
 #endif /* TARANTOOL_BOX_PHIA_ENGINE_H_INCLUDED */

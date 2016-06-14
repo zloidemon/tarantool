@@ -73,6 +73,10 @@ box.space._space:select()
         'type': 'num'}, {'name': 'privilege', 'type': 'num'}]]
   - [320, 1, '_cluster', 'memtx', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'uuid',
         'type': 'str'}]]
+  - [325, 1, '_trigger', 'memtx', 0, {}, [{'name': 'id', 'type': 'num'}, {'name': 'iid',
+        'type': 'num'}, {'name': 'owner', 'type': 'num'}, {'name': 'name', 'type': 'str'},
+      {'name': 'table', 'type': 'str'}, {'name': 'sql', 'type': 'str'}, {'name': 'setuid',
+        'type': 'num'}, {'name': 'opts', 'type': 'array'}]]
   - [512, 1, 'distro', 'memtx', 0, {}, [{'name': 'os', 'type': 'str'}, {'name': 'dist',
         'type': 'str'}, {'name': 'version', 'type': 'num'}, {'name': 'time', 'type': 'num'}]]
   - [513, 1, 'temporary', 'memtx', 0, {'temporary': true}, []]
@@ -110,6 +114,7 @@ box.space._index:select()
   - [313, 2, 'object', 'tree', {'unique': false}, [[2, 'str'], [3, 'num']]]
   - [320, 0, 'primary', 'tree', {'unique': true}, [[0, 'num']]]
   - [320, 1, 'uuid', 'tree', {'unique': true}, [[1, 'str']]]
+  - [325, 0, 'primary', 'tree', {'unique': true}, [[0, 'num']]]
   - [512, 0, 'primary', 'hash', {'unique': true}, [[0, 'str'], [1, 'str'], [2, 'num']]]
   - [512, 1, 'codename', 'hash', {'unique': true}, [[1, 'str']]]
   - [512, 2, 'time', 'tree', {'unique': false}, [[3, 'num']]]

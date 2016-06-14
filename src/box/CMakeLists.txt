@@ -79,7 +79,6 @@ add_library(box STATIC
     lua/misc.cc
     lua/info.c
     lua/stat.c
-    lua/phia.c
     lua/error.cc
     lua/session.c
     lua/net_box.c
@@ -88,6 +87,12 @@ add_library(box STATIC
     lua/sql_tarantool_cursor.cc
     lua/space_iterator.cc
     ${bin_sources})
+
+set_source_files_properties(
+    lua/sql.cc
+    lua/sql_mvalue.cc
+    lua/sql_tarantool_cursor.cc
+    PROPERTY COMPILE_FLAGS "-I${PROJECT_SOURCE_DIR}/third_party/sqlite/src")
 
 target_link_libraries(box ${LZ4_LIBRARIES} ${ZSTD_LIBRARIES} trnsqlite)
 add_dependencies(box build_bundled_libs)

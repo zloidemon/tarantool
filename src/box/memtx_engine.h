@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_BOX_MEMTX_ENGINE_H_INCLUDED
 #define TARANTOOL_BOX_MEMTX_ENGINE_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -35,8 +35,8 @@
 
 enum memtx_recovery_state {
 	MEMTX_INITIALIZED,
-	MEMTX_READING_SNAPSHOT,
-	MEMTX_READING_WAL,
+	MEMTX_INITIAL_RECOVERY,
+	MEMTX_FINAL_RECOVERY,
 	MEMTX_OK,
 };
 
@@ -60,8 +60,8 @@ struct MemtxEngine: public Engine {
 	virtual void prepare(struct txn *txn) override;
 	virtual void commit(struct txn *txn, int64_t signature) override;
 	virtual void bootstrap() override;
-	virtual void beginJoin() override;
-	virtual void recoverToCheckpoint(int64_t lsn) override;
+	virtual void beginInitialRecovery() override;
+	virtual void beginFinalRecovery() override;
 	virtual void endRecovery() override;
 	virtual void join(struct xstream *stream) override;
 	virtual int beginCheckpoint() override;

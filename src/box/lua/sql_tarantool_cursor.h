@@ -34,6 +34,7 @@
 extern "C" {
 #include "sqlite3.h"
 #include "sqliteInt.h"
+#include "btreeInt.h"
 #include "vdbeInt.h"
 #include "sql.h"
 #include <string.h>
@@ -61,6 +62,7 @@ private:
 	box_tuple_t *tpl;
 	SIndex *sql_index;
 	int wrFlag;
+	BtCursor *original;
 
 	sqlite3 *db;
 
@@ -74,7 +76,8 @@ private:
 public:
 	TarantoolCursor();
 	TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag);
+               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag,
+               BtCursor *cursor_);
 	TarantoolCursor(const TarantoolCursor &ob);
 	TarantoolCursor &operator=(const TarantoolCursor &ob);
 	int MoveToFirst(int *pRes);

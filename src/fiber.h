@@ -1,7 +1,7 @@
 #ifndef TARANTOOL_FIBER_H_INCLUDED
 #define TARANTOOL_FIBER_H_INCLUDED
 /*
- * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -338,6 +338,12 @@ extern __thread struct cord *cord_ptr;
 #define cord() cord_ptr
 #define fiber() cord()->fiber
 #define loop() (cord()->loop)
+
+void
+cord_create(struct cord *cord, const char *name);
+
+void
+cord_destroy(struct cord *cord);
 
 /**
  * Start a cord with the given thread function.

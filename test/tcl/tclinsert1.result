@@ -1,8 +1,0 @@
-insert1-0.1... Ok
-insert1-0.2... Ok
-insert1-0.3... Ok
-insert1-0.4... Ok
-insert1-0.5... Ok
-0 errors out of 6 tests
-Unfreed memory: 13440 bytes in 436 allocations
-Writing unfreed memory log to "./memleak.txt"
