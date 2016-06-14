@@ -414,6 +414,8 @@ mp_compare_uint(const char **data_a, const char **data_b);
 
 int
 tuple_compare_field(const char *field_a, const char *field_b,
+
+
 		    enum field_type type)
 {
 	switch (type) {

@@ -80,11 +80,13 @@ const struct key_opts key_opts_default = {
 	/* .mmap                = */ 0,
 	/* .amqf                = */ 0,
 	/* .read_oldest         = */ 0,
-	/* .expire              = */ 0
+	/* .expire              = */ 0,
+	/* .crt_stmt            = */ { 0 }
 };
 
 const struct opt_def key_opts_reg[] = {
 	OPT_DEF("unique", MP_BOOL, struct key_opts, is_unique),
+	OPT_DEF("crt_stmt", MP_STR, struct key_opts, crt_stmt),
 	OPT_DEF("dimension", MP_UINT, struct key_opts, dimension),
 	OPT_DEF("distance", MP_STR, struct key_opts, distancebuf),
 	OPT_DEF("path", MP_STR, struct key_opts, path),

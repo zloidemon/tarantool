@@ -92,22 +92,16 @@ typedef struct sql_trntl_self {
 //~~~~~~~~~~~~~~~~~~~~~~~~ G L O B A L   O P E R A T I O N S   (C++) ~~~~~~~~~~~~~~~~~~~~~~~~
 
 /**
- * Returns index of substring sub in src.
- */
-int
-string_contains(const char *src, int len, const char *sub, int sub_len);
-
-/**
  * Converts struct Table object into msgpuck representation
  */
 char *
-make_msgpuck_from(const Table *table, int &size);
+make_msgpuck_from(const Table *table, int &size, const char *crt_stmt);
 
 /**
  * Converts struct SIndex object into msgpuck representation
  */
 char *
-make_msgpuck_from(const SIndex *index, int &size);
+make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt);
 
 /**
  * True if space with name "name" exists in _space.
@@ -133,21 +127,21 @@ get_max_id_of_index(int space_id);
  * into msgpuck.
  */
 int
-insert_new_table_as_space(Table *table);
+insert_new_table_as_space(Table *table, const char *crt_stmt);
 
 /**
  * Insert new struct Table object into _space as view after converting it
  * into msgpuck.
  */
 int
-insert_new_view_as_space(Table *table, char * crt_stmt);
+insert_new_view_as_space(Table *table, const char *crt_stmt);
 
 /**
  * Insert new struct SIndex object into _space after converting it
  * into msgpuck.
  */
 int
-insert_new_sindex_as_index(SIndex *index);
+insert_new_sindex_as_index(SIndex *index, const char *crt_stmt);
 
 /**
  * This function converts space from msgpuck tuple to
@@ -165,32 +159,6 @@ get_trntl_table_from_tuple(box_tuple_t *tpl,sqlite3 *db,
 SIndex *
 get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db,
 	Table *table, bool &ok);
-
-/**
- * Make insert into sqlite_master or sqlite_temp_master spaces
- * info about 'table'
- */
-bool
-insert_into_master(Table *table);
-
-/**
- * Make insert into sqlite_master or sqlite_temp_master spaces
- * info about 'space'
- */
-bool
-insert_into_master(SIndex *index);
-
-/**
- * Remove record about this object from sqlite_master/sqlite_temp_master
- */
-bool
-remove_from_master(Table *table);
-
-/**
- * Remove record about this object from sqlite_master/sqlite_temp_master
- */
-bool
-remove_from_master(SIndex *index);
 
 /**
  * Drop index of space space_id with id = index_id. Also removes index
@@ -302,8 +270,6 @@ log_debug(const char *msg);
  */
 void
 space_truncate_by_id(int space_id);
-
-int init_schema_with_table(void *self, Table *table);
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -927,29 +893,8 @@ box_lua_sqlite_init(struct lua_State *L)
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ G L O B A L   O P E R A T I O N S   (C++) ~~~~~~~~~~~~~~~~~~~~~~~~
 
-int
-string_contains(const char *src, int len, const char *sub, int sub_len) {
-	if (sub_len > len) return -1;
-	int min_len = len > sub_len ? sub_len : len;
-	for (int i = 0, in_str = 0, j; i < min_len; ++i) {
-		if (src[i] == sub[i]) {
-			in_str = 1;
-		}
-		if (in_str) {
-			for (j = i; j < min_len; ++j) {
-				if (src[j] != sub[j - i]) {
-					in_str = 0;
-					break;
-				}
-			}
-			if (in_str) return i;
-		}
-	}
-	return -1;
-}
-
 char *
-make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
+make_msgpuck_from(const Table *table, int &size, const char *crt_stmt) {
 	char *msg_data, *it;
 	int space_id = get_space_id_from(table->tnum);
 	int msg_size = 5 + mp_sizeof_uint(space_id);
@@ -961,9 +906,9 @@ make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
 	int temporary_len = strlen("temporary");
 	int view_len = strlen("view");
 	int table_name_len = strlen(table->zName);
-	int crt_stmt_len = strlen(crt_stmt);
+	int crt_stmt_len = crt_stmt ? strlen(crt_stmt) : 0;
 	int stmt_len = strlen("crt_stmt");
-	int has_crt_stmt = (crt_stmt != 0);
+	int has_crt_stmt = !!crt_stmt;
 	Column *cur;
 	int i;
 	bool is_temp = sqlite3SchemaToIndex(get_global_db(), table->pSchema);
@@ -995,7 +940,7 @@ make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
 	for (i = 0; i < table->nCol; ++i) {
 		cur = table->aCol + i;
 		msg_size += mp_sizeof_str(strlen(cur->zName));
-		msg_size += mp_sizeof_str(3); //strlen of "num" of "str"
+		msg_size += mp_sizeof_str(3); //strlen of "num" or "str"
 	}
 	msg_data = new char[msg_size];
 	it = msg_data;
@@ -1036,106 +981,33 @@ make_msgpuck_from(const Table *table, int &size, char *crt_stmt) {
 	size = it - msg_data;
 	return msg_data;
 }
-char *
-make_msgpuck_from(const Table *table, int &size) {
-	char *msg_data, *it;
-	int space_id = get_space_id_from(table->tnum);
-	int msg_size = 5 + mp_sizeof_uint(space_id);
-	struct credentials *cred = current_user();
-	const char *engine = "memtx";
-	int name_len = strlen("name");
-	int type_len = strlen("type");
-	int engine_len = strlen("memtx");
-	int temporary_len = strlen("temporary");
-	int view_len = strlen("view");
-	int table_name_len = strlen(table->zName);
-	Column *cur;
-	int i;
-	bool is_temp = sqlite3SchemaToIndex(get_global_db(), table->pSchema);
-	bool is_view = (table->nCol == 0);
-	int flags_cnt = (int)is_temp + is_view;
-	msg_size += mp_sizeof_uint(cred->uid);
-	msg_size += mp_sizeof_str(table_name_len);
-	msg_size += mp_sizeof_str(engine_len);
-	msg_size += mp_sizeof_uint(0);
-	if (flags_cnt){
-		msg_size += mp_sizeof_map(flags_cnt);
-		if (is_temp) {
-			msg_size += mp_sizeof_str(temporary_len)
-				+ mp_sizeof_bool(true);
-		}
-		if (is_view) {
-			msg_size += mp_sizeof_str(view_len)
-				+ mp_sizeof_bool(true);	
-		}
-	}
-	else
-		msg_size += mp_sizeof_map(0);
-	//sizeof parts
-	msg_size += 5;
-	msg_size += 5; // array of maps
-	msg_size += (mp_sizeof_map(2) + mp_sizeof_str(name_len) +\
-		mp_sizeof_str(type_len)) * table->nCol;
-	for (i = 0; i < table->nCol; ++i) {
-		cur = table->aCol + i;
-		msg_size += mp_sizeof_str(strlen(cur->zName));
-		msg_size += mp_sizeof_str(3); //strlen of "num" of "str"
-	}
-	msg_data = new char[msg_size];
-	it = msg_data;
-	it = mp_encode_array(it, 7);
-	it = mp_encode_uint(it, space_id); // space id
-	it = mp_encode_uint(it, cred->uid); // owner id
-	it = mp_encode_str(it, table->zName, table_name_len); // space name
-	it = mp_encode_str(it, engine, engine_len); // space engine
-	it = mp_encode_uint(it, 0); // field count
-	// flags
-	if (flags_cnt) {
-		it = mp_encode_map(it, flags_cnt);
-		if (is_temp) {	
-			it = mp_encode_str(it, "temporary", temporary_len);
-			it = mp_encode_bool(it, true);
-		}
-		if (is_view) {
-			it = mp_encode_str(it, "view", view_len);
-			it = mp_encode_bool(it, true);	
-		}
-	} else {
-		it = mp_encode_map(it, 0);
-	}
-	it = mp_encode_array(it, table->nCol);
-	for (i = 0; i < table->nCol; ++i) {
-		cur = table->aCol + i;
-		it = mp_encode_map(it, 2);
-			it = mp_encode_str(it, "name", name_len);
-			it = mp_encode_str(it, cur->zName, strlen(cur->zName));
-			it = mp_encode_str(it, "type", type_len);
-			if ((cur->affinity == SQLITE_AFF_REAL)
-				|| (cur->affinity == SQLITE_AFF_NUMERIC)
-				|| (cur->affinity == SQLITE_AFF_INTEGER)) {
-				it = mp_encode_str(it, "num", 3);
-			} else it = mp_encode_str(it, "str", 3);
-	}
-	size = it - msg_data;
-	return msg_data;
-}
 
 char *
-make_msgpuck_from(const SIndex *index, int &size) {
+make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 	char *msg_data = NULL;
 	int msg_size = 5;
 	int space_id = get_space_id_from(index->tnum);
 	int index_id = get_index_id_from(index->tnum) % 15;
 	int name_len = strlen(index->zName);
+	int crt_stmt_len = 0;
+	int opts_size = 1; //'unique' opt always here
+	if (crt_stmt) {
+		crt_stmt_len = strlen(crt_stmt);
+		opts_size++;
+	}
 	const char *type = "TREE";
 	int type_len = strlen(type);
 	msg_size += mp_sizeof_uint(space_id);
 	msg_size += mp_sizeof_uint(index_id);
 	msg_size += mp_sizeof_str(name_len);
 	msg_size += mp_sizeof_str(type_len);
-	msg_size += mp_sizeof_map(1); 
+	msg_size += mp_sizeof_map(opts_size); 
 		msg_size += mp_sizeof_str(6); //strlen('unique')
-		msg_size += mp_sizeof_bool(true);
+		msg_size += mp_sizeof_bool(true); //sizes of true and false are equal
+	if (crt_stmt) {
+		msg_size += mp_sizeof_str(8); //len of 'crt_stmt'
+		msg_size += mp_sizeof_str(crt_stmt_len);
+	}
 	msg_size += mp_sizeof_array(index->nKeyCol);
 	for (int i = 0; i < index->nKeyCol; ++i) {
 		msg_size += mp_sizeof_array(2);
@@ -1150,12 +1022,16 @@ make_msgpuck_from(const SIndex *index, int &size) {
 	it = mp_encode_uint(it, index_id);
 	it = mp_encode_str(it, index->zName, name_len);
 	it = mp_encode_str(it, type, type_len);
-	it = mp_encode_map(it, 1);
+	it = mp_encode_map(it, opts_size);
 		it = mp_encode_str(it, "unique", 6);
 	if (index->idxType == 0) {
 		it = mp_encode_bool(it, false);
 	} else {
 		it = mp_encode_bool(it, true);
+	}
+	if (crt_stmt) {
+		it = mp_encode_str(it, "crt_stmt", 8);
+		it = mp_encode_str(it, crt_stmt, crt_stmt_len);
 	}
 	it = mp_encode_array(it, index->nKeyCol);
 	for (int i = 0; i < index->nKeyCol; ++i) {
@@ -1208,7 +1084,6 @@ space_with_name_exists(const char *name, int *id) {
 
 int
 get_max_id_of_space() {
-	//static const char *__func_name = "get_max_id_of_space";
 	int id_max = -1;
 	char key[2], *key_end = mp_encode_array(key, 0);
 	void *argv[1];
@@ -1249,7 +1124,7 @@ int get_max_id_of_index(int space_id) {
 }
 
 int
-insert_new_table_as_space(Table *table) {
+insert_new_table_as_space(Table *table, const char *crt_stmt) {
 	static const char *__func_name = "insert_new_table_as_space";
 	SmartPtr<char> msg_data;
 	int msg_size;
@@ -1262,20 +1137,19 @@ insert_new_table_as_space(Table *table) {
 	}
 	id_max += 5;
 	table->tnum = make_space_id(id_max);
-	msg_data.reset(make_msgpuck_from((const Table *)table, msg_size));
+	msg_data.reset(make_msgpuck_from((const Table *)table, msg_size, crt_stmt));
 	rc = box_insert(BOX_SPACE_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
 }
 
 int
-insert_new_view_as_space(Table *table, char *crt_stmt) {
+insert_new_view_as_space(Table *table, const char *crt_stmt) {
 	static const char *__func_name = "insert_new_view_as_view";
 	char *msg_data;
 	int msg_size;
 	int id_max = get_max_id_of_space();
 	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
 	int rc;
-	sqlite3 *db;
 	if (id_max < 0) {
 		say_debug("%s(): error while getting max id\n", __func_name);
 		return -1;
@@ -1285,15 +1159,11 @@ insert_new_view_as_space(Table *table, char *crt_stmt) {
 	msg_data = make_msgpuck_from((const Table *)table, msg_size, crt_stmt);
 	rc = box_insert(BOX_SPACE_ID, msg_data, msg_data + msg_size, NULL);
 	delete[] msg_data;
-	if (rc) {
-		db = get_global_db();
-	}
-	(void) db;
 	return rc;
 }
 
 int
-insert_new_sindex_as_index(SIndex *index) {
+insert_new_sindex_as_index(SIndex *index, const char *crt_stmt) {
 	static const char *__func_name = "insert_new_sindex_as_index";
 	SmartPtr<char> msg_data;
 	int msg_size;
@@ -1306,7 +1176,7 @@ insert_new_sindex_as_index(SIndex *index) {
 	}
 	id_max++;
 	index->tnum = make_index_id(space_id, id_max);
-	msg_data.reset(make_msgpuck_from((const SIndex *)index, msg_size));
+	msg_data.reset(make_msgpuck_from((const SIndex *)index, msg_size, crt_stmt));
 	rc = box_insert(BOX_INDEX_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
 	return rc;
 }
@@ -1315,35 +1185,28 @@ Table *
 get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	Schema *pSchema, bool *is_temp, bool *is_view, bool is_delete)
 {
-	static const char *__func_name = "get_trntl_table_from_tuple";
-
 	int cnt = box_tuple_field_count(tpl);
 	if (cnt != 7) {
-		say_debug("%s(): box_tuple_field_count not equal 7, but %d\n", __func_name, cnt);
+		say_debug("%s(): box_tuple_field_count not equal 7, but %d\n", __FUNCTION__, cnt);
 		return NULL;
 	}
 	sqlite3 *db_alloc = NULL;
-	Parse p;
 	Hash *tblHash = &db->aDb[0].pSchema->tblHash;
-	Token name1, name2;
 	char zName[256];
-	memset(&p, 0, sizeof(p));
-	memset(&name1, 0, sizeof(name1));
-	memset(&name2, 0, sizeof(name2));
 	memset(zName, 0, sizeof(zName));
 
 	const char *data = box_tuple_field(tpl, 0);
 	int type = (int)mp_typeof(*data);
 	MValue tbl_id = MValue::FromMSGPuck(&data);
 	if (tbl_id.GetType() != MP_UINT) {
-		say_debug("%s(): field[0] in tuple in SPACE must be uint, but is %d\n", __func_name, type);
+		say_debug("%s(): field[0] in tuple in SPACE must be uint, but is %d\n", __FUNCTION__, type);
 		return NULL;
 	}
 
 	data = box_tuple_field(tpl, 2);
 	type = (int)mp_typeof(*data);
 	if (type != MP_STR) {
-		say_debug("%s(): field[2] in tuple in SPACE must be string, but is %d\n", __func_name, type);
+		say_debug("%s(): field[2] in tuple in SPACE must be string, but is %d\n", __FUNCTION__, type);
 		return NULL;
 	} else {
 		size_t len;
@@ -1352,24 +1215,44 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		memcpy(zName, buf.GetStr(), len);
 	}
 
-	name1.z = zName;
-	name1.n = strlen(zName);
-	p.is_trntl_init = 1;
-	p.db = db_alloc;
-	sqlite3StartTable(&p, &name1, &name2, 0, 0, 0, 1);
-	if (p.nErr > 0) {
-		say_debug("%s(): error while allocating memory for table, %s\n", __func_name, zName);
-		return NULL;
-	}
-
-	SmartPtr<Table> table(p.pNewTable, [](Table *ptr){
+	Table *new_table = (Table *)sqlite3DbMallocZero(db_alloc, sizeof(Table));
+	new_table->zName = sqlite3DbStrDup(db_alloc, zName);
+	new_table->iPKey = -1;
+	new_table->pSchema = pSchema;
+	new_table->nRef = 1;
+	new_table->nRowLogEst = 200;
+	SmartPtr<Table> table(new_table, [](Table *ptr){
 		if (!ptr) return;
 		sqlite3_free(ptr->zName);
 		sqlite3_free(ptr);
 	});
+	char key[128], *key_end;
+	key_end = mp_encode_array(key, 1);
+	key_end = mp_encode_uint(key_end, tbl_id.GetUint64());
+	int index_len = 200;
+	void *argv[1];
+	argv[0] = (void *)&index_len;
+	SpaceIterator::SIteratorCallback callback =
+	[](box_tuple_t *tpl, int, void **argv) -> int
+	{
+		int *index_len = (int *)argv[0];
+		const char *data = box_tuple_field(tpl, 0);
+		MValue space_id = MValue::FromMSGPuck(&data);
+		data = box_tuple_field(tpl, 1);
+		MValue index_id = MValue::FromMSGPuck(&data);
+		int tmp = box_index_len(space_id.GetUint64(),
+			index_id.GetUint64());
+		if (tmp > *index_len) *index_len = tmp;
+		return 1;
+	};
+	SpaceIterator iterator(1, argv, callback, BOX_INDEX_ID,
+		0, key, key_end, ITER_EQ);
+	iterator.IterateOver();
+	table->nRowLogEst = index_len;
+	table->szTabRow = ESTIMATED_ROW_SIZE;
 	table->tnum = make_space_id(tbl_id.GetUint64());
 	if (db->mallocFailed) {
-		say_debug("%s(): error while allocating memory for table\n", __func_name);
+		say_debug("%s(): error while allocating memory for table\n", __FUNCTION__);
 		return NULL;
 	}
 	table->pSchema = pSchema;
@@ -1379,10 +1262,12 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	//Get flags
 	if (is_temp) *is_temp = false;
 	if (is_view) *is_view = false;
+	bool local_is_view = false;
 
 	data = box_tuple_field(tpl, 5);
 	uint32_t map_size = mp_decode_map(&data);
 	Vdbe *v;
+	Table *pstmtTable = NULL;
 	for (uint32_t i = 0; i < map_size; ++i) {
 		MValue name = MValue::FromMSGPuck(&data);
 		MValue value = MValue::FromMSGPuck(&data);
@@ -1392,42 +1277,65 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		}
 		if (!strcmp(pname, "view") && value.GetBool()) {
 			if (is_view) *is_view = true;
+			local_is_view = true;
 		}
 		if (!strcmp(pname, "crt_stmt") && !is_delete) { 
-			/* we need not to parse crt_stmt_in case of deleting
-			 * view
-			 **/
 			sqlite3_stmt *stmt;
-			Table *pTable;
 			const char *pTail;
 			const char *z_sql = value.GetStr();
 			uint32_t len = strlen(z_sql);
 			sqlite3 *db = get_global_db();
-			int rc = sqlite3_prepare_v2(db, z_sql,
-					len, &stmt, &pTail);
-			if (rc) {
-				say_debug("%s(): error while parsing create statement for view\n", __func_name);
-				return NULL;
-			}
-			
-			if (!db->init.busy) {
+			int rc;
+			if (!local_is_view) {
+				//this is TABLE
+				rc = sqlite3_prepare_v3_taran(db, z_sql, len, &stmt, &pTail);
+				if (rc != SQLITE_OK) {
+					say_debug("%s(): error while parsing create statement for table\n", __FUNCTION__);
+					return NULL;
+				}
 				v = (Vdbe *)stmt;
-				(void) rc;
-				Parse *pParse = v->pParse;
-				table->pSelect = sqlite3SelectDup(0,
-							pParse->pNewTable->pSelect, 0);
+				//all that we need is on callbacks stack
+				void **argv;
+				rc = sqlite3VdbeNestedCallbackByID(v, "creating space", NULL, NULL, &argv);
+				if (rc < 0) {
+					say_debug("%s(): creating space callback was not found\n", __FUNCTION__);
+					sqlite3_finalize(stmt);
+					return NULL;
+				}
+				pstmtTable = make_deep_copy_Table((Table *)argv[2], db_alloc);
+				sqlite3_finalize(stmt);
+				pstmtTable->tnum = table->tnum;
+				pstmtTable->pSchema = pSchema;
+				pstmtTable->iPKey = -1;
+				pstmtTable->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
+				pstmtTable->nRowLogEst = table->nRowLogEst;
+				pstmtTable->szTabRow = table->szTabRow;
+				continue;
+			} else {
+				//this is VIEW
+				rc = sqlite3_prepare_v2(db, z_sql, len, &stmt, &pTail);
+				if (rc != SQLITE_OK) {
+					say_debug("%s(): error while parsing create statement for view\n", __FUNCTION__);
+					return NULL;
+				}
+				if (!db->init.busy) {
+					v = (Vdbe *)stmt;
+					(void) rc;
+					Parse *pParse = v->pParse;
+					table->pSelect = sqlite3SelectDup(0, pParse->pNewTable->pSelect, 0);
+				} else {
+					/* In init process we need to update tnum in
+					 * inmemory representation.
+					 **/
+					pstmtTable = (Table *)sqlite3HashFind(tblHash, table->zName);
+					pstmtTable->tnum = table->tnum;
+				}
+				sqlite3_finalize(stmt);
 			}
-			else {
-				/* In init process we need to update tnum in
-				 * inmemory representation.
-				 **/
-				pTable = (Table *)sqlite3HashFind(tblHash,
-						table->zName);
-				pTable->tnum = table->tnum;
-			}
-			sqlite3_finalize(stmt);
 		}
 	}
+	//we can't return immediately above because we need walk through all space opts
+	if (pstmtTable) return pstmtTable;
 	//Get space format
 	data = box_tuple_field(tpl, 6);
 	uint32_t len = mp_decode_array(&data);
@@ -1447,7 +1355,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		map_size = mp_decode_map(&data);
 		MValue colname, coltype;
 		if (map_size != 2) {
-			say_debug("%s(): map_size not equal 2, but %u\n", __func_name, map_size);
+			say_debug("%s(): map_size not equal 2, but %u\n", __FUNCTION__, map_size);
 			free_cols_content();
 			return NULL;
 		}
@@ -1455,7 +1363,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 			MValue key = MValue::FromMSGPuck(&data);
 			MValue val = MValue::FromMSGPuck(&data);
 			if ((key.GetType() != MP_STR) || (val.GetType() != MP_STR)) {
-				say_debug("%s(): unexpected not string format\n", __func_name);
+				say_debug("%s(): unexpected not string format\n", __FUNCTION__);
 				free_cols_content();
 				return NULL;
 			}
@@ -1467,13 +1375,13 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 				//type
 				coltype = val;
 			} else {
-				say_debug("%s(): unknown string in space_format\n", __func_name);
+				say_debug("%s(): unknown string in space_format\n", __FUNCTION__);
 				free_cols_content();
 				return NULL;
 			}
 		}
 		if (colname.IsEmpty() || coltype.IsEmpty()) {
-			say_debug("%s(): both name and type must be init\n", __func_name);
+			say_debug("%s(): both name and type must be init\n", __FUNCTION__);
 		}
 		char c = coltype.GetStr()[0];
 		const char *sql_type;
@@ -1508,30 +1416,6 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		memcpy(cur->zType, sql_type, len);
 		cur->affinity = affinity;
 	}
-	char key[128], *key_end;
-	key_end = mp_encode_array(key, 1);
-	key_end = mp_encode_uint(key_end, tbl_id.GetUint64());
-	int index_len = 200;
-	void *argv[1];
-	argv[0] = (void *)&index_len;
-	SpaceIterator::SIteratorCallback callback =
-	[](box_tuple_t *tpl, int, void **argv) -> int
-	{
-		int *index_len = (int *)argv[0];
-		const char *data = box_tuple_field(tpl, 0);
-		MValue space_id = MValue::FromMSGPuck(&data);
-		data = box_tuple_field(tpl, 1);
-		MValue index_id = MValue::FromMSGPuck(&data);
-		int tmp = box_index_len(space_id.GetUint64(),
-			index_id.GetUint64());
-		if (tmp > *index_len) *index_len = tmp;
-		return 1;
-	};
-	SpaceIterator iterator(1, argv, callback, BOX_INDEX_ID,
-		0, key, key_end, ITER_EQ);
-	iterator.IterateOver();
-	table->nRowLogEst = index_len;
-	table->szTabRow = ESTIMATED_ROW_SIZE;
 	table->aCol = cols.take_away();
 	table->nCol = nCol;
 	return table.take_away();
@@ -1563,7 +1447,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		char key[256], *key_end;
 		key_end = mp_encode_array(key, 1);
 		key_end = mp_encode_uint(key_end, space_id.GetUint64());
-		bool is_temp;
+		bool is_temp = false;
 		void *params[2];
 		MValue space_name;
 		params[0] = (void *)&is_temp;
@@ -1575,13 +1459,14 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 				const char *data;
 				data = box_tuple_field(tpl, 5);
 				uint32_t map_size = mp_decode_map(&data);
-				if (map_size == 1) {
+				for (uint32_t i = 0; i < map_size; ++i) {
 					MValue name = MValue::FromMSGPuck(&data);
 					MValue value = MValue::FromMSGPuck(&data);
 					if (!strcmp(name.GetStr(), "temporary") && value.GetBool()) {
 						*is_temp = true;
-					} else *is_temp = false;
-				} else *is_temp = false;
+						break;
+					}
+				}
 				data = box_tuple_field(tpl, 2);
 				*space_name = MValue::FromMSGPuck(&data);
 				return 0;
@@ -1593,7 +1478,7 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 		}
 		table = (Table *)sqlite3HashFind(&pSchema->tblHash, space_name.GetStr());
 		if (!table) {
-			say_debug("%s(): space with id %llu was not found\n", __func_name, (unsigned long long)space_id.GetUint64());
+			say_debug("%s(): space with id %llu was not found\n", __func_name, space_id.GetUint64());
 			return NULL;
 		}
 	}
@@ -1696,8 +1581,8 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 
 	data = box_tuple_field(index_tpl, 4);
 	int map_size = mp_decode_map(&data);
-	if (map_size != 1) {
-		say_debug("%s(): field[4] map size in INDEX must be 1, but %u\n", __func_name, map_size);
+	if (map_size > 2) {
+		say_debug("%s(): field[4] map size in INDEX must be <= 2, but is %u\n", __func_name, map_size);
 		free_index_azColls();
 		return NULL;
 	}
@@ -1711,14 +1596,19 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 			return NULL;
 		}
 		if (value.GetType() != MP_BOOL) {
-			say_debug("%s(): field[4][%u].value must be bool, but type %d\n", __func_name, j, value.GetType());
-			free_index_azColls();
-			return NULL;
+			if (value.GetType() != MP_STR) {
+				say_debug("%s(): field[4][%u].value must be string 'crt_stmt',"\
+					" but type %d\n", __FUNCTION__, j, value.GetType());
+				free_index_azColls();
+				return NULL;
+			}
+			say_debug("%s(): found index with crt_stmt: %s\n", __FUNCTION__, value.GetStr());
+			continue;
 		}
-	}
-	if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
-		if (value.GetBool()) {
-			if (index->idxType != 2) index->idxType = 1;
+		if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
+			if (value.GetBool()) {
+				if (index->idxType != 2) index->idxType = 1;
+			}
 		}
 	}
 
@@ -1752,204 +1642,6 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 
 	ok = true;
 	return index.take_away();
-}
-
-bool
-insert_into_master(Table *table) {
-	static const char *__func_name = "insert_into_master(table)";
-	Table *master_table;
-	if (sqlite3SchemaToIndex(get_global_db(), table->pSchema) == 1) {
-		master_table = (Table *)sqlite3HashFind(
-			&table->pSchema->tblHash, "sqlite_temp_master");
-	} else {
-		master_table = (Table *)sqlite3HashFind(
-			&table->pSchema->tblHash, "sqlite_master");
-	}
-	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum) % 15;
-	int name_len = strlen(table->zName);
-	char *msg_data, *it;
-	int msg_size = 5 + mp_sizeof_str(name_len) + mp_sizeof_str(5); //len of 'table'
-	SmartPtr<char> data_saver(new char[msg_size], [](char *p){delete[] p;});
-	msg_data = data_saver.get();
-	it = mp_encode_array(msg_data, 2);
-	it = mp_encode_str(it, "table", 5);
-	it = mp_encode_str(it, table->zName, name_len);
-	bool found = false;
-	void *argv[1];
-	argv[0] = &found;
-	SpaceIterator::SIteratorCallback callback =\
-		[](box_tuple_t *tpl, int, void **argv) -> int {
-			const char *data = box_tuple_field(tpl, 1);
-			MValue name = MValue::FromMSGPuck(&data);
-			(void)name;
-			//If we are here then record 'table table_name' already
-			//exists, because of key definition above
-			bool *found = (bool *)argv[0];
-			*found = true;
-			return 0;
-		};
-	//First try to find existing record
-	SpaceIterator iterator(1, argv, callback, space_id, index_id, msg_data, it, ITER_EQ);
-	iterator.IterateOver();
-	if (found) {
-		say_debug("%s: record about %s already exists", __func_name, table->zName);
-		return true;
-	}
-
-	msg_size = 5 + mp_sizeof_str(5); //len of array + len of 'table'
-	msg_size += mp_sizeof_str(name_len) * 2; //name + tbl_name
-	msg_size += mp_sizeof_uint(table->tnum);
-	msg_size += mp_sizeof_str(0);
-	data_saver.reset(new char[msg_size]);
-	msg_data = data_saver.get();
-	it = mp_encode_array(msg_data, 5);
-	it = mp_encode_str(it, "table", 5);
-	it = mp_encode_str(it, table->zName, name_len);
-	it = mp_encode_str(it, table->zName, name_len);
-	it = mp_encode_uint(it, table->tnum);
-	it = mp_encode_str(it, "", 0);
-	int rc = box_insert(space_id, msg_data, it, NULL);
-	if (rc) {
-		say_debug("%s: error while inserting: %s\n",
-			__func_name, GetLastErrMsg);
-		return false;
-	}
-	return true;
-}
-
-bool
-insert_into_master(SIndex *index) {
-	static const char *__func_name = "insert_into_master(index)";
-	Table *master_table;
-	if (sqlite3SchemaToIndex(get_global_db(), index->pSchema) == 1) {
-		master_table = (Table *)sqlite3HashFind(
-			&index->pSchema->tblHash, "sqlite_temp_master");
-	} else {
-		master_table = (Table *)sqlite3HashFind(
-			&index->pSchema->tblHash, "sqlite_master");
-	}
-	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum) % 15;
-	int table_name_len = strlen(index->pTable->zName);
-
-	int name_len = strlen(index->zName);
-	char *msg_data, *it;
-	int msg_size = 5 + mp_sizeof_str(name_len) + mp_sizeof_str(5); //len of 'index'
-	msg_size += mp_sizeof_str(table_name_len);
-	SmartPtr<char> data_saver(new char[msg_size], [](char *p){delete[] p;});
-	msg_data = data_saver.get();
-	it = mp_encode_array(msg_data, 3);
-	it = mp_encode_str(it, "index", 5);
-	it = mp_encode_str(it, index->zName, name_len);
-	it = mp_encode_str(it, index->pTable->zName, table_name_len);
-	bool found = false;
-	void *argv[1];
-	argv[0] = &found;
-	SpaceIterator::SIteratorCallback callback =\
-		[](box_tuple_t *tpl, int, void **argv) -> int {
-			const char *data = box_tuple_field(tpl, 1);
-			MValue name = MValue::FromMSGPuck(&data);
-			(void)name;
-			//If we are here then record 'index table_name' already
-			//exists, because of key definition above
-			bool *found = (bool *)argv[0];
-			*found = true;
-			return 0;
-		};
-	//First try to find existing record
-	SpaceIterator iterator(1, argv, callback, space_id, index_id, msg_data, it, ITER_EQ);
-	iterator.IterateOver();
-	if (found) {
-		say_debug("%s: record about %s already exists", __func_name, index->zName);
-		return true;
-	}
-
-	msg_size = 5 + mp_sizeof_str(5); //len of array + len of 'index'
-	msg_size += mp_sizeof_str(name_len) + mp_sizeof_str(table_name_len); //name + tbl_name
-	msg_size += mp_sizeof_uint(index->tnum);
-	msg_size += mp_sizeof_str(0);
-	data_saver.reset(new char[msg_size]);
-	msg_data = data_saver.get();
-	it = mp_encode_array(msg_data, 5);
-	it = mp_encode_str(it, "index", 5);
-	it = mp_encode_str(it, index->zName, name_len);
-	it = mp_encode_str(it, index->pTable->zName, table_name_len);
-	it = mp_encode_uint(it, index->tnum);
-	it = mp_encode_str(it, "", 0);
-	int rc = box_insert(space_id, msg_data, it, NULL);
-	if (rc) {
-		say_debug("%s: error while inserting: %s\n",
-			__func_name, GetLastErrMsg);
-		return false;
-	}
-	return true;
-}
-
-bool
-remove_from_master(Table *table) {
-	static const char *__func_name = "remove_from_master(table)";
-	int msg_size;
-	char *msg_data, *it;
-	int name_len = strlen(table->zName);
-	Table *master_table;
-	int iDb = sqlite3SchemaToIndex(get_global_db(), table->pSchema);
-	if (iDb) {
-		master_table = (Table *)sqlite3HashFind(&table->pSchema->tblHash,
-			"sqlite_temp_master");
-	} else {
-		master_table = (Table *)sqlite3HashFind(&table->pSchema->tblHash,
-			"sqlite_master");
-	}
-	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum) % 15;
-	//len of "table" and table name
-	msg_size = 5 + mp_sizeof_str(5) + mp_sizeof_str(name_len);
-	SmartPtr<char> data_saver(new char[msg_size], [](char *p){delete[] p;});
-	msg_data = data_saver.get();
-	it = mp_encode_array(msg_data, 2);
-	it = mp_encode_str(it, "table", 5);
-	it = mp_encode_str(it, table->zName, name_len);
-	int rc = box_delete(space_id, index_id, msg_data, it, NULL);
-	if (rc) {
-		say_debug("%s(): error while deleting table from master was occured: %s\n",
-			__func_name, GetLastErrMsg);
-	}
-	return !rc;
-}
-
-bool
-remove_from_master(SIndex *index) {
-	static const char *__func_name = "remove_from_master(table)";
-	int msg_size;
-	char *msg_data, *it;
-	int name_len = strlen(index->zName);
-	int table_name_len = strlen(index->pTable->zName);
-	Table *master_table;
-	int iDb = sqlite3SchemaToIndex(get_global_db(), index->pSchema);
-	if (iDb) {
-		master_table = (Table *)sqlite3HashFind(&index->pSchema->tblHash,
-			"sqlite_temp_master");
-	} else {
-		master_table = (Table *)sqlite3HashFind(&index->pSchema->tblHash,
-			"sqlite_master");
-	}
-	int space_id = get_space_id_from(master_table->tnum);
-	int index_id = get_index_id_from(master_table->tnum) % 15;
-	//len of "index", index name and table name
-	msg_size = 5 + mp_sizeof_str(5) + mp_sizeof_str(name_len) + mp_sizeof_str(table_name_len);
-	SmartPtr<char> data_saver(new char[msg_size], [](char *p){delete[] p;});
-	msg_data = data_saver.get();
-	it = mp_encode_array(msg_data, 3);
-	it = mp_encode_str(it, "index", 5);
-	it = mp_encode_str(it, index->zName, name_len);
-	it = mp_encode_str(it, index->pTable->zName, table_name_len);
-	int rc = box_delete(space_id, index_id, msg_data, it, NULL);
-	if (rc) {
-		say_debug("%s(): error while deleting index from master was occured: %s\n",
-			__func_name, GetLastErrMsg);
-	}
-	return !rc;
 }
 
 int
@@ -2024,7 +1716,6 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_insert = trntl_cursor_insert;
 	ob->trntl_cursor_delete_current = trntl_cursor_delete_current;
 	ob->log_debug = log_debug;
-	ob->init_schema_with_table = init_schema_with_table;
 	ob->trntl_nested_insert_into_space = trntl_nested_insert_into_space;
 	ob->trntl_drop_table = trntl_drop_table;
 	ob->get_global_db = get_global_db;
@@ -2060,15 +1751,14 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 				if (!ptr) return;
 				sqlite3 *db = get_global_db();
 				int i;
-				sqlite3_free(ptr->zName);
+				sqlite3DbFree(db, ptr->zName);
 				for (i = 0; i < ptr->nCol; ++i) {
-					sqlite3_free(ptr->aCol[i].zName);
-					sqlite3_free(ptr->aCol[i].zType);
+					sqlite3DbFree(db, ptr->aCol[i].zName);
+					sqlite3DbFree(db, ptr->aCol[i].zType);
 				}
-				sqlite3_free(ptr->aCol);
+				sqlite3DbFree(db, ptr->aCol);
 				sqlite3DbFree(db, ptr);
 			});
-		Table *taked;
 		if (is_temp != must_be_temp) {
 			continue;
 		}
@@ -2078,6 +1768,13 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 		}
 		if (!strcmp(table->zName, "sqlite_temp_master")) {
 			continue;
+		}
+		if (! (db->init.busy && is_view) ) {
+			/**
+			  * For view insertion in inmemory representation made
+			  * in sqlite3EndTable
+			  */
+			sqlite3HashInsert(tblHash, table->zName, table.get());
 		}
 
 		//----Indices----
@@ -2100,6 +1797,7 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 			if (index == NULL) {
 				if (ok) continue;
 				say_debug("%s(): error while getting index from tuple\n", __func_name);
+				sqlite3HashInsert(tblHash, table->zName, NULL);
 				return;
 			}
 
@@ -2111,16 +1809,13 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 				for (; last->pNext; last = last->pNext) {}
 				last->pNext = index;
 			}
-			if (!insert_into_master(index)) {
-				say_debug("%s(): error while inserting index into master,"\
-					" index name = %s, table name = %s\n",
-					__func_name, index->zName, table->zName);
-			}
 
 			add_new_index_to_self(self, index);
 
 			continue;
 __get_trntl_spaces_index_bad:
+			sqlite3HashInsert(tblHash, table->zName, NULL);
+			sqlite3HashInsert(idxHash, index->zName, NULL);
 			if (index->aSortOrder) sqlite3DbFree(db, index->aSortOrder);
 			if (index->aiColumn) sqlite3DbFree(db, index->aiColumn);
 			if (index->azColl) {
@@ -2132,17 +1827,7 @@ __get_trntl_spaces_index_bad:
 			if (index) sqlite3DbFree(db, index);
 			return;
 		} while (index_iterator.InProcess());
-		taked = table.take_away();
-		if (! (db->init.busy && is_view) ) {
-			/**
-			  * For view insertion in inmemory representation made
-			  * in sqlite3EndTable
-			  */
-			sqlite3HashInsert(tblHash, taked->zName, taked);
-			if (!insert_into_master(taked)) {
-				say_debug("%s(): table %s was not inserted into master\n", __func_name, taked->zName);
-			}
-		}
+		table.take_away();
 	} while (space_iterator.InProcess());
 	return;
 }
@@ -2204,88 +1889,11 @@ space_truncate_by_id(int root_page) {
 	box_truncate(get_space_id_from(root_page));
 }
 
-int init_schema_with_table(void *self_, Table *table) {
-	static const char *__func_name = "init_schema_with_table";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	int id_max = 0;
-	char key[128], *key_end = mp_encode_array(key, 0);
-	char *msg_data, *it;
-	int msg_size;
-	MValue space_id, space_name;
-	int rc;
-	SIndex *pIdx;
-	//int unique_len = strlen("unique");
-	box_tuple_t *new_index;
-	bool ok;
-	//int name_len, type_len;
-
-	if (space_with_name_exists(table->zName, &id_max)) {
-		say_debug("%s(): space %s already exists. Reinitializing...\n", __func_name, table->zName);
-		table->tnum = make_space_id(id_max);
-		goto __init_schema_with_table_table_created;
-	}
-	if (id_max < 0) {
-		return SQLITE_ERROR;
-	}
-	table->iPKey = -1;
-	table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
-	table->szTabRow = ESTIMATED_ROW_SIZE;
-	rc = insert_new_table_as_space(table);
-	if (rc) {
-		say_debug("%s(): error while inserting into _space\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	id_max = get_space_id_from(table->tnum);
-__init_schema_with_table_table_created:
-
-	//Creating indices
-	key_end = key;
-	key_end = mp_encode_array(key_end, 1);
-		key_end = mp_encode_uint(key_end, id_max);
-	SpaceIterator index_iterator(WITHOUT_CALLBACK, BOX_INDEX_ID, 0, key, key_end, ITER_EQ);
-	new_index = NULL;
-	do {
-		if (index_iterator.Next()) {
-			say_debug("%s(): index_iterator return not 0 while searching index\n", __func_name);
-			return SQLITE_ERROR;
-		}
-		if (index_iterator.IsEnd()) {
-			break;
-		}
-		new_index = index_iterator.GetTuple();
-		break;
-	} while (index_iterator.InProcess());
-	index_iterator.Close();
-	if (new_index) {
-		goto __init_schema_with_table_index_created;
-	}
-	table->pIndex->zColAff = NULL;
-	table->pIndex->tnum = make_index_id(id_max, 0);
-	msg_data = make_msgpuck_from(table->pIndex, msg_size);
-	it = msg_data + msg_size;
-
-	new_index = NULL;
-	rc = box_insert(BOX_INDEX_ID, msg_data, it, &new_index);
-	if (rc) {
-		say_debug("%s(): error while inserting into _index\n", __func_name);
-		return SQLITE_ERROR;
-	}
-__init_schema_with_table_index_created:
-	pIdx = get_trntl_index_from_tuple(new_index, get_global_db(), table, ok);
-	if (!ok) {
-		say_debug("%s(): error while creating SIndex from box_tuple_t\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	table->pIndex = pIdx;
-	add_new_index_to_self(self, pIdx);
-	return SQLITE_OK;
-}
-
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
 
 int
 trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
-                              struct KeyInfo *pKeyInfo, BtCursor *pCur) {
+			      struct KeyInfo *pKeyInfo, BtCursor *pCur) {
 	static const char *__func_name = "trntl_cursor_create";
 	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
 
@@ -2421,7 +2029,7 @@ remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor) {
 	delete c;
 	sqlite3_free(cursor->pKey);
 	cursor->pKey = 0;
-  	cursor->eState = CURSOR_INVALID;
+	cursor->eState = CURSOR_INVALID;
 }
 
 int
@@ -2500,14 +2108,14 @@ trntl_nested_insert_into_space(int argc, void *argv_) {
 	char *name = (char *)(argv[1]);
 	if (!strcmp(name, "_space")) {
 		Table *table = (Table *)argv[2];
-		rc = insert_new_table_as_space(table);
+		rc = insert_new_table_as_space(table, (char *)argv[3]);
 		if (rc) {
 			say_debug("%s(): error while inserting new table as space\n", __func_name);
 			return SQLITE_ERROR;
 		}
 	} else if (!strcmp(name, "_index")) {
 		SIndex *index = (SIndex *)argv[2];
-		rc = insert_new_sindex_as_index(index);
+		rc = insert_new_sindex_as_index(index, (char *)argv[3]);
 		if (rc) {
 			say_debug("%s(): error while insering new sindex as index\n", __func_name);
 			return SQLITE_ERROR;
