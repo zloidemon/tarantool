@@ -1075,10 +1075,10 @@ proc finalize_testing {} {
     #   sqlite3_memdebug_dump ./memleak.txt
     # }
   } else {
-    output2 "All memory allocations freed - no leaks"
-    ifcapable memdebug||mem5 {
-      sqlite3_memdebug_dump ./memusage.txt
-    }
+    # output2 "All memory allocations freed - no leaks"
+    # ifcapable memdebug||mem5 {
+    #   sqlite3_memdebug_dump ./memusage.txt
+    # }
   }
   show_memstats
   if {[info commands sqlite3_memdebug_malloc_count] ne ""} {
