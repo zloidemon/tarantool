@@ -750,15 +750,14 @@ on_commit_trigger(struct trigger * /*trigger*/, void * event) {
 	}
 	else if (new_tuple != NULL) {
 		say_debug("%s(): _trigger new_tuple != NULL && old_tuple == NULL\n", __func_name);
-		const char *z_sql = box_tuple_field(new_tuple, 5);
+		const char *z_sql = tuple_field_cstr(new_tuple, 5);
 		sqlite3_stmt *sqlite3_stmt;
 		uint32_t len = strlen(z_sql);
 		sqlite3 *db = get_global_db();
-		Trigger *trigger;
+		Trigger *pTrigger;
 		Vdbe *v;
 		const char *pTail;
-		int rc = sqlite3_prepare_v2(db, z_sql,
-				len, &sqlite3_stmt, &pTail);
+		int rc = sqlite3_prepare_v2(db, z_sql, len, &sqlite3_stmt, &pTail);
 		if (rc) {
 			say_debug("%s(): error while parsing create statement for trigger\n", __func_name);
 			return;
@@ -767,9 +766,20 @@ on_commit_trigger(struct trigger * /*trigger*/, void * event) {
 		if (!db->init.busy) {
 			v = (Vdbe *)sqlite3_stmt;
 			(void) rc;
-			trigger = v->pParse->pNewTrigger;
-			Hash *trigHash = &trigger->pSchema->trigHash;
-			sqlite3HashInsert(trigHash, trigger->zName, (void *)trigger);
+			pTrigger = sqlite3TriggerDup(db, v->pParse->pNewTrigger, 0);
+			Trigger *pLink = pTrigger;
+			Hash *trigHash = &pTrigger->pSchema->trigHash;
+			pTrigger = (Trigger *) sqlite3HashInsert(trigHash, pTrigger->zName, (void *)pTrigger);
+			if(pTrigger){
+				db->mallocFailed = 1;
+			} else if(pLink->pSchema == pLink->pTabSchema) {
+			  Table *pTab;
+			  pTab = (Table *)sqlite3HashFind(&pLink->pTabSchema->tblHash, pLink->table);
+			  assert( pTab!=0 );
+			  pLink->pNext = pTab->pTrigger;
+			  pTab->pTrigger = pLink;
+			}
+
 		}
 		sqlite3_finalize(sqlite3_stmt);
 	}
@@ -1469,23 +1479,23 @@ insert_trigger(Trigger *trigger, char *crt_stmt) {
 	char *new_tuple = new char[rec_size];
 	char *it = new_tuple;
 
-  	it = mp_encode_array(it, 8);
-  	it = mp_encode_uint(it, space_id);
+	it = mp_encode_array(it, 8);
+	it = mp_encode_uint(it, space_id);
 	it = mp_encode_uint(it, new_id);
 	it = mp_encode_uint(it, 0); // owner id
- 	it = mp_encode_str(it, trigger->zName, strlen(trigger->zName));
- 	it = mp_encode_str(it, trigger->table, strlen(trigger->table));
-  	it = mp_encode_str(it, crt_stmt_full, full_stmt_len);
-  	it = mp_encode_uint(it, 0); // setuid
-  	it = mp_encode_map(it, 1);
-  	it = mp_encode_str(it, "temporary", temporary_len);
-  	it = mp_encode_bool(it, is_temp);
+	it = mp_encode_str(it, trigger->zName, strlen(trigger->zName));
+	it = mp_encode_str(it, trigger->table, strlen(trigger->table));
+	it = mp_encode_str(it, crt_stmt_full, full_stmt_len);
+	it = mp_encode_uint(it, 0); // setuid
+	it = mp_encode_map(it, 1);
+	it = mp_encode_str(it, "temporary", temporary_len);
+	it = mp_encode_bool(it, is_temp);
 
-  	box_insert(BOX_TRIGGER_ID, new_tuple, it, NULL);
+	box_insert(BOX_TRIGGER_ID, new_tuple, it, NULL);
 
-  	delete[] new_tuple;
+	delete[] new_tuple;
 
-  	return 0;
+	return 0;
 }
 
 Table *
@@ -2463,7 +2473,7 @@ __init_schema_with_table_index_created:
 
 int
 trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
-                              struct KeyInfo *pKeyInfo, BtCursor *pCur) {
+							  struct KeyInfo *pKeyInfo, BtCursor *pCur) {
 	static const char *__func_name = "trntl_cursor_create";
 	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
 
@@ -2599,7 +2609,7 @@ remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor) {
 	delete c;
 	sqlite3_free(cursor->pKey);
 	cursor->pKey = 0;
-  	cursor->eState = CURSOR_INVALID;
+	cursor->eState = CURSOR_INVALID;
 }
 
 int
