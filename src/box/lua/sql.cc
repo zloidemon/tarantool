@@ -487,6 +487,12 @@ trntl_cursor_move_to_unpacked(void *self, BtCursor *pCur,
 int
 trntl_drop_table(Btree *p, int iTable, int *piMoved);
 
+/**
+ * Remove given trigger from _trigger.
+ */
+void
+trntl_drop_trigger(Trigger *pTrigger);
+
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   N E S T E D   F U N C S ~~~~~~~~~~~~~~~~~~~~~~~~
 
 /**
@@ -751,8 +757,8 @@ on_commit_trigger(struct trigger * /*trigger*/, void * event) {
 	struct txn_stmt *stmt = txn_last_stmt(txn);
 	struct tuple *old_tuple = stmt->old_tuple;
 	struct tuple *new_tuple = stmt->new_tuple;
-	if (old_tuple != NULL) {
-		say_debug("%s(): _trigger old_tuple != NULL\n", __func_name);
+	if (old_tuple != NULL && new_tuple == NULL) {
+		say_debug("%s(): _trigger old_tuple != NULL and new_tuple == NULL\n", __func_name);
 		return;
 	}
 	else if (new_tuple != NULL) {
@@ -770,12 +776,15 @@ on_commit_trigger(struct trigger * /*trigger*/, void * event) {
 			return;
 		}
 
+		const char *tid_opt = tuple_field(new_tuple, 1);
+
 		if (!db->init.busy) {
 			v = (Vdbe *)sqlite3_stmt;
 			(void) rc;
 			pTrigger = sqlite3TriggerDup(db, v->pParse->pNewTrigger, 0);
 			Trigger *pLink = pTrigger;
 			Hash *trigHash = &pTrigger->pSchema->trigHash;
+			pTrigger->tid = mp_decode_uint(&tid_opt);
 			pTrigger = (Trigger *) sqlite3HashInsert(trigHash, pTrigger->zName, (void *)pTrigger);
 			if(pTrigger){
 				db->mallocFailed = 1;
@@ -2227,6 +2236,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->space_truncate_by_id = space_truncate_by_id;
 	ob->remove_and_free_sindex = remove_and_free_sindex;
 	ob->insert_trigger = insert_trigger;
+	ob->trntl_drop_trigger = trntl_drop_trigger;
 }
 
 void
@@ -2350,7 +2360,6 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 	(void)*self_;
 	(void)tblHash;
 	(void)trigHash;
-	(void)pSchema;
 	//sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
 
 	bool must_be_temp = sqlite3SchemaToIndex(db, pSchema);
@@ -2370,6 +2379,8 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 		trigger_tpl = trigger_iterator.GetTuple();
 
 		/* get create statement */
+		const char *tid_opt = tuple_field(trigger_tpl, 1);
+		const char *trig_name = tuple_field_cstr(trigger_tpl, 3);
 		const char *crt_stmt = tuple_field_cstr(trigger_tpl, 5);
 		const char *options = tuple_field(trigger_tpl, 7);
 		static uint32_t temporary_len = 9; // 9 = strlen("temporary")
@@ -2392,8 +2403,13 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 			say_debug("%s(): unexpected option\n", __func_name);
 			return;
 		}
-
 		if (is_temp == must_be_temp) {
+			/*
+			 * Insertion in sqlite inmemory representation will be made in
+			 * sqlite3FinishTrigger. sqlite3FinishTrigger will be called in
+			 * sqlite3_prepare_v2.
+			 */
+
 			sqlite3_stmt *sqlite3_stmt;
 			uint32_t len = strlen(crt_stmt);
 			Trigger *pTrigger;
@@ -2405,8 +2421,10 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 				return;
 			}
 			v = (Vdbe *)sqlite3_stmt;
-			Parse *pParse = v->pParse;
-			pTrigger = sqlite3TriggerDup(db, pParse->pNewTrigger, 0);
+
+			Hash *trigHash = &pSchema->trigHash;
+			pTrigger = (Trigger*)sqlite3HashFind(trigHash, trig_name);
+			pTrigger->tid = mp_decode_uint(&tid_opt);
 			sqlite3_finalize(sqlite3_stmt);
 		}
 	} while (trigger_iterator.InProcess());
@@ -2747,6 +2765,20 @@ trntl_drop_table(Btree *p, int iTable, int *piMoved)
 		return SQLITE_ERROR;
 	}
 	return SQLITE_OK;
+}
+
+void
+trntl_drop_trigger(Trigger *pTrigger) {
+	char key[10];
+	char *it = key;
+	Table *pTab = (Table *)sqlite3HashFind(&pTrigger->pTabSchema->tblHash,
+										 pTrigger->table);
+	uint32_t id = get_space_id_from(pTab->tnum);
+	it = mp_encode_array(it, 2);
+	it = mp_encode_uint(it, id);
+	it = mp_encode_uint(it, pTrigger->tid);
+
+	box_delete(BOX_TRIGGER_ID, 0, key, it, NULL);
 }
 
 
