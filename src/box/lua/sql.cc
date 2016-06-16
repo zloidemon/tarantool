@@ -245,6 +245,13 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg,
 	Schema *pSchema, Hash *idxHash, Hash *tblHash);
 
 /**
+ * Add triggers from _trigger to sqlite inmemory representation.
+ */
+void
+get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
+	Hash *tblHash, Hash *trigHash);
+
+/**
  * Check if number of root page - num - is container for
  * tarantool space and index numbers.
  */
@@ -2189,6 +2196,7 @@ extern "C" {
 void
 sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->get_trntl_spaces = &get_trntl_spaces;
+	ob->get_sql_triggers = &get_sql_triggers;
 	sql_trntl_self *self = new sql_trntl_self;
 	ob->self = self;
 	self->cursors = NULL;
@@ -2334,6 +2342,76 @@ __get_trntl_spaces_index_bad:
 	} while (space_iterator.InProcess());
 	return;
 }
+
+void
+get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
+	Hash *tblHash, Hash *trigHash) {
+	static const char *__func_name = "get_sql_triggers";
+	(void)*self_;
+	(void)tblHash;
+	(void)trigHash;
+	(void)pSchema;
+	//sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+
+	bool must_be_temp = sqlite3SchemaToIndex(db, pSchema);
+	bool is_temp;
+	char key[2], *key_end = mp_encode_array(key, 0);
+	SpaceIterator trigger_iterator(WITHOUT_CALLBACK, BOX_TRIGGER_ID, 0, key, key_end);
+	box_tuple_t *trigger_tpl = NULL;
+
+	do {
+		if (trigger_iterator.Next()) {
+			say_debug("%s(): trigger_iterator return not 0\n", __func_name);
+			return;
+		}
+		if (trigger_iterator.IsEnd()) break;
+
+
+		trigger_tpl = trigger_iterator.GetTuple();
+
+		/* get create statement */
+		const char *crt_stmt = tuple_field_cstr(trigger_tpl, 5);
+		const char *options = tuple_field(trigger_tpl, 7);
+		static uint32_t temporary_len = 9; // 9 = strlen("temporary")
+		uint32_t opt_size = mp_decode_map(&options);
+
+		if (opt_size != 1) {
+			say_debug("%s(): expected 1 option other found\n", __func_name);
+		}
+
+		uint32_t key_len;
+		const char *key = mp_decode_str(&options, &key_len);
+		if (key_len == temporary_len && !memcmp(key, "temporary", temporary_len)) {
+			if (mp_typeof(*options) != MP_BOOL) {
+				say_debug("%s(): temporary option is not BOOL\n", __func_name);
+				return;
+			}
+			is_temp = mp_decode_bool(&options);
+		}
+		else {
+			say_debug("%s(): unexpected option\n", __func_name);
+			return;
+		}
+
+		if (is_temp == must_be_temp) {
+			sqlite3_stmt *sqlite3_stmt;
+			uint32_t len = strlen(crt_stmt);
+			Trigger *pTrigger;
+			Vdbe *v;
+			const char *pTail;
+			int rc = sqlite3_prepare_v2(db, crt_stmt, len, &sqlite3_stmt, &pTail);
+			if (rc) {
+				say_debug("%s(): error while parsing create statement for trigger\n", __func_name);
+				return;
+			}
+			v = (Vdbe *)sqlite3_stmt;
+			Parse *pParse = v->pParse;
+			pTrigger = sqlite3TriggerDup(db, pParse->pNewTrigger, 0);
+			sqlite3_finalize(sqlite3_stmt);
+		}
+	} while (trigger_iterator.InProcess());
+}
+
 
 char
 check_num_on_tarantool_id(void * /*self*/, u32 num) {
