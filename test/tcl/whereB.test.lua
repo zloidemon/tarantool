@@ -58,7 +58,7 @@ do_test whereB-1.1 {
 # } {}
 # do_test whereB-1.100 {
 #   db eval {
-#     DROP INDEX '532_1_t2b';
+#     DROP INDEX '522_1_t2b';
 #     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
 #   }
 # } {}
@@ -116,7 +116,7 @@ do_test whereB-2.1 {
 # } {}
 # do_test whereB-2.100 {
 #   db eval {
-#     DROP INDEX '532_1_t2b';
+#     DROP INDEX '522_1_t2b';
 #     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
 #   }
 # } {}
@@ -139,21 +139,23 @@ do_test whereB-2.1 {
 # These values are not equal and because neither affinity is NUMERIC
 # no type conversion occurs.
 #
-do_test whereB-3.1 {
-  db eval {
-    DROP TABLE t1;
-    DROP TABLE t2;
 
-    CREATE TABLE t1(x primary key, y BLOB);    -- affinity of t1.y is NONE
-    INSERT INTO t1 VALUES(1,99);
+# MUST_WORK_TEST
+# do_test whereB-3.1 {
+#   db eval {
+#     DROP TABLE t1;
+#     DROP TABLE t2;
 
-    CREATE TABLE t2(a primary key, b BLOB);  -- affinity of t2.b is NONE
-    CREATE INDEX t2b ON t2(b);
-    INSERT INTO t2 VALUES(2,'99');
+#     CREATE TABLE t1(x primary key, y BLOB);    -- affinity of t1.y is NONE
+#     INSERT INTO t1 VALUES(1,99);
 
-    SELECT x, a, y=b FROM t1, t2;
-  }
-} {1 2 0}
+#     CREATE TABLE t2(a primary key, b BLOB);  -- affinity of t2.b is NONE
+#     CREATE INDEX t2b ON t2(b);
+#     INSERT INTO t2 VALUES(2,'99');
+
+#     SELECT x, a, y=b FROM t1, t2;
+#   }
+# } {1 2 0}
 # do_test whereB-3.2 {
 #   db eval {
 #     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
@@ -197,8 +199,8 @@ do_test whereB-3.1 {
 #
 do_test whereB-4.1 {
   db eval {
-    DROP TABLE t1;
-    DROP TABLE t2;
+    DROP TABLE IF EXISTS t1;
+    DROP TABLE IF EXISTS t2;
 
     CREATE TABLE t1(x primary key, y BLOB);    -- affinity of t1.y is NONE
     INSERT INTO t1 VALUES(1,'99');
@@ -229,7 +231,7 @@ do_test whereB-4.4 {
 } {}
 do_test whereB-4.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -290,7 +292,7 @@ do_test whereB-5.4 {
 } {}
 do_test whereB-5.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -410,7 +412,7 @@ do_test whereB-7.4 {
 } {}
 do_test whereB-7.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -469,7 +471,7 @@ do_test whereB-8.4 {
 } {}
 do_test whereB-8.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -528,7 +530,7 @@ do_test whereB-9.4 {
 } {}
 do_test whereB-9.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}

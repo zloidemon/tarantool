@@ -316,7 +316,7 @@ foreach indexes [list {
 } {
   CREATE INDEX i1 ON t1(a)
 } {
-  DROP INDEX '527_1_i1';
+  DROP INDEX '517_1_i1';
   CREATE INDEX i1 ON t1(b,a);
 } {
   CREATE INDEX i2 ON t2(d DESC, e COLLATE REVERSE ASC);
