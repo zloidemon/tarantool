@@ -51,6 +51,7 @@ extern "C" {
 #include "box/txn.h"
 #include "box/tuple.h"
 #include "box/session.h"
+#include "box/key_def.h"
 #include "trigger.h"
 #include "small/rlist.h"
 #include "sql_mvalue.h"
@@ -172,6 +173,28 @@ drop_index(int space_id, int index_id);
  */
 int
 drop_all_indices(int space_id);
+
+field_type
+get_tarantool_type_from_sql_aff(int affinity) {
+	switch(affinity) {
+		case SQLITE_AFF_REAL:
+		case SQLITE_AFF_NUMERIC: return NUMBER;
+		case SQLITE_AFF_INTEGER: return INT;
+		case SQLITE_AFF_TEXT: return STRING;
+		case SQLITE_AFF_BLOB: return SCALAR;
+		default: return UNKNOWN;
+	}
+}
+
+int get_maximum_field_type_len() {
+	int res = 0;
+	for (int i = 0, cur_len = strlen(field_type_strs[0]); cur_len > 0; ++i)
+	{
+		res = MAX(res, cur_len);
+		if (cur_len > 0) cur_len = strlen(field_type_strs[i + 1]);
+	}
+	return res;
+}
 
 extern "C" {
 
@@ -549,7 +572,6 @@ on_commit_space(struct trigger * /*trigger*/, void * event) {
 			say_debug("%s(): table was not found\n", __func_name);
 			return;
 		}
-		
 		sqlite3HashInsert(tblHash, table->zName, NULL);
 	}
 	if (new_tuple != NULL) {
@@ -909,6 +931,7 @@ make_msgpuck_from(const Table *table, int &size, const char *crt_stmt) {
 	int crt_stmt_len = crt_stmt ? strlen(crt_stmt) : 0;
 	int stmt_len = strlen("crt_stmt");
 	int has_crt_stmt = !!crt_stmt;
+	int max_type_len = get_maximum_field_type_len();
 	Column *cur;
 	int i;
 	bool is_temp = sqlite3SchemaToIndex(get_global_db(), table->pSchema);
@@ -940,7 +963,7 @@ make_msgpuck_from(const Table *table, int &size, const char *crt_stmt) {
 	for (i = 0; i < table->nCol; ++i) {
 		cur = table->aCol + i;
 		msg_size += mp_sizeof_str(strlen(cur->zName));
-		msg_size += mp_sizeof_str(3); //strlen of "num" or "str"
+		msg_size += mp_sizeof_str(max_type_len);
 	}
 	msg_data = new char[msg_size];
 	it = msg_data;
@@ -972,11 +995,14 @@ make_msgpuck_from(const Table *table, int &size, const char *crt_stmt) {
 			it = mp_encode_str(it, "name", name_len);
 			it = mp_encode_str(it, cur->zName, strlen(cur->zName));
 			it = mp_encode_str(it, "type", type_len);
-			if ((cur->affinity == SQLITE_AFF_REAL)
-				|| (cur->affinity == SQLITE_AFF_NUMERIC)
-				|| (cur->affinity == SQLITE_AFF_INTEGER)) {
-				it = mp_encode_str(it, "num", 3);
-			} else it = mp_encode_str(it, "str", 3);
+			field_type ftp = get_tarantool_type_from_sql_aff(cur->affinity);
+			if (ftp == UNKNOWN) {
+				size = 0;
+				delete[] msg_data;
+				return NULL;
+			}
+			it = mp_encode_str(it, field_type_strs[ftp],
+				strlen(field_type_strs[ftp]));
 	}
 	size = it - msg_data;
 	return msg_data;
@@ -991,6 +1017,7 @@ make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 	int name_len = strlen(index->zName);
 	int crt_stmt_len = 0;
 	int opts_size = 1; //'unique' opt always here
+	int max_type_len = 10;
 	if (crt_stmt) {
 		crt_stmt_len = strlen(crt_stmt);
 		opts_size++;
@@ -1012,7 +1039,7 @@ make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 	for (int i = 0; i < index->nKeyCol; ++i) {
 		msg_size += mp_sizeof_array(2);
 			msg_size += mp_sizeof_uint(index->aiColumn[i]);
-			msg_size += mp_sizeof_str(3); // len of 'str' of 'num'
+			msg_size += mp_sizeof_str(max_type_len);
 	}
 
 	msg_data = new char[msg_size];
@@ -1038,14 +1065,14 @@ make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 		int col = index->aiColumn[i];
 		int affinity = index->pTable->aCol[col].affinity;
 		it = mp_encode_array(it, 2);
-			it = mp_encode_uint(it, col);
-		if ((affinity == SQLITE_AFF_NUMERIC)
-			|| (affinity == SQLITE_AFF_INTEGER)
-			|| (affinity == SQLITE_AFF_REAL)) {
-			it = mp_encode_str(it, "num", 3);
-		} else {
-			it = mp_encode_str(it, "str", 3);
+		it = mp_encode_uint(it, col);
+		field_type ftp = get_tarantool_type_from_sql_aff(affinity);
+		if (ftp == UNKNOWN) {
+			size = 0;
+			return NULL;
 		}
+		it = mp_encode_str(it, field_type_strs[ftp],
+			strlen(field_type_strs[ftp]));
 	}
 	size = it - msg_data;
 	return msg_data;
@@ -1126,7 +1153,7 @@ int get_max_id_of_index(int space_id) {
 int
 insert_new_table_as_space(Table *table, const char *crt_stmt) {
 	static const char *__func_name = "insert_new_table_as_space";
-	SmartPtr<char> msg_data;
+	char *msg_data;
 	int msg_size;
 	int id_max = get_max_id_of_space();
 	id_max = MAX(id_max, BOX_SYSTEM_ID_MAX + 1);
@@ -1137,8 +1164,9 @@ insert_new_table_as_space(Table *table, const char *crt_stmt) {
 	}
 	id_max += 5;
 	table->tnum = make_space_id(id_max);
-	msg_data.reset(make_msgpuck_from((const Table *)table, msg_size, crt_stmt));
-	rc = box_insert(BOX_SPACE_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
+	msg_data = make_msgpuck_from((const Table *)table, msg_size, crt_stmt);
+	rc = box_insert(BOX_SPACE_ID, msg_data, msg_data + msg_size, NULL);
+	delete[] msg_data;
 	return rc;
 }
 
@@ -1165,7 +1193,7 @@ insert_new_view_as_space(Table *table, const char *crt_stmt) {
 int
 insert_new_sindex_as_index(SIndex *index, const char *crt_stmt) {
 	static const char *__func_name = "insert_new_sindex_as_index";
-	SmartPtr<char> msg_data;
+	char *msg_data = NULL;
 	int msg_size;
 	int space_id = get_space_id_from(index->pTable->tnum);
 	int id_max = get_max_id_of_index(space_id);
@@ -1176,8 +1204,9 @@ insert_new_sindex_as_index(SIndex *index, const char *crt_stmt) {
 	}
 	id_max++;
 	index->tnum = make_index_id(space_id, id_max);
-	msg_data.reset(make_msgpuck_from((const SIndex *)index, msg_size, crt_stmt));
-	rc = box_insert(BOX_INDEX_ID, msg_data.get(), msg_data.get() + msg_size, NULL);
+	msg_data = make_msgpuck_from((const SIndex *)index, msg_size, crt_stmt);
+	rc = box_insert(BOX_INDEX_ID, msg_data, msg_data + msg_size, NULL);
+	delete[] msg_data;
 	return rc;
 }
 
@@ -1190,7 +1219,7 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		say_debug("%s(): box_tuple_field_count not equal 7, but %d\n", __FUNCTION__, cnt);
 		return NULL;
 	}
-	sqlite3 *db_alloc = NULL;
+	sqlite3 *db_alloc = 0;
 	Hash *tblHash = &db->aDb[0].pSchema->tblHash;
 	char zName[256];
 	memset(zName, 0, sizeof(zName));
@@ -1223,8 +1252,8 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	new_table->nRowLogEst = 200;
 	SmartPtr<Table> table(new_table, [](Table *ptr){
 		if (!ptr) return;
-		sqlite3_free(ptr->zName);
-		sqlite3_free(ptr);
+		sqlite3DbFree(get_global_db(), ptr->zName);
+		sqlite3DbFree(get_global_db(), ptr);
 	});
 	char key[128], *key_end;
 	key_end = mp_encode_array(key, 1);
@@ -1340,15 +1369,15 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	data = box_tuple_field(tpl, 6);
 	uint32_t len = mp_decode_array(&data);
 
-	SmartPtr<Column> cols((Column *)sqlite3Malloc(len * sizeof(Column)),
-		[](Column *ptr){sqlite3_free(ptr);});
+	SmartPtr<Column> cols((Column *)sqlite3DbMallocZero(db_alloc, len * sizeof(Column)),
+		[](Column *ptr){sqlite3DbFree(0, ptr);});
 	memset(cols.get(), 0, sizeof(Column) * len);
 	int nCol = 0;
 	auto free_cols_content = [&](){
 		for (int i = 0; i < nCol; ++i) {
 			Column *cur = cols.get() + i;
-			sqlite3_free(cur->zName);
-			sqlite3_free(cur->zType);
+			sqlite3DbFree(db_alloc, cur->zName);
+			sqlite3DbFree(db_alloc, cur->zType);
 		}
 	};
 	for (uint32_t i = 0; i < len; ++i) {
@@ -1383,35 +1412,45 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 		if (colname.IsEmpty() || coltype.IsEmpty()) {
 			say_debug("%s(): both name and type must be init\n", __FUNCTION__);
 		}
-		char c = coltype.GetStr()[0];
+		char c1 = coltype.GetStr()[0];
+		char c2 = coltype.GetStr()[1];
 		const char *sql_type;
 		int affinity;
-		switch(c) {
-			case 'n': case 'N': {
-				sql_type = "INT";
+		if ((c1 == 'N') || (c1 == 'n')) {
+			if (coltype.Size() > 3) {
+				affinity = SQLITE_AFF_NUMERIC;
+				sql_type = "NUMERIC";
+			} else {
 				affinity = SQLITE_AFF_INTEGER;
-				break;
+				sql_type = "INT";
 			}
-			case 's': case 'S': {
-				sql_type = "TEXT";
+		} else if ((c1 == 's') || (c1 == 'S')) {
+			if ((c2 == 'T') || (c2 == 't')) {
 				affinity = SQLITE_AFF_TEXT;
-				break;
-			}
-			default: {
-				sql_type = "BLOB";
+				sql_type = "TEXT";
+			} else {
 				affinity = SQLITE_AFF_BLOB;
-				break;
+				sql_type = "BLOB";
 			}
+		} else if ((c1 == 'A') || (c1 == 'a')) {
+			affinity = SQLITE_AFF_BLOB;
+			sql_type = "BLOB";
+		} else if ((c1 == 'i') || (c1 == 'I')) {
+			affinity = SQLITE_AFF_INTEGER;
+			sql_type = "INT";
+		} else {
+			affinity = SQLITE_AFF_BLOB;
+			sql_type = "BLOB";
 		}
 		Column *cur = cols.get() + nCol++;
 		size_t len;
 		colname.GetStr(&len);
-		cur->zName = (char *)sqlite3Malloc(len + 1);
+		cur->zName = (char *)sqlite3DbMallocZero(db_alloc, len + 1);
 		memset(cur->zName, 0, len + 1);
 		memcpy(cur->zName, colname.GetStr(), len);
 
 		len = strlen(sql_type);
-		cur->zType = (char *)sqlite3Malloc(len + 1);
+		cur->zType = (char *)sqlite3DbMallocZero(db_alloc, len + 1);
 		memset(cur->zType, 0, len + 1);
 		memcpy(cur->zType, sql_type, len);
 		cur->affinity = affinity;
@@ -2027,7 +2066,7 @@ remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor) {
 	else
 		self->cursors = nullptr;
 	delete c;
-	sqlite3_free(cursor->pKey);
+	sqlite3DbFree(get_global_db(), cursor->pKey);
 	cursor->pKey = 0;
 	cursor->eState = CURSOR_INVALID;
 }
