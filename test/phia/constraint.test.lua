@@ -23,18 +23,6 @@ space:get{'A'}
 index:pairs('A', {iterator = 'GE'})
 space:drop()
 
-
--- test key-parts limit (8 max)
-space = box.schema.space.create('test', { engine = 'phia' })
-index = space:create_index('primary', { type = 'tree', parts = {1,'num',2,'num',3,'num',4,'num',5,'num',6,'num',7,'num',8,'num'} })
-space:drop()
-
--- test key-parts limit (hit the limit)
-space = box.schema.space.create('test', { engine = 'phia' })
-index = space:create_index('primary', { type = 'tree', parts = {1,'num',2,'num',3,'num',4,'num',5,'num',6,'num',7,'num',8,'num', 9, 'num'} })
-space:drop()
-
-
 -- ensure all key-parts are passed
 space = box.schema.space.create('test', { engine = 'phia' })
 index = space:create_index('primary', { type = 'tree', parts = {1,'num',2,'num'} })
@@ -46,3 +34,18 @@ space:upsert({1}, {{'+', 1, 10}})
 space:get{1}
 index:select({1}, {iterator = box.index.GT})
 space:drop()
+
+-------------------------------------------------------------------------------
+-- Key part length limit
+-------------------------------------------------------------------------------
+
+space = box.schema.space.create('single_part', { engine = 'phia' })
+_ = space:create_index('primary', { type = 'tree', parts = {1, 'str'}})
+
+space:insert({string.rep('x', 1023)})
+space:insert({string.rep('x', 1024)})
+space:insert({string.rep('x', 1025)})
+
+space:drop()
+space = nil
+pk = nil

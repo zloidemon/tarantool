@@ -32,6 +32,7 @@
 #include "tuple_update.h"
 #include <stdio.h>
 
+#include "trivia/util.h"
 #include "third_party/queue.h"
 #include <msgpuck.h>
 #include "bit/int96.h"
@@ -438,7 +439,7 @@ make_arith_operation(struct op_arith_arg arg1, struct op_arith_arg arg2,
 			int96_add(&arg1.int96, &arg2.int96);
 			break;
 		default:
-			assert(false); /* checked by update_read_ops */
+			unreachable(); /* checked by update_read_ops */
 			break;
 		}
 		if (!int96_is_uint64(&arg1.int96) &&
@@ -570,7 +571,7 @@ do_op_bit(struct tuple_update *update, struct update_op *op)
 		arg->val |= val;
 		break;
 	default:
-		assert(false); /* checked by update_read_ops */
+		unreachable(); /* checked by update_read_ops */
 	}
 	field->op = op;
 	op->new_field_len = mp_sizeof_uint(arg->val);
@@ -982,14 +983,18 @@ tuple_update_execute(tuple_update_alloc_func alloc, void *alloc_ctx,
 		     const char *old_data, const char *old_data_end,
 		     uint32_t *p_tuple_len, int index_base)
 {
-	struct tuple_update update;
-	update_init(&update, alloc, alloc_ctx, old_data, old_data_end,
-		    index_base);
+	try {
+		struct tuple_update update;
+		update_init(&update, alloc, alloc_ctx, old_data, old_data_end,
+			    index_base);
 
-	update_read_ops(&update, expr, expr_end);
-	update_do_ops(&update);
+		update_read_ops(&update, expr, expr_end);
+		update_do_ops(&update);
 
-	return update_finish(&update, p_tuple_len);
+		return update_finish(&update, p_tuple_len);
+	} catch (Exception *e) {
+		 return NULL;
+	}
 }
 
 const char *
@@ -998,13 +1003,16 @@ tuple_upsert_execute(tuple_update_alloc_func alloc, void *alloc_ctx,
 		     const char *old_data, const char *old_data_end,
 		     uint32_t *p_tuple_len, int index_base)
 {
-	struct tuple_update update;
-	update_init(&update, alloc, alloc_ctx, old_data, old_data_end,
-		    index_base);
+	try {
+		struct tuple_update update;
+		update_init(&update, alloc, alloc_ctx, old_data, old_data_end,
+			    index_base);
 
-	update_read_ops(&update, expr, expr_end);
-	upsert_do_ops(&update);
+		update_read_ops(&update, expr, expr_end);
+		upsert_do_ops(&update);
 
-	return update_finish(&update, p_tuple_len);
+		return update_finish(&update, p_tuple_len);
+	} catch (Exception *e) {
+		 return NULL;
+	}
 }
-

@@ -7,11 +7,11 @@ index = space:create_index('primary', { type = 'tree', parts = {1, 'str'} })
 ...
 space:insert{1}
 ---
-- error: 'Supplied key type of part 0 does not match index part type: expected STR'
+- error: 'Tuple field 1 type does not match one required by operation: expected STR'
 ...
 space:replace{1}
 ---
-- error: 'Supplied key type of part 0 does not match index part type: expected STR'
+- error: 'Tuple field 1 type does not match one required by operation: expected STR'
 ...
 space:delete{1}
 ---
@@ -45,11 +45,11 @@ index = space:create_index('primary', { type = 'tree', parts = {1, 'num'} })
 ...
 space:insert{'A'}
 ---
-- error: 'Supplied key type of part 0 does not match index part type: expected NUM'
+- error: 'Tuple field 1 type does not match one required by operation: expected NUM'
 ...
 space:replace{'A'}
 ---
-- error: 'Supplied key type of part 0 does not match index part type: expected NUM'
+- error: 'Tuple field 1 type does not match one required by operation: expected NUM'
 ...
 space:delete{'A'}
 ---
@@ -70,28 +70,6 @@ space:get{'A'}
 index:pairs('A', {iterator = 'GE'})
 ---
 - error: 'Supplied key type of part 0 does not match index part type: expected NUM'
-...
-space:drop()
----
-...
--- test key-parts limit (8 max)
-space = box.schema.space.create('test', { engine = 'phia' })
----
-...
-index = space:create_index('primary', { type = 'tree', parts = {1,'num',2,'num',3,'num',4,'num',5,'num',6,'num',7,'num',8,'num'} })
----
-...
-space:drop()
----
-...
--- test key-parts limit (hit the limit)
-space = box.schema.space.create('test', { engine = 'phia' })
----
-...
-index = space:create_index('primary', { type = 'tree', parts = {1,'num',2,'num',3,'num',4,'num',5,'num',6,'num',7,'num',8,'num', 9, 'num'} })
----
-- error: 'Can''t create or modify index ''primary'' in space ''test'': Phia index
-    key has too many parts (8 max)'
 ...
 space:drop()
 ---
@@ -129,8 +107,36 @@ space:get{1}
 ...
 index:select({1}, {iterator = box.index.GT})
 ---
-- error: Index 'primary' (TREE) of space 'test' (phia) does not support partial keys
+- []
 ...
 space:drop()
+---
+...
+-------------------------------------------------------------------------------
+-- Key part length limit
+-------------------------------------------------------------------------------
+space = box.schema.space.create('single_part', { engine = 'phia' })
+---
+...
+_ = space:create_index('primary', { type = 'tree', parts = {1, 'str'}})
+---
+...
+space:insert({string.rep('x', 1023)})
+---
+...
+space:insert({string.rep('x', 1024)})
+---
+...
+space:insert({string.rep('x', 1025)})
+---
+- error: 'Key part is too long: 1025 of 1024 bytes'
+...
+space:drop()
+---
+...
+space = nil
+---
+...
+pk = nil
 ---
 ...

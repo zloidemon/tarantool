@@ -28,57 +28,25 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "phia_engine.h"
-#include "phia_space.h"
 #include "phia_index.h"
-#include "say.h"
-#include "tuple.h"
-#include "tuple_update.h"
-#include "scoped_guard.h"
-#include "schema.h"
-#include "space.h"
-#include "txn.h"
-#include "cfg.h"
-#include "phia.h"
+
 #include <stdio.h>
 #include <inttypes.h>
 #include <bit/bit.h> /* load/store */
 
-static uint64_t num_parts[8];
+#include "trivia/util.h"
+#include "cfg.h"
+#include "say.h"
+#include "scoped_guard.h"
 
-struct phia_document *
-PhiaIndex::createDocument(const char *key, const char **keyend)
-{
-	assert(key_def->part_count <= 8);
-	struct phia_document *obj = phia_document_new(db);
-	if (obj == NULL)
-		phia_raise();
-	if (key == NULL)
-		return obj;
-	uint32_t i = 0;
-	while (i < key_def->part_count) {
-		char partname[32];
-		snprintf(partname, sizeof(partname), "key_%" PRIu32, i);
-		const char *part;
-		uint32_t partsize;
-		if (key_def->parts[i].type == STRING) {
-			part = mp_decode_str(&key, &partsize);
-		} else {
-			num_parts[i] = mp_decode_uint(&key);
-			part = (char *)&num_parts[i];
-			partsize = sizeof(uint64_t);
-		}
-		if (partsize == 0)
-			part = "";
-		if (phia_document_set_field(obj, partname, part, partsize) == -1)
-			phia_raise();
-		i++;
-	}
-	if (keyend) {
-		*keyend = key;
-	}
-	return obj;
-}
+#include "phia_engine.h"
+#include "phia_space.h"
+#include "tuple.h"
+#include "tuple_update.h"
+#include "schema.h"
+#include "space.h"
+#include "txn.h"
+#include "phia.h"
 
 PhiaIndex::PhiaIndex(struct key_def *key_def_arg)
 	: Index(key_def_arg)
@@ -135,14 +103,8 @@ PhiaIndex::bsize() const
 }
 
 struct tuple *
-PhiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
+PhiaIndex::findByKey(struct phia_tuple *phia_key) const
 {
-	(void)part_count;
-	struct phia_document *obj = ((PhiaIndex *)this)->
-		createDocument(key, NULL);
-	auto key_guard = make_scoped_guard([=] {
-		phia_document_delete(obj);
-	});
 	struct phia_tx *transaction = NULL;
 	/* engine_tx might be empty, even if we are in txn context.
 	 *
@@ -152,19 +114,19 @@ PhiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 	/* try to read from cache first, if nothing is found
 	 * retry using disk */
 	int rc;
-	struct phia_document *result = NULL;
+	struct phia_tuple *result = NULL;
 	if (transaction == NULL) {
-		rc = phia_index_get(db, obj, &result, true);
+		rc = phia_index_get(db, phia_key, &result, true);
 	} else {
-		rc = phia_get(transaction, obj, &result, true);
+		rc = phia_get(transaction, db, phia_key, &result, true);
 	}
 	if (rc != 0)
 		diag_raise();
 	if (result == NULL) { /* cache miss or not found */
 		if (transaction == NULL) {
-			rc = phia_index_coget(db, obj, &result);
+			rc = phia_index_coget(db, phia_key, &result);
 		} else {
-			rc = phia_coget(transaction, obj, &result);
+			rc = phia_coget(transaction, db, phia_key, &result);
 		}
 		if (rc != 0)
 			diag_raise();
@@ -172,10 +134,21 @@ PhiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 	if (result == NULL) /* not found */
 		return NULL;
 
-	auto result_guard = make_scoped_guard([=] {
-		phia_document_delete(result);
+	return phia_convert_tuple(db, result, key_def, format);
+}
+
+struct tuple *
+PhiaIndex::findByKey(const char *key, uint32_t part_count) const
+{
+	assert(key_def->opts.is_unique && part_count == key_def->part_count);
+	struct phia_tuple *phia_key =
+		phia_tuple_from_key_data(db, key, part_count, PHIA_EQ);
+	if (phia_key == NULL)
+		diag_raise();
+	auto key_guard = make_scoped_guard([=] {
+		phia_tuple_unref(db, phia_key);
 	});
-	return phia_tuple_new(result, key_def, format);
+	return findByKey(phia_key);
 }
 
 struct tuple *
@@ -185,14 +158,15 @@ PhiaIndex::replace(struct tuple*, struct tuple*, enum dup_replace_mode)
 	 *
 	 * see: phia_space.cc
 	*/
-	assert(0);
+	unreachable();
 	return NULL;
 }
 
 struct phia_iterator {
 	struct iterator base;
+	/* key and part_count used only for EQ */
 	const char *key;
-	const char *keyend;
+	int part_count;
 	struct space *space;
 	struct key_def *key_def;
 	struct phia_env *env;
@@ -223,7 +197,7 @@ phia_iterator_next(struct iterator *ptr)
 {
 	struct phia_iterator *it = (struct phia_iterator *) ptr;
 	assert(it->cursor != NULL);
-	struct phia_document *result;
+	struct phia_tuple *result;
 
 	/* read from cache */
 	if (phia_cursor_next(it->cursor, &result, true) != 0)
@@ -243,18 +217,38 @@ phia_iterator_next(struct iterator *ptr)
 
 	/* found */
 	auto result_guard = make_scoped_guard([=]{
-		phia_document_delete(result);
+		phia_tuple_unref(it->db, result);
 	});
-	return phia_tuple_new(result, it->key_def, it->space->format);
+	return phia_convert_tuple(it->db, result, it->key_def, it->space->format);
 }
 
-struct tuple *
+static struct tuple *
 phia_iterator_eq(struct iterator *ptr)
+{
+	struct phia_iterator *it = (struct phia_iterator *) ptr;
+	struct tuple *tuple = phia_iterator_next(ptr);
+	if (tuple == NULL)
+		return NULL; /* not found */
+
+	/* check equality */
+	if (tuple_compare_with_key(tuple, it->key, it->part_count,
+				it->key_def) != 0) {
+		tuple_delete(tuple);
+		phia_cursor_delete(it->cursor);
+		it->cursor = NULL;
+		ptr->next = NULL;
+		return NULL;
+	}
+	return tuple;
+}
+
+static struct tuple *
+phia_iterator_exact(struct iterator *ptr)
 {
 	struct phia_iterator *it = (struct phia_iterator *) ptr;
 	ptr->next = phia_iterator_last;
 	PhiaIndex *index = (PhiaIndex *)index_find(it->space, 0);
-	return index->findByKey(it->key);
+	return index->findByKey(it->key, it->part_count);
 }
 
 struct iterator *
@@ -276,51 +270,63 @@ PhiaIndex::initIterator(struct iterator *ptr,
                           enum iterator_type type,
                           const char *key, uint32_t part_count) const
 {
+	assert(part_count == 0 || key != NULL);
 	struct phia_iterator *it = (struct phia_iterator *) ptr;
 	assert(it->cursor == NULL);
-	if (part_count > 0) {
-		if (part_count != key_def->part_count) {
-			tnt_raise(UnsupportedIndexFeature, this, "partial keys");
-		}
-	} else {
-		key = NULL;
-	}
 	it->space = space_cache_find(key_def->space_id);
 	it->key_def = key_def;
-	it->key = key;
 	it->env = env;
 	it->db  = db;
-	/* point-lookup iterator */
-	if (type == ITER_EQ) {
-		ptr->next = phia_iterator_eq;
-		return;
-	}
-	/* prepare for the range scan */
+	it->key = key;
+	it->part_count = part_count;
+
 	enum phia_order order;
 	switch (type) {
 	case ITER_ALL:
-	case ITER_GE: order = PHIA_GE;
+	case ITER_GE:
+		order = PHIA_GE;
+		ptr->next = phia_iterator_next;
 		break;
-	case ITER_GT: order = PHIA_GT;
+	case ITER_GT:
+		order = PHIA_GT;
+		ptr->next = phia_iterator_next;
 		break;
-	case ITER_LE: order = PHIA_LE;
+	case ITER_LE:
+		order = PHIA_LE;
+		ptr->next = phia_iterator_next;
 		break;
-	case ITER_LT: order = PHIA_LT;
+	case ITER_LT:
+		order = PHIA_LT;
+		ptr->next = phia_iterator_next;
+		break;
+	case ITER_EQ:
+		/* point-lookup iterator (optimization) */
+		if (part_count == key_def->part_count) {
+			ptr->next = phia_iterator_exact;
+			return;
+		}
+		order = PHIA_GE;
+		ptr->next = phia_iterator_eq;
+		break;
+	case ITER_REQ:
+		/* point-lookup iterator (optimization) */
+		if (part_count == key_def->part_count) {
+			ptr->next = phia_iterator_exact;
+			return;
+		}
+		order = PHIA_LE;
+		ptr->next = phia_iterator_eq;
 		break;
 	default:
-		return initIterator(ptr, type, key, part_count);
+		return Index::initIterator(ptr, type, key, part_count);
 	}
-	/* Position first key here, since key pointer might be
-	 * unavailable from lua.
-	 *
-	 * Read from disk and fill cursor cache.
-	 */
-	PhiaIndex *index = (PhiaIndex *)this;
-	struct phia_document *obj = index->createDocument(key, &it->keyend);
-	it->cursor = phia_cursor_new(db, obj, order);
-	if (it->cursor == NULL) {
-		phia_document_delete(obj);
-		phia_raise();
-	}
-	ptr->next = phia_iterator_next;
+
+	struct phia_tuple *phia_key =
+		phia_tuple_from_key_data(db, key, part_count, order);
+	if (phia_key == NULL)
+		diag_raise();
+	it->cursor = phia_cursor_new(db, phia_key, order);
+	phia_tuple_unref(db, phia_key);
+	if (it->cursor == NULL)
+		diag_raise();
 }
