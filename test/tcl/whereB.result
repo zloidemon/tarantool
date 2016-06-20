@@ -1,12 +1,5 @@
-whereB-1.1...
-Expected: [1 2 0]
-     Got: [1 2 1]
-whereB-2.1...
-Expected: [1 2 0]
-     Got: [1 2 1]
-whereB-3.1...
-Expected: [1 2 0]
-     Got: [1 2 1]
+whereB-1.1... Ok
+whereB-2.1... Ok
 whereB-4.1... Ok
 whereB-4.2... Ok
 whereB-4.3... Ok
@@ -42,5 +35,4 @@ whereB-9.4... Ok
 whereB-9.100... Ok
 whereB-9.101... Ok
 whereB-9.102... Ok
-3 errors out of 39 tests
-Failures on these tests: whereB-1.1 whereB-2.1 whereB-3.1
+0 errors out of 38 tests

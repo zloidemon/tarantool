@@ -24,8 +24,8 @@ source $testdir/tester.tcl
 do_test where5-1.0 {
   execsql {
     CREATE TABLE t1(x TEXT primary key);
-    CREATE TABLE t2(x primary key);
-    CREATE TABLE t3(x PRIMARY KEY);
+    CREATE TABLE t2(x integet primary key);
+    CREATE TABLE t3(x integer PRIMARY KEY);
     INSERT INTO t1 VALUES(-1);
     INSERT INTO t1 VALUES(0);
     INSERT INTO t1 VALUES(1);

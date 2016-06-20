@@ -99,7 +99,7 @@ proc run_thread_tests {{print_warning 0}} {
     set zProblem "Linked against a non-threadsafe Tcl build"
   }
   if {[info exists zProblem]} {
-    puts "WARNING: Multi-threaded tests skipped: $zProblem"
+    # puts "WARNING: Multi-threaded tests skipped: $zProblem"
     return 0
   }
   set ::run_thread_tests_called 1
