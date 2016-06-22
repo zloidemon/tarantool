@@ -397,17 +397,14 @@ proc is_flat {sql} {
 # involving joins.
 #
 do_test select6-8.1 {
-  # MUST_WORK_TEST
-  # CREATE TABLE t3(p,q);
-  # CREATE TABLE t4(q,r);
   execsql {
     BEGIN;
     DROP TABLE IF EXISTS t3;
-    CREATE TABLE t3 (p int primary key, q int);
+    CREATE TABLE t3 (p primary key, q);
     INSERT INTO t3 VALUES(1,11);
     INSERT INTO t3 VALUES(2,22);
     DROP TABLE IF EXISTS t4;
-    CREATE TABLE t4(q int primary key, r int);
+    CREATE TABLE t4(q primary key, r);
     INSERT INTO t4 VALUES(11,111);
     INSERT INTO t4 VALUES(22,222);
     COMMIT;
@@ -532,17 +529,13 @@ do_test select6-9.11 {
 # flattening consists of two or more SELECT statements that do not all 
 # return the same number of result columns, the error is detected.
 #
-# MUST_WORK_TEST
-# CREATE TABLE t(i,j,k);
-# CREATE TABLE j(l,m);
-# CREATE TABLE k(o);
 do_execsql_test 10.1 {
   DROP TABLE IF EXISTS t;
   DROP TABLE IF EXISTS j;
   DROP TABLE IF EXISTS k;
-  CREATE TABLE t(i int primary key,j int,k int);
-  CREATE TABLE j(l int primary key,m int);
-  CREATE TABLE k(o int primary key);
+  CREATE TABLE t(i primary key,j,k);
+  CREATE TABLE j(l primary key,m);
+  CREATE TABLE k(o primary key);
 }
 
 set err [list 1 {SELECTs to the left and right of UNION ALL do not have the same number of result columns}]

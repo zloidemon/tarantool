@@ -7,9 +7,12 @@ view-2.1... Ok
 view-2.2... Ok
 view-2.3... Ok
 view-2.4... Ok
+view-2.5... Ok
+view-2.6... Ok
 view-3.1... Ok
 view-3.2... Ok
 view-3.3.1... Ok
+view-3.3.2... Ok
 view-3.3.4... Ok
 view-4.1... Ok
 view-4.2... Ok
@@ -26,9 +29,11 @@ view-5.7... Ok
 view-5.8... Ok
 view-5.9... Ok
 view-6.1... Ok
+view-6.2... Ok
 view-7.1... Ok
 view-7.3... Ok
 view-7.5... Ok
+view-8.1... Ok
 view-10.1... Ok
 view-10.2... Ok
 view-12.1... Ok
@@ -41,4 +46,5 @@ view-16.3... Ok
 view-17.1... Ok
 view-17.2... Ok
 view-20.1... Ok
-0 errors out of 44 tests
+view-20.1... Ok
+0 errors out of 50 tests

@@ -34,4 +34,6 @@ select3-6.7... Ok
 select3-6.8... Ok
 select3-7.1... Ok
 select3-7.2... Ok
-0 errors out of 37 tests
+select3-8.1... Ok
+select3-8.2... Ok
+0 errors out of 39 tests

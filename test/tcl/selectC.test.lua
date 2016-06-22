@@ -17,14 +17,11 @@
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 
-# MUST_WORK_TEST
-# CREATE TABLE t1(id int PRIMARY KEY, a, b, c);
-
 # Ticket #
 do_test selectC-1.1 {
   execsql {
     DROP TABLE IF EXISTS t1;
-    CREATE TABLE t1(id int PRIMARY KEY, a int, b, c);
+    CREATE TABLE t1(id PRIMARY KEY, a, b, c);
     INSERT INTO t1 VALUES(1, 1,'aaa','bbb');
     INSERT INTO t1 VALUES(2, 1, 'aaa', 'bbb');
     INSERT INTO t1 VALUES(3, 2,'ccc','ddd');

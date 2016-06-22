@@ -147,14 +147,17 @@ do_execsql_test where2-2.5b {
   -- random() is not optimized out
   EXPLAIN SELECT * FROM x1, x2 WHERE x=1 ORDER BY random();
 } {/ SorterOpen /}
-# do_execsql_test where2-2.6 {
-#   -- other constant functions are optimized out
-#   EXPLAIN SELECT * FROM x1, x2 WHERE x=1 ORDER BY abs(5);
-# } {~/ abs/}
-# do_execsql_test where2-2.6b {
-#   -- other constant functions are optimized out
-#   EXPLAIN SELECT * FROM x1, x2 WHERE x=1 ORDER BY abs(5);
-# } {~/ SorterOpen /}
+
+# MUST_WORK_TEST
+
+do_execsql_test where2-2.6 {
+  -- other constant functions are optimized out
+  EXPLAIN SELECT * FROM x1, x2 WHERE x=1 ORDER BY abs(5);
+} {~/ abs/}
+do_execsql_test where2-2.6b {
+  -- other constant functions are optimized out
+  EXPLAIN SELECT * FROM x1, x2 WHERE x=1 ORDER BY abs(5);
+} {~/ SorterOpen /}
 
 
 

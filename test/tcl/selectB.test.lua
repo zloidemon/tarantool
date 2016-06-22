@@ -163,6 +163,8 @@ for {set ii 1} {$ii <= 2} {incr ii} {
     SELECT a FROM t1 UNION ALL SELECT d FROM t2 LIMIT 2
   } {2 8}
 
+# MUST_WORK_TEST
+
   # An ORDER BY in a compound subqueries defeats flattening.  Ticket #3773
   # test_transform selectB-$ii.13 {
   #   SELECT * FROM (SELECT a FROM t1 UNION ALL SELECT d FROM t2 ORDER BY a ASC)
@@ -175,7 +177,7 @@ for {set ii 1} {$ii <= 2} {incr ii} {
   # } {
   #  SELECT a FROM t1 UNION ALL SELECT d FROM t2 ORDER BY 1 DESC
   # } {21 14 12 8 3 2}
-  #
+  
   # test_transform selectB-$ii.14 {
   #   SELECT * FROM (
   #     SELECT a FROM t1 UNION ALL SELECT d FROM t2 ORDER BY a DESC
@@ -184,7 +186,7 @@ for {set ii 1} {$ii <= 2} {incr ii} {
   #   SELECT a FROM t1 UNION ALL SELECT d FROM t2 ORDER BY 1 DESC
   #    LIMIT 2 OFFSET 2
   # } {12 8}
-  #
+  
   # test_transform selectB-$ii.15 {
   #   SELECT * FROM (
   #     SELECT a, b FROM t1 UNION ALL SELECT d, e FROM t2 ORDER BY a ASC, e DESC
@@ -405,29 +407,29 @@ for {set ii 3} {$ii <= 6} {incr ii} {
     }
   } {2 4 8 10 14 16 80.1 180.1 200 400 800 1000 1400 1600}
 
-  # do_test selectB-$ii.24 {
-  #   execsql {
-  #     SELECT x, y FROM (
-  #       SELECT a AS x, b AS y FROM t1
-  #       UNION ALL
-  #       SELECT a*10 + 0.1, f*10 + 0.1 FROM t1 LEFT JOIN t2 ON (c=d)
-  #       UNION ALL
-  #       SELECT a*100, b*100 FROM t1
-  #     ) ORDER BY 1;
-  #   }
-  # } {2 4 8 10 14 16 20.1 {} 80.1 180.1 140.1 {} 200 400 800 1000 1400 1600}
+  do_test selectB-$ii.24 {
+    execsql {
+      SELECT x, y FROM (
+        SELECT a AS x, b AS y FROM t1
+        UNION ALL
+        SELECT a*10 + 0.1, f*10 + 0.1 FROM t1 LEFT JOIN t2 ON (c=d)
+        UNION ALL
+        SELECT a*100, b*100 FROM t1
+      ) ORDER BY 1;
+    }
+  } {2 4 8 10 14 16 20.1 {} 80.1 180.1 140.1 {} 200 400 800 1000 1400 1600}
 
-  # do_test selectB-$ii.25 {
-  #   execsql {
-  #     SELECT x+y FROM (
-  #       SELECT a AS x, b AS y FROM t1
-  #       UNION ALL
-  #       SELECT a*10 + 0.1, f*10 + 0.1 FROM t1 LEFT JOIN t2 ON (c=d)
-  #       UNION ALL
-  #       SELECT a*100, b*100 FROM t1
-  #     ) WHERE y+x NOT NULL ORDER BY 1;
-  #   }
-  # } {6 18 30 260.2 600 1800 3000}
+  do_test selectB-$ii.25 {
+    execsql {
+      SELECT x+y FROM (
+        SELECT a AS x, b AS y FROM t1
+        UNION ALL
+        SELECT a*10 + 0.1, f*10 + 0.1 FROM t1 LEFT JOIN t2 ON (c=d)
+        UNION ALL
+        SELECT a*100, b*100 FROM t1
+      ) WHERE y+x NOT NULL ORDER BY 1;
+    }
+  } {6 18 30 260.2 600 1800 3000}
 }
 
 finish_test

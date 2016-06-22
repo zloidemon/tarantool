@@ -244,32 +244,30 @@ do_test select3-7.2 {
   }
 } {{} {}}
 
-# MUST_WORK_TEST
-
-# # If a table column is of type REAL but we are storing integer values
-# # in it, the values are stored as integers to take up less space.  The
-# # values are converted by to REAL as they are read out of the table.
-# # Make sure the GROUP BY clause does this conversion correctly.
-# # Ticket #2251.
-# #
-# do_test select3-8.1 {
-#   execsql {
-#     DROP TABLE IF EXISTS A;
-#     CREATE TABLE A (
-#       A1 DOUBLE,
-#       A2 VARCHAR COLLATE NOCASE,
-#       A3 DOUBLE,
-#       id int primary key
-#     );
-#     INSERT INTO A VALUES(39136,'ABC',1201900000, 1);
-#     INSERT INTO A VALUES(39136,'ABC',1207000000, 2);
-#     SELECT typeof(sum(a3)) FROM a;
-#   }
-# } {real}
-# do_test select3-8.2 {
-#   execsql {
-#     SELECT typeof(sum(a3)) FROM a GROUP BY a1;
-#   }
-# } {real}
+# If a table column is of type REAL but we are storing integer values
+# in it, the values are stored as integers to take up less space.  The
+# values are converted by to REAL as they are read out of the table.
+# Make sure the GROUP BY clause does this conversion correctly.
+# Ticket #2251.
+#
+do_test select3-8.1 {
+  execsql {
+    DROP TABLE IF EXISTS A;
+    CREATE TABLE A (
+      A1 DOUBLE,
+      A2 VARCHAR COLLATE NOCASE,
+      A3 DOUBLE,
+      id int primary key
+    );
+    INSERT INTO A VALUES(39136,'ABC',1201900000, 1);
+    INSERT INTO A VALUES(39136,'ABC',1207000000, 2);
+    SELECT typeof(sum(a3)) FROM a;
+  }
+} {real}
+do_test select3-8.2 {
+  execsql {
+    SELECT typeof(sum(a3)) FROM a GROUP BY a1;
+  }
+} {real}
 
 finish_test

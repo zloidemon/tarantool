@@ -304,8 +304,6 @@ do_catchsql_test select1-4.5 {
   INSERT INTO test1(f1) SELECT f1 FROM test1 ORDER BY min(f1);
 } {1 {misuse of aggregate: min()}}
 
-# MUST_WORK_TEST
-
 # The restriction not allowing constants in the ORDER BY clause
 # has been removed.  See ticket #1768
 # do_test select1-4.5 {
@@ -362,16 +360,16 @@ do_test select1-4.8 {
 
 # MUST_WORK_TEST
 
-# do_test select1-4.9.1 {
-#   execsql {
-#     SELECT * FROM t5 ORDER BY 2;
-#   }
-# } {2 9 1 10}
-# do_test select1-4.9.2 {
-#   execsql {
-#     SELECT * FROM t5 ORDER BY +2;
-#   }
-# } {2 9 1 10}
+do_test select1-4.9.1 {
+  execsql {
+    SELECT * FROM t5 ORDER BY 2;
+  }
+} {2 9 1 10}
+do_test select1-4.9.2 {
+  execsql {
+    SELECT * FROM t5 ORDER BY +2;
+  }
+} {2 9 1 10}
 do_test select1-4.10.1 {
   catchsql {
     SELECT * FROM t5 ORDER BY 3;
@@ -385,22 +383,22 @@ do_test select1-4.10.2 {
 
 # MUST_WORK_TEST
 
-# do_test select1-4.11 {
-#   execsql {
-#     INSERT INTO t5 VALUES(3,10);
-#     SELECT * FROM t5 ORDER BY 2, 1 DESC;
-#   }
-# } {2 9 3 10 1 10}
-# do_test select1-4.12 {
-#   execsql {
-#     SELECT * FROM t5 ORDER BY 1 DESC, b;
-#   }
-# } {3 10 2 9 1 10}
-# do_test select1-4.13 {
-#   execsql {
-#     SELECT * FROM t5 ORDER BY b DESC, 1;
-#   }
-# } {1 10 3 10 2 9}
+do_test select1-4.11 {
+  execsql {
+    INSERT INTO t5 VALUES(3,10);
+    SELECT * FROM t5 ORDER BY 2, 1 DESC;
+  }
+} {2 9 3 10 1 10}
+do_test select1-4.12 {
+  execsql {
+    SELECT * FROM t5 ORDER BY 1 DESC, b;
+  }
+} {3 10 2 9 1 10}
+do_test select1-4.13 {
+  execsql {
+    SELECT * FROM t5 ORDER BY b DESC, 1;
+  }
+} {1 10 3 10 2 9}
 
 
 # ORDER BY ignored on an aggregate query
@@ -957,14 +955,12 @@ do_test select1-12.4 {
   }
 } {}
 
-# MUST_WORK_TEST
-
-# ifcapable compound {
-# do_test select1-12.5 {
-#   execsql {
-#     SELECT * FROM t3 UNION SELECT 3 AS 'a', 4 ORDER BY a;
-#   }
-# } {0 1 2 3 4}
+ifcapable compound {
+do_test select1-12.5 {
+  execsql {
+    SELECT a,b FROM t3 UNION SELECT 3 AS 'a', 4 ORDER BY a;
+  }
+} {1 2 3 4}
 
 do_test select1-12.6 {
   execsql {
@@ -1005,31 +1001,31 @@ ifcapable {compound && subquery} {
 
 # MUST_WORK_TEST
 
-# # Check for a VDBE stack growth problem that existed at one point.
-# #
-# ifcapable subquery {
-#   do_test select1-13.1 {
-#     execsql {
-#       BEGIN;
-#       drop table if exists abc;
-#       create TABLE abc(a, b, c, PRIMARY KEY(a, b));
-#       INSERT INTO abc VALUES(1, 1, 1);
-#     }
-#     for {set i 0} {$i<10} {incr i} {
-#       execsql {
-#         INSERT INTO abc SELECT a+(select max(a) FROM abc), b+(select max(a) FROM abc), c+(select max(a) FROM abc) FROM abc;
-#       }
-#     }
-#     execsql {COMMIT}
+# Check for a VDBE stack growth problem that existed at one point.
+#
+ifcapable subquery {
+  do_test select1-13.1 {
+    execsql {
+      BEGIN;
+      drop table if exists abc;
+      create TABLE abc(a, b, c, PRIMARY KEY(a, b));
+      INSERT INTO abc VALUES(1, 1, 1);
+    }
+    for {set i 0} {$i<10} {incr i} {
+      execsql {
+        INSERT INTO abc SELECT a+(select max(a) FROM abc), b+(select max(a) FROM abc), c+(select max(a) FROM abc) FROM abc;
+      }
+    }
+    execsql {COMMIT}
   
-#     # This used to seg-fault when the problem existed.
-#     execsql {
-#       SELECT count(
-#         (SELECT a FROM abc WHERE a = NULL AND b >= upper.c) 
-#       ) FROM abc AS upper;
-#     }
-#   } {0}
-# }
+    # This used to seg-fault when the problem existed.
+    execsql {
+      SELECT count(
+        (SELECT a FROM abc WHERE a = NULL AND b >= upper.c) 
+      ) FROM abc AS upper;
+    }
+  } {0}
+}
 
 # foreach tab [db eval {SELECT name FROM sqlite_master WHERE type = 'table'}] {
 #   db eval "DROP TABLE $tab"
@@ -1067,8 +1063,6 @@ if {[db one {PRAGMA locking_mode}]=="normal"} {
       INSERT INTO t1 VALUES(3, 3);
     }
   } {}
-
-# MUST_WORK_TEST
 
   # do_test select1-15.2 {
   #   sqlite3 db2 test.db

@@ -45,6 +45,11 @@ select4-6.7... Ok
 select4-7.2... Ok
 select4-7.3... Ok
 select4-7.4... Ok
+select4-8.1... Ok
+select4-8.2... Ok
+select4-9.1... Ok
+select4-9.2... Ok
+select4-9.3... Ok
 select4-9.4... Ok
 select4-9.5... Ok
 select4-9.6... Ok
@@ -79,6 +84,7 @@ select4-11.14... Ok
 select4-11.15... Ok
 select4-11.16... Ok
 select4-13.1... Ok
+select4-14.1... Ok
 select4-14.2... Ok
 select4-14.3... Ok
 select4-14.4... Ok
@@ -95,4 +101,4 @@ select4-14.14... Ok
 select4-14.15... Ok
 select4-14.16... Ok
 select4-14.17... Ok
-0 errors out of 98 tests
+0 errors out of 104 tests

@@ -90,6 +90,8 @@ selectB-3.20... Ok
 selectB-3.21... Ok
 selectB-3.22... Ok
 selectB-3.23... Ok
+selectB-3.24... Ok
+selectB-3.25... Ok
 selectB-4.1... Ok
 selectB-4.2... Ok
 selectB-4.3... Ok
@@ -113,6 +115,8 @@ selectB-4.20... Ok
 selectB-4.21... Ok
 selectB-4.22... Ok
 selectB-4.23... Ok
+selectB-4.24... Ok
+selectB-4.25... Ok
 selectB-5.0... Ok
 selectB-5.1... Ok
 selectB-5.2... Ok
@@ -137,6 +141,8 @@ selectB-5.20... Ok
 selectB-5.21... Ok
 selectB-5.22... Ok
 selectB-5.23... Ok
+selectB-5.24... Ok
+selectB-5.25... Ok
 selectB-6.1... Ok
 selectB-6.2... Ok
 selectB-6.3... Ok
@@ -160,4 +166,6 @@ selectB-6.20... Ok
 selectB-6.21... Ok
 selectB-6.22... Ok
 selectB-6.23... Ok
-0 errors out of 163 tests
+selectB-6.24... Ok
+selectB-6.25... Ok
+0 errors out of 171 tests

@@ -36700,7 +36700,10 @@ select9-3.1... Ok
 select9-3.3... Ok
 select9-4.1... Ok
 select9-4.3... Ok
+select9-5.1... Ok
+select9-5.2... Ok
+select9-5.3... Ok
 select9-6.1... Ok
 select9-6.2... Ok
 select9-6.3... Ok
-0 errors out of 36706 tests
+0 errors out of 36709 tests
