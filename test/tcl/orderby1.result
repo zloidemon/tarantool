@@ -1,0 +1,7 @@
+orderby1-6.0... Ok
+orderby1-8.0... Ok
+orderby1-8.1...
+Expected: [0 0 0 {SCAN TABLE t1 USING INDEX i1} 0 0 0 {USE TEMP B-TREE FOR RIGHT PART OF ORDER BY}]
+     Got: [0 0 0 {SCAN TABLE t1}]
+1 errors out of 4 tests
+Failures on these tests: orderby1-8.1
