@@ -1069,6 +1069,7 @@ make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 		field_type ftp = get_tarantool_type_from_sql_aff(affinity);
 		if (ftp == UNKNOWN) {
 			size = 0;
+			delete[] msg_data;
 			return NULL;
 		}
 		it = mp_encode_str(it, field_type_strs[ftp],
