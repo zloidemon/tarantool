@@ -763,14 +763,17 @@ on_commit_trigger(struct trigger * /*trigger*/, void * event) {
 	}
 	else if (new_tuple != NULL) {
 		say_debug("%s(): _trigger new_tuple != NULL && old_tuple == NULL\n", __func_name);
-		const char *z_sql = tuple_field_cstr(new_tuple, 5);
+
+		const char *sql_field = (char *) tuple_field(new_tuple, 5);
+		uint32_t stmt_len;
+		const char *z_sql = mp_decode_str(&sql_field, &stmt_len);
+
 		sqlite3_stmt *sqlite3_stmt;
-		uint32_t len = strlen(z_sql);
 		sqlite3 *db = get_global_db();
 		Trigger *pTrigger;
 		Vdbe *v;
 		const char *pTail;
-		int rc = sqlite3_prepare_v2(db, z_sql, len, &sqlite3_stmt, &pTail);
+		int rc = sqlite3_prepare_v2(db, z_sql, stmt_len, &sqlite3_stmt, &pTail);
 		if (rc) {
 			say_debug("%s(): error while parsing create statement for trigger\n", __func_name);
 			return;
@@ -1499,7 +1502,7 @@ insert_trigger(Trigger *trigger, char *crt_stmt) {
 	it = mp_encode_uint(it, space_id);
 	it = mp_encode_uint(it, new_id);
 	it = mp_encode_uint(it, 0); // owner id
-	it = mp_encode_str(it, trigger->zName, strlen(trigger->zName));
+	it = mp_encode_str(it, trigger->zName, strlen(trigger->zName)); // plus one for ending zero
 	it = mp_encode_str(it, trigger->table, strlen(trigger->table));
 	it = mp_encode_str(it, crt_stmt_full, full_stmt_len);
 	it = mp_encode_uint(it, 0); // setuid
@@ -2380,8 +2383,19 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 
 		/* get create statement */
 		const char *tid_opt = tuple_field(trigger_tpl, 1);
-		const char *trig_name = tuple_field_cstr(trigger_tpl, 3);
-		const char *crt_stmt = tuple_field_cstr(trigger_tpl, 5);
+
+		uint32_t name_len, crt_stmt_len;
+		const char *trig_name_field = (const char *) tuple_field(trigger_tpl, 3);
+		const char *trig_name_tuple = mp_decode_str(&trig_name_field, &name_len);
+		const char *crt_stmt_field = (const char *) tuple_field(trigger_tpl, 5);
+		const char *crt_stmt_tuple = mp_decode_str(&crt_stmt_field, &crt_stmt_len);
+		char *crt_stmt = new char[crt_stmt_len + 1];
+		memcpy((void *) crt_stmt, (void *) crt_stmt_tuple, crt_stmt_len);
+		crt_stmt[crt_stmt_len] = 0;
+		char *trig_name = new char[name_len + 1];
+		memcpy((void *) trig_name, (void *) trig_name_tuple, name_len);
+		crt_stmt[name_len] = 0;
+
 		const char *options = tuple_field(trigger_tpl, 7);
 		static uint32_t temporary_len = 9; // 9 = strlen("temporary")
 		uint32_t opt_size = mp_decode_map(&options);
@@ -2427,6 +2441,9 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 			pTrigger->tid = mp_decode_uint(&tid_opt);
 			sqlite3_finalize(sqlite3_stmt);
 		}
+
+		delete[] trig_name;
+		delete[] crt_stmt;
 	} while (trigger_iterator.InProcess());
 }
 
