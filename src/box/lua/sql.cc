@@ -712,6 +712,8 @@ on_replace_index(struct trigger * /*trigger*/, void * event) {
  */
 void
 prepare_to_open_db() {
+	if (global_trn_api_is_ready == 1)
+		return;
 	sql_tarantool_api_init(&global_trn_api);
 	global_trn_api_is_ready = 1;
 }
@@ -721,6 +723,9 @@ prepare_to_open_db() {
 */
 void
 connect_triggers() {
+	static bool triggers_connected = false;
+	if (triggers_connected)
+		return;
 	/* _space */
 	struct space *space = space_cache_find(BOX_SPACE_ID);
 	struct trigger *alter_space_on_replace_space = (struct trigger *)malloc(sizeof(struct trigger));
@@ -740,6 +745,7 @@ connect_triggers() {
 	};
 	on_index_commit_trigger = alter_space_on_replace_index;
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_index, link);
+	triggers_connected = true;
 }
 
 /**
