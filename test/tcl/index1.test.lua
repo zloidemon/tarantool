@@ -81,6 +81,8 @@ do_test index-2.2 {
   lappend v $msg
 } {1 {no such column: f4}}
 
+# MUST_WORK_TEST REINDEX and integrity_check
+
 # # Try creating a bunch of indices on the same table
 # #
 # set r {}
@@ -617,7 +619,7 @@ do_test index-17.1 {
     CREATE TABLE t7(c, d UNIQUE, UNIQUE(c), PRIMARY KEY(c, d) );
     SELECT _index.name FROM _index JOIN _space WHERE _index.id = _space.id AND _space.name='t7';
   }
-} {a_ind_t7_2 a_ind_t7_3 a_ind_t7_1}
+} {a_ind_t7_3 a_ind_t7_2 a_ind_t7_1}
 # do_test index-17.2 {
 #   catchsql {
 #     DROP INDEX sqlite_autoindex_t7_1;

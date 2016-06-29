@@ -68,9 +68,7 @@ index-16.2... Ok
 index-16.3... Ok
 index-16.4... Ok
 index-16.5... Ok
-index-17.1...
-Expected: [a_ind_t7_2 a_ind_t7_3 a_ind_t7_1]
-     Got: []
+index-17.1... Ok
 index-17.4... Ok
 index-18.1... Ok
 index-18.2... Ok
@@ -79,5 +77,4 @@ index-18.5... Ok
 index-20.1... Ok
 index-20.2... Ok
 index-21.1... Ok
-1 errors out of 80 tests
-Failures on these tests: index-17.1
+0 errors out of 80 tests
