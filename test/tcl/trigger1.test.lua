@@ -416,24 +416,23 @@ execsql {
 # trigger works.  Then drop the trigger.  Make sure the table is
 # still there.
 #
-# set view_v1 {}
-# ifcapable view {
-#   set view_v1 {view v1}
-# }
+set view_v1 {}
+ifcapable view {
+  set view_v1 {view v1}
+}
 # do_test trigger1-6.1 {
 #   execsql {SELECT type, name FROM sqlite_master}
 # } [concat $view_v1 {table t2}]
-# do_test trigger1-6.2 {
-#   execsql {
-#     CREATE TRIGGER t2 BEFORE DELETE ON t2 BEGIN
-#       SELECT RAISE(ABORT,'deletes are not permitted');
-#     END;
-#     SELECT type, name FROM sqlite_master;
-#   }
-# } [concat $view_v1 {table t2 trigger t2}]
-# do_test trigger1-6.3 {
-#   catchsql {DELETE FROM t2}
-# } {1 {deletes are not permitted}}
+do_test trigger1-6.2 {
+  execsql {
+    CREATE TRIGGER t2 BEFORE DELETE ON t2 BEGIN
+      SELECT RAISE(ABORT,'deletes are not permitted');
+    END;
+  }
+} []
+do_test trigger1-6.3 {
+  catchsql {DELETE FROM t2}
+} {1 {deletes are not permitted}}
 # verify_ex_errcode trigger1-6.3b SQLITE_CONSTRAINT_TRIGGER
 # do_test trigger1-6.4 {
 #   execsql {SELECT * FROM t2}
