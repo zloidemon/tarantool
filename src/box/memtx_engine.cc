@@ -29,6 +29,17 @@
  * SUCH DAMAGE.
  */
 #include "memtx_engine.h"
+
+#include <msgpuck.h>
+#include <small/rlist.h>
+
+#include "trivia/util.h"
+#include "main.h"
+#include "coeio_file.h"
+#include "coeio.h"
+#include "errinj.h"
+#include "scoped_guard.h"
+
 #include "tuple.h"
 #include "txn.h"
 #include "index.h"
@@ -37,8 +48,6 @@
 #include "memtx_rtree.h"
 #include "memtx_bitset.h"
 #include "space.h"
-#include <msgpuck.h>
-#include "small/rlist.h"
 #include "request.h"
 #include "box.h"
 #include "iproto_constants.h"
@@ -49,11 +58,6 @@
 #include "relay.h"
 #include "schema.h"
 #include "port.h"
-#include "main.h"
-#include "coeio_file.h"
-#include "coeio.h"
-#include "errinj.h"
-#include "scoped_guard.h"
 
 /** For all memory used by all indexes.
  * If you decide to use memtx_index_arena or
@@ -840,7 +844,7 @@ MemtxEngine::createIndex(struct key_def *key_def)
 	case BITSET:
 		return new MemtxBitset(key_def);
 	default:
-		assert(false);
+		unreachable();
 		return NULL;
 	}
 }
@@ -883,7 +887,14 @@ MemtxEngine::keydefCheck(struct space *space, struct key_def *key_def)
 				  space_name(space),
 				  "RTREE index can not be unique");
 		}
-		break;
+		if (key_def->parts[0].type != ARRAY) {
+			tnt_raise(ClientError, ER_MODIFY_INDEX,
+				  key_def->name,
+				  space_name(space),
+				  "RTREE index field type must be ARRAY");
+		}
+		/* no furter checks of parts needed */
+		return;
 	case BITSET:
 		if (key_def->part_count != 1) {
 			tnt_raise(ClientError, ER_MODIFY_INDEX,
@@ -897,35 +908,29 @@ MemtxEngine::keydefCheck(struct space *space, struct key_def *key_def)
 				  space_name(space),
 				  "BITSET can not be unique");
 		}
-		break;
+		if (key_def->parts[0].type != NUM &&
+		    key_def->parts[0].type != STRING) {
+			tnt_raise(ClientError, ER_MODIFY_INDEX,
+				  key_def->name,
+				  space_name(space),
+				  "BITSET index field type must be NUM or STR");
+		}
+		/* no furter checks of parts needed */
+		return;
 	default:
 		tnt_raise(ClientError, ER_INDEX_TYPE,
 			  key_def->name,
 			  space_name(space));
 		break;
 	}
+	/* Only HASH and TREE indexes checks parts there */
+	/* Just check that there are no ARRAY parts */
 	for (uint32_t i = 0; i < key_def->part_count; i++) {
-		switch (key_def->parts[i].type) {
-		case NUM:
-		case STRING:
-			if (key_def->type == RTREE) {
-				tnt_raise(ClientError, ER_MODIFY_INDEX,
-					  key_def->name,
-					  space_name(space),
-					  "RTREE index field type must be ARRAY");
-			}
-			break;
-		case ARRAY:
-			if (key_def->type != RTREE) {
-				tnt_raise(ClientError, ER_MODIFY_INDEX,
-					  key_def->name,
-					  space_name(space),
-					  "ARRAY field type is not supported");
-			}
-			break;
-		default:
-			assert(false);
-			break;
+		if (key_def->parts[i].type == ARRAY) {
+			tnt_raise(ClientError, ER_MODIFY_INDEX,
+				  key_def->name,
+				  space_name(space),
+				  "ARRAY field type is not supported");
 		}
 	}
 }

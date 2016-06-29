@@ -9,7 +9,8 @@ end
 
 box.cfg {
     listen            = os.getenv("LISTEN"),
-    slab_alloc_arena  = 0.1,
+    slab_alloc_arena  = 0.5,
+    slab_alloc_maximal = 4 * 1024 * 1024,
     rows_per_wal      = 1000000,
     phia_dir        = "./phia/phia_test",
     phia = {

@@ -29,13 +29,17 @@
  * SUCH DAMAGE.
  */
 #include "key_def.h"
-#include "space.h"
-#include "schema.h"
+
 #include <stdlib.h>
 #include <stdio.h>
+
+#include "trivia/util.h"
 #include "scoped_guard.h"
 
-const char *field_type_strs[] = {"UNKNOWN", "NUM", "STR", "ARRAY", "NUMBER", ""};
+#include "space.h"
+#include "schema.h"
+
+const char *field_type_strs[] = {"UNKNOWN", "NUM", "STR", "ARRAY", "NUMBER", "INT", "SCALAR", ""};
 
 const char *mp_type_strs[] = {
 	/* .MP_NIL    = */ "nil",
@@ -63,6 +67,9 @@ const uint32_t key_mp_type[] = {
 	/* [STR]     =  */  1U << MP_STR,
 	/* [ARRAY]   =  */  1U << MP_ARRAY,
 	/* [NUMBER]  =  */  (1U << MP_UINT) | (1U << MP_INT) | (1U << MP_FLOAT) | (1U << MP_DOUBLE),
+	/* [INT]     =  */  (1U << MP_UINT) | (1U << MP_INT),
+	/* [SCALAR]  =  */  (1U << MP_UINT) | (1U << MP_INT) | (1U << MP_FLOAT) | (1U << MP_DOUBLE) |
+		(1U << MP_NIL) | (1U << MP_STR) | (1U << MP_BIN) | (1U << MP_BOOL),
 };
 
 const struct key_opts key_opts_default = {
@@ -78,10 +85,14 @@ const struct key_opts key_opts_default = {
 	/* .page_size           = */ 131072,
 	/* .sync                = */ 2,
 	/* .amqf                = */ 0,
+	/* .read_oldest         = */ 0,
+	/* .expire              = */ 0,
+	/* .crt_stmt            = */ { 0 }
 };
 
 const struct opt_def key_opts_reg[] = {
 	OPT_DEF("unique", MP_BOOL, struct key_opts, is_unique),
+	OPT_DEF("crt_stmt", MP_STR, struct key_opts, crt_stmt),
 	OPT_DEF("dimension", MP_UINT, struct key_opts, dimension),
 	OPT_DEF("distance", MP_STR, struct key_opts, distancebuf),
 	OPT_DEF("path", MP_STR, struct key_opts, path),
@@ -162,10 +173,20 @@ key_def_dup(struct key_def *def)
 	size_t sz = key_def_sizeof(def->part_count);
 	struct key_def *dup = (struct key_def *) malloc(sz);
 	if (dup == NULL) {
-		tnt_raise(OutOfMemory, sz, "malloc", "struct key_def");
+		diag_set(OutOfMemory, sz, "malloc", "struct key_def");
+		return NULL;
 	}
 	memcpy(dup, def, key_def_sizeof(def->part_count));
 	rlist_create(&dup->link);
+	return dup;
+}
+
+struct key_def *
+key_def_dup_xc(struct key_def *def)
+{
+	struct key_def *dup = key_def_dup(def);
+	if (dup == NULL)
+		diag_raise();
 	return dup;
 }
 
@@ -219,7 +240,7 @@ key_list_del_key(struct rlist *key_list, uint32_t iid)
 			return;
 		}
 	}
-	assert(false);
+	unreachable();
 }
 
 void

@@ -1,0 +1,15 @@
+orderby2-1.0... Ok
+orderby2-1.1a... Ok
+orderby2-1.1b... Ok
+orderby2-1.2a... Ok
+orderby2-1.2b...
+Expected: [~/ORDER BY/]
+     Got: [0 0 0 {SEARCH TABLE t1 USING PRIMARY KEY (a=?)} 0 1 1 {SEARCH TABLE t2 USING PRIMARY KEY (d=?)} 0 0 0 {USE TEMP B-TREE FOR ORDER BY}]
+orderby2-1.3a... Ok
+orderby2-1.3b... Ok
+orderby2-2.0... Ok
+orderby2-2.1... Ok
+orderby2-2.2... Ok
+orderby2-2.3... Ok
+1 errors out of 12 tests
+Failures on these tests: orderby2-1.2b

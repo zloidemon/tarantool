@@ -27,20 +27,18 @@ ifcapable !tclvar||!bloblit {
   finish_test
   return
 }
-
-# CREATE INDEX i1wxy ON t1(w,x,y);
 # Build some test data
 #
 do_test where4-1.0 {
   execsql {
-    CREATE TABLE t1(id int primary key, w, x, y);
-    INSERT INTO t1 VALUES(1, 1,2,3);
-    INSERT INTO t1 VALUES(2, 1,NULL,3);
-    INSERT INTO t1 VALUES(3, 'a','b','c');
-    INSERT INTO t1 VALUES(4, 'a',NULL,'c');
-    INSERT INTO t1 VALUES(5, X'78',x'79',x'7a');
-    INSERT INTO t1 VALUES(6, X'78',NULL,X'7A');
-    INSERT INTO t1 VALUES(7, NULL,NULL,NULL);
+    CREATE TABLE t1(w, x, y, primary key (w,x,y));
+    INSERT INTO t1 VALUES(1,2,3);
+    INSERT INTO t1 VALUES(1,NULL,3);
+    INSERT INTO t1 VALUES('a','b','c');
+    INSERT INTO t1 VALUES('a',NULL,'c');
+    INSERT INTO t1 VALUES(X'78',x'79',x'7a');
+    INSERT INTO t1 VALUES(X'78',NULL,X'7A');
+    INSERT INTO t1 VALUES(NULL,NULL,NULL);
     SELECT count(*) FROM t1;
   }
 } {7}
@@ -132,15 +130,13 @@ proc count sql {
 # the right table did not match - something the index does not know
 # about.
 #
-
-# CREATE TABLE t3(x,y,UNIQUE("x",'y' ASC)); -- Goofy syntax allowed
 do_test where4-3.1 {
   execsql {
     CREATE TABLE t2(a primary key);
     INSERT INTO t2 VALUES(1);
     INSERT INTO t2 VALUES(2);
     INSERT INTO t2 VALUES(3);
-    CREATE TABLE t3(x primary key,y);
+    CREATE TABLE t3(x,y, primary key("x", 'y')); -- Goofy syntax allowed
     INSERT INTO t3 VALUES(1,11);
     INSERT INTO t3 VALUES(2,NULL);
  

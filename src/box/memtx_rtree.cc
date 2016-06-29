@@ -29,14 +29,42 @@
  * SUCH DAMAGE.
  */
 #include "memtx_rtree.h"
+
+#include <small/small.h>
+
+#include "errinj.h"
+#include "fiber.h"
+#include "trivia/util.h"
+
 #include "tuple.h"
 #include "space.h"
 #include "memtx_engine.h"
-#include "errinj.h"
-#include "fiber.h"
-#include "small/small.h"
 
 /* {{{ Utilities. *************************************************/
+
+static inline double
+mp_decode_num(const char **data, uint32_t field_no)
+{
+	double val;
+	switch (mp_typeof(**data)) {
+	case MP_UINT:
+		val = mp_decode_uint(data);
+		break;
+	case MP_INT:
+		val = mp_decode_int(data);
+		break;
+	case MP_FLOAT:
+		val = mp_decode_float(data);
+		break;
+	case MP_DOUBLE:
+		val = mp_decode_double(data);
+		break;
+	default:
+		tnt_raise(ClientError, ER_FIELD_TYPE, field_no + INDEX_OFFSET,
+			  field_type_strs[NUM]);
+	}
+	return val;
+}
 
 /**
  * Extract coordinates of rectangle from message packed string.
@@ -191,7 +219,7 @@ MemtxRTree::findByKey(const char *key, uint32_t part_count) const
 
 	rtree_rect rect;
 	if (mp_decode_rect_from_key(&rect, m_dimension, key, part_count))
-		assert(false);
+		unreachable();
 
 	struct tuple *result = NULL;
 	if (rtree_search(&m_tree, &rect, SOP_OVERLAPS, &iterator))
@@ -277,7 +305,7 @@ MemtxRTree::initIterator(struct iterator *iterator, enum iterator_type type,
 		op = SOP_NEIGHBOR;
 		break;
 	default:
-		return initIterator(iterator, type, key, part_count);
+		return Index::initIterator(iterator, type, key, part_count);
 	}
 	rtree_search(&m_tree, &rect, op, &it->impl);
 }

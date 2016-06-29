@@ -1,6 +1,7 @@
 test_run = require('test_run')
 inspector = test_run.new()
 engine = inspector:get_cfg('engine')
+inspector:cmd("push filter '"..engine.."' to 'engine'")
 
 -- iterator (str)
 space = box.schema.space.create('test', { engine = engine })
@@ -91,3 +92,5 @@ t
 t = {} for state, v in index:pairs(box.tuple.new(tostring(77)), {iterator = 'LT'}) do table.insert(t, v) end
 t
 space:drop()
+
+inspector:cmd("clear filter")

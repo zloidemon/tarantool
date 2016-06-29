@@ -60,8 +60,6 @@ do_test select4-1.1c {
   }
 } {0 1 2 3 4 5 5 6 7 8}
 
-# MUST_WORK_TEST
-
 # do_test select4-1.1d {
 #   execsql {
 #     DROP TABLE IF EXISTS t2;
@@ -92,8 +90,6 @@ do_test select4-1.1f {
     SELECT n FROM t1 WHERE log=2
   }
 } {0 1 2 3 4 5 3 4}
-
-# MUST_WORK_TEST
 
 # do_test select4-1.1g {
 #   execsql {
@@ -182,8 +178,6 @@ do_test select4-3.1.1 {
     ORDER BY log;
   }
 } {0 1 2 3 4}
-
-# MUST_WORK_TEST
 
 # do_test select4-3.1.2 {
 #   execsql {
@@ -502,8 +496,6 @@ do_test select4-6.7 {
   }
 } {}
 
-# MUST_WORK_TEST
-
 execsql {DROP TABLE IF EXISTS t2;
 CREATE TABLE t2 (x int primary key, y int);
 INSERT INTO t2 VALUES (0, 1), (1, 1), (2, 2), (3, 4), (4, 8), (5, 15);}
@@ -538,53 +530,51 @@ ifcapable subquery {
   } {n 1 log 0 n 2 log 1}
 } ;# ifcapable subquery
 
-# } ;# ifcapable compound
+} ;# ifcapable compound
 
-# # Make sure DISTINCT works appropriately on TEXT and NUMERIC columns.
-# do_test select4-8.1 {
-#   execsql {
-#     BEGIN;
-#     CREATE TABLE t3(a text, b float, c text);
-#     INSERT INTO t3 VALUES(1, 1.1, '1.1');
-#     INSERT INTO t3 VALUES(2, 1.10, '1.10');
-#     INSERT INTO t3 VALUES(3, 1.10, '1.1');
-#     INSERT INTO t3 VALUES(4, 1.1, '1.10');
-#     INSERT INTO t3 VALUES(5, 1.2, '1.2');
-#     INSERT INTO t3 VALUES(6, 1.3, '1.3');
-#     COMMIT;
-#   }
-#   execsql {
-#     SELECT DISTINCT b FROM t3 ORDER BY c;
-#   }
-# } {1.1 1.2 1.3}
-# do_test select4-8.2 {
-#   execsql {
-#     SELECT DISTINCT c FROM t3 ORDER BY c;
-#   }
-# } {1.1 1.10 1.2 1.3}
+# Make sure DISTINCT works appropriately on TEXT and NUMERIC columns.
+do_test select4-8.1 {
+  execsql {
+    BEGIN;
+    CREATE TABLE t3(a text primary key, b float, c text);
+    INSERT INTO t3 VALUES(1, 1.1, '1.1');
+    INSERT INTO t3 VALUES(2, 1.10, '1.10');
+    INSERT INTO t3 VALUES(3, 1.10, '1.1');
+    INSERT INTO t3 VALUES(4, 1.1, '1.10');
+    INSERT INTO t3 VALUES(5, 1.2, '1.2');
+    INSERT INTO t3 VALUES(6, 1.3, '1.3');
+    COMMIT;
+  }
+  execsql {
+    SELECT DISTINCT b FROM t3 ORDER BY c;
+  }
+} {1.1 1.2 1.3}
+do_test select4-8.2 {
+  execsql {
+    SELECT DISTINCT c FROM t3 ORDER BY c;
+  }
+} {1.1 1.10 1.2 1.3}
 
 # Make sure the names of columns are taken from the right-most subquery
 # right in a compound query.  Ticket #1721
 #
 ifcapable compound {
 
-# MUST_WORK_TEST
-
-# do_test select4-9.1 {
-#   execsql2 {
-#     SELECT x, y FROM t2 UNION SELECT a, b FROM t3 ORDER BY x LIMIT 1
-#   }
-# } {x 0 y 1}
-# do_test select4-9.2 {
-#   execsql2 {
-#     SELECT x, y FROM t2 UNION ALL SELECT a, b FROM t3 ORDER BY x LIMIT 1
-#   }
-# } {x 0 y 1}
-# do_test select4-9.3 {
-#   execsql2 {
-#     SELECT x, y FROM t2 EXCEPT SELECT a, b FROM t3 ORDER BY x LIMIT 1
-#   }
-# } {x 0 y 1}
+do_test select4-9.1 {
+  execsql2 {
+    SELECT x, y FROM t2 UNION SELECT a, b FROM t3 ORDER BY x LIMIT 1
+  }
+} {x 0 y 1}
+do_test select4-9.2 {
+  execsql2 {
+    SELECT x, y FROM t2 UNION ALL SELECT a, b FROM t3 ORDER BY x LIMIT 1
+  }
+} {x 0 y 1}
+do_test select4-9.3 {
+  execsql2 {
+    SELECT x, y FROM t2 EXCEPT SELECT a, b FROM t3 ORDER BY x LIMIT 1
+  }
+} {x 0 y 1}
 do_test select4-9.4 {
   execsql2 {
     SELECT x, y FROM t2 INTERSECT SELECT 0 AS a, 1 AS b;
@@ -716,8 +706,6 @@ do_test select4-10.9 {
     SELECT DISTINCT max(n), log FROM t1 ORDER BY +log; -- LIMIT 2 OFFSET 1
   }
 } {31 5}
-
-# MUST_WORK_TEST
 
 execsql {DROP TABLE IF EXISTS t2;
 CREATE TABLE t2 (rowid int primary key, x, y);}
@@ -853,13 +841,15 @@ do_test select4-11.16 {
   }
 } {1 {SELECTs to the left and right of UNION do not have the same number of result columns}}
 
+# MUST_WORK_TEST
+
 # do_test select4-12.1 {
 #   catchsql {
 #     SELECT 1 UNION SELECT 2,3 UNION SELECT 4,5 ORDER BY 1;
 #   } db2
 # } {1 {SELECTs to the left and right of UNION do not have the same number of result columns}}
 
-# } ;# ifcapable compound
+} ;# ifcapable compound
 
 
 # Ticket [3557ad65a076c] - Incorrect DISTINCT processing with an
@@ -879,15 +869,13 @@ do_test select4-13.1 {
   }
 } {1 2}
 
-# MUST_WORK_TEST
-
 # 2014-02-18: Make sure compound SELECTs work with VALUES clauses
 #
-# do_execsql_test select4-14.1 {
-#   CREATE TABLE t14(a,b,c);
-#   INSERT INTO t14 VALUES(1,2,3),(4,5,6);
-#   SELECT * FROM t14 INTERSECT VALUES(3,2,1),(2,3,1),(1,2,3),(2,1,3);
-# } {1 2 3}
+do_execsql_test select4-14.1 {
+  CREATE TABLE t14(a primary key,b,c);
+  INSERT INTO t14 VALUES(1,2,3),(4,5,6);
+  SELECT * FROM t14 INTERSECT VALUES(3,2,1),(2,3,1),(1,2,3),(2,1,3);
+} {1 2 3}
 execsql {DROP TABLE IF EXISTS t14;
 CREATE TABLE t14 (a int primary key, b int, c int);
 INSERT INTO t14 VALUES (1, 2, 3),(4, 5, 6);}

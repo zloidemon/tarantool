@@ -545,12 +545,9 @@ proc cksort {sql} {
 # using an index rather than by sorting.
 #
 
-# MUST_WORK_TEST
-# CREATE TABLE t3(a int PRIMARY KEY,b,c);
-
 do_test where-6.1 {
   execsql {
-    CREATE TABLE t3(a int PRIMARY KEY,b int,c int);
+    CREATE TABLE t3(a PRIMARY KEY,b,c);
     CREATE INDEX t3bc ON t3(b,c);
     CREATE INDEX t3acb ON t3(a,c,b);
     INSERT INTO t3 SELECT w, 101-w, y FROM t1;
@@ -1164,90 +1161,90 @@ do_test where-13.12 {
 
 # MUST_WORK_TEST
 
-# # Ticket #2211.
-# #
-# # When optimizing out ORDER BY clauses, make sure that trailing terms
-# # of the ORDER BY clause do not reference other tables in a join.
-# #
-# if {[permutation] != "no_optimization"} {
-# do_test where-14.1 {
-#   execsql {
-#     CREATE TABLE t8(a INTEGER PRIMARY KEY, b TEXT UNIQUE, c CHAR(100));
-#     INSERT INTO t8(a,b) VALUES(1,'one');
-#     INSERT INTO t8(a,b) VALUES(4,'four');
-#   }
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, y.b
-#   } 
-# } {1/4 1/1 4/4 4/1 nosort}
-# do_test where-14.2 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, y.b DESC
-#   } 
-# } {1/1 1/4 4/1 4/4 nosort}
-# do_test where-14.3 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, x.b
-#   } 
-# } {1/4 1/1 4/4 4/1 nosort}
-# do_test where-14.4 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, x.b DESC
-#   } 
-# } {1/4 1/1 4/4 4/1 nosort}
-# do_test where-14.5 {
-#   # This test case changed from "nosort" to "sort". See ticket 2a5629202f.
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||x.b
-#   } 
-# } {/4/[14] 4/[14] 1/[14] 1/[14] sort/}
-# do_test where-14.6 {
-#   # This test case changed from "nosort" to "sort". See ticket 2a5629202f.
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||x.b DESC
-#   } 
-# } {/4/[14] 4/[14] 1/[14] 1/[14] sort/}
-# do_test where-14.7 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||y.b
-#   } 
-# } {4/1 4/4 1/1 1/4 sort}
-# do_test where-14.7.1 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a, y.a||y.b
-#   } 
-# } {4/1 4/4 1/1 1/4 sort}
-# do_test where-14.7.2 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a, x.a||x.b
-#   } 
-# } {4/4 4/1 1/4 1/1 nosort}
-# do_test where-14.8 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||y.b DESC
-#   } 
-# } {4/4 4/1 1/4 1/1 sort}
-# do_test where-14.9 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||y.b
-#   } 
-# } {4/4 4/1 1/4 1/1 sort}
-# do_test where-14.10 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||y.b DESC
-#   } 
-# } {4/1 4/4 1/1 1/4 sort}
-# do_test where-14.11 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||x.b
-#   } 
-# } {4/1 4/4 1/1 1/4 sort}
-# do_test where-14.12 {
-#   cksort {
-#     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||x.b DESC
-#   } 
-# } {4/4 4/1 1/4 1/1 sort}
-# } ;# {permutation != "no_optimization"}
+# Ticket #2211.
+#
+# When optimizing out ORDER BY clauses, make sure that trailing terms
+# of the ORDER BY clause do not reference other tables in a join.
+#
+if {[permutation] != "no_optimization"} {
+do_test where-14.1 {
+  execsql {
+    CREATE TABLE t8(a INTEGER PRIMARY KEY, b TEXT UNIQUE, c CHAR(100));
+    INSERT INTO t8(a,b) VALUES(1,'one');
+    INSERT INTO t8(a,b) VALUES(4,'four');
+  }
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, y.b
+  } 
+} {1/4 1/1 4/4 4/1 nosort}
+do_test where-14.2 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, y.b DESC
+  } 
+} {1/1 1/4 4/1 4/4 nosort}
+do_test where-14.3 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, x.b
+  } 
+} {1/4 1/1 4/4 4/1 nosort}
+do_test where-14.4 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, x.b DESC
+  } 
+} {1/4 1/1 4/4 4/1 nosort}
+do_test where-14.5 {
+  # This test case changed from "nosort" to "sort". See ticket 2a5629202f.
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||x.b
+  } 
+} {/4/[14] 4/[14] 1/[14] 1/[14] sort/}
+do_test where-14.6 {
+  # This test case changed from "nosort" to "sort". See ticket 2a5629202f.
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||x.b DESC
+  } 
+} {/4/[14] 4/[14] 1/[14] 1/[14] sort/}
+do_test where-14.7 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||y.b
+  } 
+} {4/1 4/4 1/1 1/4 sort}
+do_test where-14.7.1 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a, y.a||y.b
+  } 
+} {4/1 4/4 1/1 1/4 sort}
+do_test where-14.7.2 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a, x.a||x.b
+  } 
+} {4/4 4/1 1/4 1/1 nosort}
+do_test where-14.8 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||y.b DESC
+  } 
+} {4/4 4/1 1/4 1/1 sort}
+do_test where-14.9 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||y.b
+  } 
+} {4/4 4/1 1/4 1/1 sort}
+do_test where-14.10 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a||y.b DESC
+  } 
+} {4/1 4/4 1/1 1/4 sort}
+do_test where-14.11 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||x.b
+  } 
+} {4/1 4/4 1/1 1/4 sort}
+do_test where-14.12 {
+  cksort {
+    SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||x.b DESC
+  } 
+} {4/4 4/1 1/4 1/1 sort}
+} ;# {permutation != "no_optimization"}
 
 # Ticket #2445.
 #
@@ -1289,20 +1286,20 @@ do_test where-16.2 {
 } {1 one 1 one 2 two 1 one}
 
 # # The actual problem reported in #3408.
-# do_test where-16.3 {
-#   execsql {
-#     CREATE TEMP TABLE foo(pid int primary key, idx INTEGER);
-#     INSERT INTO foo VALUES(0, 1);
-#     INSERT INTO foo VALUES(1, 1);
-#     INSERT INTO foo VALUES(2, 1);
-#     INSERT INTO foo VALUES(3, 2);
-#     INSERT INTO foo VALUES(4, 2);
-#     CREATE TEMP TABLE bar(pid int primary key, stuff INTEGER);
-#     INSERT INTO bar VALUES(0, 100);
-#     INSERT INTO bar VALUES(1, 200);
-#     INSERT INTO bar VALUES(2, 300);
-#   }
-# } {}
+do_test where-16.3 {
+  execsql {
+    CREATE TEMP TABLE foo(pid int primary key, idx INTEGER);
+    INSERT INTO foo VALUES(0, 1);
+    INSERT INTO foo VALUES(1, 1);
+    INSERT INTO foo VALUES(2, 1);
+    INSERT INTO foo VALUES(3, 2);
+    INSERT INTO foo VALUES(4, 2);
+    CREATE TEMP TABLE bar(pid int primary key, stuff INTEGER);
+    INSERT INTO bar VALUES(0, 100);
+    INSERT INTO bar VALUES(1, 200);
+    INSERT INTO bar VALUES(2, 300);
+  }
+} {}
 # do_test where-16.4 {
 #   execsql {
 #     SELECT bar.RowID id FROM foo, bar WHERE foo.idx = bar.RowID AND id = 2;
@@ -1347,13 +1344,13 @@ do_test where-17.4 {
     FROM (SELECT 1.5 AS id) AS a
   }
 } {1.5 42}
-# do_test where-17.5 {
-#   execsql {
-#     CREATE TABLE tother(a, b);
-#     INSERT INTO tother VALUES(1, 3.7);
-#     SELECT id, a FROM tbltmp, tother WHERE id>a;
-#   }
-# } {42 1 43 1}
+do_test where-17.5 {
+  execsql {
+    CREATE TABLE tother(a primary key, b);
+    INSERT INTO tother VALUES(1, 3.7);
+    SELECT id, a FROM tbltmp, tother WHERE id>a;
+  }
+} {42 1 43 1}
 
 # Ticket [be84e357c035d068135f20bcfe82761bbf95006b]  2013-09-03
 # Segfault during query involving LEFT JOIN column in the ORDER BY clause.

@@ -57,7 +57,7 @@ ifcapable tempdb {
 # } {1 1}
 # } ;# ifcapable view
 
-# } ;# ifcapable compound
+} ;# ifcapable compound
 
 # # Do not allow GROUP BY without an aggregate. Ticket #1039.
 # #
@@ -168,42 +168,40 @@ if {[clang_sanitize_address]==0} {
   }
 }
 
-# MUST_WORK_TEST
-
-# # This block of tests verifies that bug aa92c76cd4 is fixed.
-# #
-# do_test select7-7.1 {
-#   execsql {
-#     CREATE TABLE t3(a REAL);
-#     INSERT INTO t3 VALUES(44.0);
-#     INSERT INTO t3 VALUES(56.0);
-#   }
-# } {}
-# do_test select7-7.2 {
-#   execsql {
-#     pragma vdbe_trace = 0;
-#     SELECT (CASE WHEN a=0 THEN 0 ELSE (a + 25) / 50 END) AS categ, count(*)
-#     FROM t3 GROUP BY categ
-#   }
-# } {1.38 1 1.62 1}
-# do_test select7-7.3 {
-#   execsql {
-#     CREATE TABLE t4(a REAL);
-#     INSERT INTO t4 VALUES( 2.0 );
-#     INSERT INTO t4 VALUES( 3.0 );
-#   }
-# } {}
-# do_test select7-7.4 {
-#   execsql {
-#     SELECT (CASE WHEN a=0 THEN 'zero' ELSE a/2 END) AS t FROM t4 GROUP BY t;
-#   }
-# } {1.0 1.5}
-# do_test select7-7.5 {
-#   execsql { SELECT a=0, typeof(a) FROM t4 }
-# } {0 real 0 real}
-# do_test select7-7.6 {
-#   execsql { SELECT a=0, typeof(a) FROM t4 GROUP BY a }
-# } {0 real 0 real}
+# This block of tests verifies that bug aa92c76cd4 is fixed.
+#
+do_test select7-7.1 {
+  execsql {
+    CREATE TABLE t3(a REAL primary key);
+    INSERT INTO t3 VALUES(44.0);
+    INSERT INTO t3 VALUES(56.0);
+  }
+} {}
+do_test select7-7.2 {
+  execsql {
+    pragma vdbe_trace = 0;
+    SELECT (CASE WHEN a=0 THEN 0 ELSE (a + 25) / 50 END) AS categ, count(*)
+    FROM t3 GROUP BY categ
+  }
+} {1.38 1 1.62 1}
+do_test select7-7.3 {
+  execsql {
+    CREATE TABLE t4(a REAL primary key);
+    INSERT INTO t4 VALUES( 2.0 );
+    INSERT INTO t4 VALUES( 3.0 );
+  }
+} {}
+do_test select7-7.4 {
+  execsql {
+    SELECT (CASE WHEN a=0 THEN 'zero' ELSE a/2 END) AS t FROM t4 GROUP BY t;
+  }
+} {1.0 1.5}
+do_test select7-7.5 {
+  execsql { SELECT a=0, typeof(a) FROM t4 }
+} {0 real 0 real}
+do_test select7-7.6 {
+  execsql { SELECT a=0, typeof(a) FROM t4 GROUP BY a }
+} {0 real 0 real}
 
 do_test select7-7.7 {
   execsql {
@@ -225,12 +223,10 @@ do_catchsql_test 8.1 {
   ) WHERE y=1
 } {1 {SELECTs to the left and right of UNION do not have the same number of result columns}}
 
-# MUST_WORK_TEST
-
-# do_catchsql_test 8.2 {
-#   CREATE VIEW v0 as SELECT x, y FROM t01 UNION SELECT x FROM t02;
-#   EXPLAIN QUERY PLAN SELECT * FROM v0 WHERE x='0' OR y;
-# } {1 {SELECTs to the left and right of UNION do not have the same number of result columns}}
+do_catchsql_test 8.2 {
+  CREATE VIEW v0 as SELECT x, y FROM t01 UNION SELECT x FROM t02;
+  EXPLAIN QUERY PLAN SELECT * FROM v0 WHERE x='0' OR y;
+} {1 {SELECTs to the left and right of UNION do not have the same number of result columns}}
 
 
 finish_test

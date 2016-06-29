@@ -27,11 +27,8 @@ set testprefix selectG
 # the insert run for over a minute.
 #
 
-# MUST_WORK_TEST
-# set sql "CREATE TABLE t1(x primary key);\nINSERT INTO t1(x) VALUES"
-
 do_test 100 {
-  set sql "CREATE TABLE t1(x int primary key);\nINSERT INTO t1(x) VALUES"
+  set sql "CREATE TABLE t1(x primary key);\nINSERT INTO t1(x) VALUES"
   for {set i 1} {$i<100000} {incr i} {
     append sql "($i),"
   }

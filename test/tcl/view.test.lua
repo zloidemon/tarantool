@@ -146,19 +146,17 @@ do_test view-2.4 {
     DELETE FROM v2;
   }
 } {1 {cannot modify v2 because it is a view}}
-# MUST_WORK_TEST problem with blob
-# do_test view-2.5 {
-#   execsql {
-#     INSERT INTO t1 VALUES(11,12,13,14);
-#     SELECT * FROM v2 ORDER BY x;
-#   }
-# } {7 8 9 10 11 12 13 14}
-# MUST_WORK_TEST
-# do_test view-2.6 {
-#   execsql {
-#     SELECT x FROM v2 WHERE a>10
-#   }
-# } {11}
+do_test view-2.5 {
+  execsql {
+    INSERT INTO t1 VALUES(11,12,13,14);
+    SELECT * FROM v2 ORDER BY x;
+  }
+} {7 8 9 10 11 12 13 14}
+do_test view-2.6 {
+  execsql {
+    SELECT x FROM v2 WHERE a>10
+  }
+} {11}
 # 
 # Test that column name of views are generated correctly.
 #
@@ -179,13 +177,12 @@ do_test view-3.3.1 {
     SELECT * FROM v1 LIMIT 1
   }
 } {xyz 2 pqr 7 c-b 1}
-# MUST_WORK_TEST problem with column names
-# do_test view-3.3.2 {
-#   execsql2 {
-#     CREATE VIEW v1b AS SELECT t1.a, b+c, t1.c FROM t1;
-#     SELECT * FROM v1b LIMIT 1
-#   }
-# } {a 2 b+c 7 c 4}
+do_test view-3.3.2 {
+  execsql2 {
+    CREATE VIEW v1b AS SELECT t1.a, b+c, t1.c FROM t1;
+    SELECT * FROM v1b LIMIT 1
+  }
+} {a 2 b+c 7 c 4}
 # MUST_WORK_TEST problem with column names
 # do_test view-3.3.3 {
 #   execsql2 {
@@ -331,12 +328,11 @@ do_test view-6.1 {
     SELECT min(x), min(a), min(b), min(c), min(a+b+c) FROM v2;
   }
 } {7 8 9 10 27}
-# MUST_WORK_TEST incorect blobs
-# do_test view-6.2 {
-#   execsql {
-#     SELECT max(x), max(a), max(b), max(c), max(a+b+c) FROM v2;
-#   }
-# } {11 12 13 14 39}
+do_test view-6.2 {
+  execsql {
+    SELECT max(x), max(a), max(b), max(c), max(a+b+c) FROM v2;
+  }
+} {11 12 13 14 39}
 
 # ORIGINAL_TEST
 # do_test view-7.1 {
@@ -388,7 +384,6 @@ do_test view-7.3 {
 #     SELECT * FROM test;
 #   }
 # } {1 2 3}
-# MUST_WORK_TEST
 do_test view-7.5 {
   execsql {
     DROP VIEW test;
@@ -407,13 +402,12 @@ do_test view-7.5 {
 #   }
 # } {1 2 3}
 
-# MUST_WORK_TEST not full result of select
-# do_test view-8.1 {
-#   execsql {
-#     CREATE VIEW v6 AS SELECT pqr, xyz FROM v1;
-#     SELECT * FROM v6 ORDER BY xyz;
-#   }
-# } {7 2 13 5 19 8 27 12}
+do_test view-8.1 {
+  execsql {
+    CREATE VIEW v6 AS SELECT pqr, xyz FROM v1;
+    SELECT * FROM v6 ORDER BY xyz;
+  }
+} {7 2 13 5 19 8 27 12}
 # MUST_WORK_TEST db close
 # do_test view-8.2 {
 #   db close
@@ -430,7 +424,7 @@ do_test view-7.5 {
 #   }
 # } {9 18 27 39}
 
-# ifcapable subquery {
+ifcapable subquery {
 # MUST_WORK_TEST
 #  do_test view-8.4 {
 #    execsql {
@@ -457,7 +451,7 @@ do_test view-7.5 {
 #      SELECT mx+10, pqr FROM v6, v8 WHERE xyz>2;
 #    }
 #  } {13 13 13 19 13 27}
-# } ;# ifcapable subquery
+} ;# ifcapable subquery
 
 # Tests for a bug found by Michiel de Wit involving ORDER BY in a VIEW.
 #
@@ -708,14 +702,14 @@ do_test view-17.2 {
 # } {rowid 1 a 1 x 5 rowid 2 a 4 x 11}
 
 # Ticket #3539 had this crashing (see commit [5940]).
-# do_test view-20.1 {
-#   execsql {
-#     DROP TABLE IF EXISTS t1;
-#     DROP VIEW IF EXISTS v1;
-#     CREATE TABLE t1(c1);
-#     CREATE VIEW v1 AS SELECT c1 FROM (SELECT t1.c1 FROM t1);
-#   }
-# } {}
+do_test view-20.1 {
+  execsql {
+    DROP TABLE IF EXISTS t1;
+    DROP VIEW IF EXISTS v1;
+    CREATE TABLE t1(c1 primary key);
+    CREATE VIEW v1 AS SELECT c1 FROM (SELECT t1.c1 FROM t1);
+  }
+} {}
 do_test view-20.1 {
   execsql {
     DROP TABLE IF EXISTS t1;

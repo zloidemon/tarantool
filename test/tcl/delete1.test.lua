@@ -1,3 +1,5 @@
+#!/usr/bin/env ./tcltestrunner.lua
+
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 

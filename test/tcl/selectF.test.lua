@@ -20,15 +20,11 @@ set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 set testprefix selectF
 
-# MUST_WORK_TEST
-# CREATE TABLE t1(a primary key, b, c);
-# CREATE TABLE t2(d primary key, e, f);
-
 do_execsql_test 1 {
   BEGIN TRANSACTION;
-  CREATE TABLE t1(a int primary key, b, c);
+  CREATE TABLE t1(a primary key, b, c);
   INSERT INTO "t1" VALUES(1,'one','I');
-  CREATE TABLE t2(d int primary key, e, f);
+  CREATE TABLE t2(d primary key, e, f);
   INSERT INTO "t2" VALUES(5,'ten','XX');
   INSERT INTO "t2" VALUES(6,NULL,NULL);
 

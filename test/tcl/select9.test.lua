@@ -121,16 +121,12 @@ proc test_compound_select_flippable {testname sql result} {
 # Create and populate a sample database.
 #
 
-# MUST_WORK_TEST
-# CREATE TABLE t1(a, b, c);
-# CREATE TABLE t2(d, e, f);
-
 do_test select9-1.0 {
   execsql {
     DROP TABLE IF EXISTS t1;
     DROP TABLE IF EXISTS t2;
-    CREATE TABLE t1(id int primary key, a int, b, c);
-    CREATE TABLE t2(id int primary key, d int, e, f);
+    CREATE TABLE t1(id primary key, a, b, c);
+    CREATE TABLE t2(id primary key, d, e, f);
     BEGIN;
       INSERT INTO t1 VALUES(0, 1,  'one',   'I');
       INSERT INTO t1 VALUES(1, 3,  NULL,    NULL);
@@ -316,7 +312,7 @@ foreach indexes [list {
 } {
   CREATE INDEX i1 ON t1(a)
 } {
-  DROP INDEX '527_1_i1';
+  DROP INDEX '517_1_i1';
   CREATE INDEX i1 ON t1(b,a);
 } {
   CREATE INDEX i2 ON t2(d DESC, e COLLATE REVERSE ASC);
@@ -481,42 +477,38 @@ do_test select9-4.3 {
 #   }
 # } {}
 
-# MUST_WORK_TEST
-
-# # Testing to make sure that queries involving a view of a compound select
-# # are planned efficiently.  This detects a problem reported on the mailing
-# # list on 2012-04-26.  See
-# #
-# #  http://www.mail-archive.com/sqlite-users%40sqlite.org/msg69746.html
-# #
-# # For additional information.
-# #
-# do_test select9-5.1 {
-#   db eval {
-#     CREATE TABLE t51(x, y);
-#     CREATE TABLE t52(x, y);
-#     CREATE VIEW v5 as
-#        SELECT x, y FROM t51
-#        UNION ALL
-#        SELECT x, y FROM t52;
-#     CREATE INDEX t51x ON t51(x);
-#     CREATE INDEX t52x ON t52(x);
-#     EXPLAIN QUERY PLAN
-#        SELECT * FROM v5 WHERE x='12345' ORDER BY y;
-#   }
-# } {~/SCAN TABLE/}  ;# Uses indices with "*"
-# do_test select9-5.2 {
-#   db eval {
-#     EXPLAIN QUERY PLAN
-#        SELECT x, y FROM v5 WHERE x='12345' ORDER BY y;
-#   }
-# } {~/SCAN TABLE/}  ;# Uses indices with "x, y"
-# do_test select9-5.3 {
-#   db eval {
-#     EXPLAIN QUERY PLAN
-#        SELECT x, y FROM v5 WHERE +x='12345' ORDER BY y;
-#   }
-# } {/SCAN TABLE/}   ;# Full table scan if the "+x" prevents index usage.
+# Testing to make sure that queries involving a view of a compound select
+# are planned efficiently.  This detects a problem reported on the mailing
+# list on 2012-04-26.  See
+#
+#  http://www.mail-archive.com/sqlite-users%40sqlite.org/msg69746.html
+#
+# For additional information.
+#
+do_test select9-5.1 {
+  db eval {
+    CREATE TABLE t51(x primary key, y);
+    CREATE TABLE t52(x primary key, y);
+    CREATE VIEW v5 as
+       SELECT x, y FROM t51
+       UNION ALL
+       SELECT x, y FROM t52;
+    EXPLAIN QUERY PLAN
+       SELECT * FROM v5 WHERE x='12345' ORDER BY y;
+  }
+} {~/SCAN TABLE/}  ;# Uses indices with "*"
+do_test select9-5.2 {
+  db eval {
+    EXPLAIN QUERY PLAN
+       SELECT x, y FROM v5 WHERE x='12345' ORDER BY y;
+  }
+} {~/SCAN TABLE/}  ;# Uses indices with "x, y"
+do_test select9-5.3 {
+  db eval {
+    EXPLAIN QUERY PLAN
+       SELECT x, y FROM v5 WHERE +x='12345' ORDER BY y;
+  }
+} {/SCAN TABLE/}   ;# Full table scan if the "+x" prevents index usage.
 
 # 2013-07-09:  Ticket [490a4b7235624298]: 
 # "WHERE 0" on the first element of a UNION causes an assertion fault

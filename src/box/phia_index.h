@@ -42,6 +42,10 @@ public:
 	replace(struct tuple*,
 	        struct tuple*, enum dup_replace_mode) override;
 
+	/* Used by INSERT */
+	struct tuple *
+	findByKey(struct phia_tuple *tuple) const;
+
 	virtual struct tuple*
 	findByKey(const char *key, uint32_t) const override;
 
@@ -59,8 +63,6 @@ public:
 public:
 	struct phia_env *env;
 	struct phia_index *db;
-
-	struct phia_document *createDocument(const char *key, const char **keyend);
 private:
 	struct tuple_format *format;
 };

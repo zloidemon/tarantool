@@ -238,13 +238,11 @@ do_test select5-8.4 {
   }
 } {one 2 two 1}
 
-# MUST_WORK_TEST
-
-# do_test select5-8.5 {
-#   execsql {
-#     SELECT a, count(b) FROM t8a, t8b WHERE b<x GROUP BY a ORDER BY a;
-#   }
-# } {one 6 two 3}
+do_test select5-8.5 {
+  execsql {
+    SELECT a, count(b) FROM t8a, t8b WHERE b<x GROUP BY a ORDER BY a;
+  }
+} {one 6 two 3}
 do_test select5-8.6 {
   execsql {
     SELECT a, count(t8a.b) FROM t8a, t8b WHERE b=t8b.rowid 

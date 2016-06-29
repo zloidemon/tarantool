@@ -151,7 +151,7 @@ do_test whereA-4.4 {
   }
 } {2 1 0}
 do_test whereA-4.5 {
-  db eval {DROP INDEX '532_1_t2x';}
+  db eval {DROP INDEX '522_1_t2x';}
   count {
     SELECT x FROM t2 ORDER BY x;
   }

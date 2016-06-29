@@ -321,44 +321,44 @@ do_test join-3.4.2 {
     SELECT * FROM t1 JOIN t2 USING(d);
   }
 } {1 {cannot join using column d - column not present in both tables}}
-# do_test join-3.5 {
-#   catchsql { SELECT * FROM t1 USING(a) }
-# } {1 {a JOIN clause is required before USING}}
-# do_test join-3.6 {
-#   catchsql {
-#     SELECT * FROM t1 JOIN t2 ON t3.a=t2.b;
-#   }
-# } {1 {no such column: t3.a}}
-# do_test join-3.7 {
-#   catchsql {
-#     SELECT * FROM t1 INNER OUTER JOIN t2;
-#   }
-# } {1 {unknown or unsupported join type: INNER OUTER}}
-# do_test join-3.8 {
-#   catchsql {
-#     SELECT * FROM t1 INNER OUTER CROSS JOIN t2;
-#   }
-# } {1 {unknown or unsupported join type: INNER OUTER CROSS}}
-# do_test join-3.9 {
-#   catchsql {
-#     SELECT * FROM t1 OUTER NATURAL INNER JOIN t2;
-#   }
-# } {1 {unknown or unsupported join type: OUTER NATURAL INNER}}
-# do_test join-3.10 {
-#   catchsql {
-#     SELECT * FROM t1 LEFT BOGUS JOIN t2;
-#   }
-# } {1 {unknown or unsupported join type: LEFT BOGUS}}
-# do_test join-3.11 {
-#   catchsql {
-#     SELECT * FROM t1 INNER BOGUS CROSS JOIN t2;
-#   }
-# } {1 {unknown or unsupported join type: INNER BOGUS CROSS}}
-# do_test join-3.12 {
-#   catchsql {
-#     SELECT * FROM t1 NATURAL AWK SED JOIN t2;
-#   }
-# } {1 {unknown or unsupported join type: NATURAL AWK SED}}
+do_test join-3.5 {
+  catchsql { SELECT * FROM t1 USING(a) }
+} {1 {a JOIN clause is required before USING}}
+do_test join-3.6 {
+  catchsql {
+    SELECT * FROM t1 JOIN t2 ON t3.a=t2.b;
+  }
+} {1 {no such column: t3.a}}
+do_test join-3.7 {
+  catchsql {
+    SELECT * FROM t1 INNER OUTER JOIN t2;
+  }
+} {1 {unknown or unsupported join type: INNER OUTER}}
+do_test join-3.8 {
+  catchsql {
+    SELECT * FROM t1 INNER OUTER CROSS JOIN t2;
+  }
+} {1 {unknown or unsupported join type: INNER OUTER CROSS}}
+do_test join-3.9 {
+  catchsql {
+    SELECT * FROM t1 OUTER NATURAL INNER JOIN t2;
+  }
+} {1 {unknown or unsupported join type: OUTER NATURAL INNER}}
+do_test join-3.10 {
+  catchsql {
+    SELECT * FROM t1 LEFT BOGUS JOIN t2;
+  }
+} {1 {unknown or unsupported join type: LEFT BOGUS}}
+do_test join-3.11 {
+  catchsql {
+    SELECT * FROM t1 INNER BOGUS CROSS JOIN t2;
+  }
+} {1 {unknown or unsupported join type: INNER BOGUS CROSS}}
+do_test join-3.12 {
+  catchsql {
+    SELECT * FROM t1 NATURAL AWK SED JOIN t2;
+  }
+} {1 {unknown or unsupported join type: NATURAL AWK SED}}
 
 # do_test join-4.1 {
 #   execsql {
@@ -422,47 +422,49 @@ do_test join-3.4.2 {
 #   }
 # } {}
 
-# do_test join-5.1 {
-#   execsql {
-#     BEGIN;
-#     create table centros (id integer primary key, centro);
-#     INSERT INTO centros VALUES(1,'xxx');
-#     create table usuarios (id integer primary key, nombre, apellidos,
-#     idcentro integer);
-#     INSERT INTO usuarios VALUES(1,'a','aa',1);
-#     INSERT INTO usuarios VALUES(2,'b','bb',1);
-#     INSERT INTO usuarios VALUES(3,'c','cc',NULL);
-#     create index idcentro on usuarios (idcentro);
-#     END;
-#     select usuarios.id, usuarios.nombre, centros.centro from
-#     usuarios left outer join centros on usuarios.idcentro = centros.id;
-#   }
-# } {1 a xxx 2 b xxx 3 c {}}
+do_test join-5.1 {
+  execsql {
+    BEGIN;
+    create table centros (id integer primary key, centro);
+    INSERT INTO centros VALUES(1,'xxx');
+    create table usuarios (id integer primary key, nombre, apellidos,
+    idcentro integer);
+    INSERT INTO usuarios VALUES(1,'a','aa',1);
+    INSERT INTO usuarios VALUES(2,'b','bb',1);
+    INSERT INTO usuarios VALUES(3,'c','cc',NULL);
+    create index idcentro on usuarios (idcentro);
+    END;
+    select usuarios.id, usuarios.nombre, centros.centro from
+    usuarios left outer join centros on usuarios.idcentro = centros.id;
+  }
+} {1 a xxx 2 b xxx 3 c {}}
 
-# # A test for ticket #247.
-# #
-# do_test join-7.1 {
-#   execsql {
-#     CREATE TABLE t7 (x, y);
-#     INSERT INTO t7 VALUES ("pa1", 1);
-#     INSERT INTO t7 VALUES ("pa2", NULL);
-#     INSERT INTO t7 VALUES ("pa3", NULL);
-#     INSERT INTO t7 VALUES ("pa4", 2);
-#     INSERT INTO t7 VALUES ("pa30", 131);
-#     INSERT INTO t7 VALUES ("pa31", 130);
-#     INSERT INTO t7 VALUES ("pa28", NULL);
+# A test for ticket #247.
+#
+do_test join-7.1 {
+  execsql {
+    CREATE TABLE t7 (id primary key, x, y);
+    INSERT INTO t7 VALUES (1, "pa1", 1);
+    INSERT INTO t7 VALUES (2, "pa2", NULL);
+    INSERT INTO t7 VALUES (3, "pa3", NULL);
+    INSERT INTO t7 VALUES (4, "pa4", 2);
+    INSERT INTO t7 VALUES (5, "pa30", 131);
+    INSERT INTO t7 VALUES (6, "pa31", 130);
+    INSERT INTO t7 VALUES (7, "pa28", NULL);
 
-#     CREATE TABLE t8 (a integer primary key, b);
-#     INSERT INTO t8 VALUES (1, "pa1");
-#     INSERT INTO t8 VALUES (2, "pa4");
-#     INSERT INTO t8 VALUES (3, NULL);
-#     INSERT INTO t8 VALUES (4, NULL);
-#     INSERT INTO t8 VALUES (130, "pa31");
-#     INSERT INTO t8 VALUES (131, "pa30");
+    CREATE TABLE t8 (a integer primary key, b);
+    INSERT INTO t8 VALUES (1, "pa1");
+    INSERT INTO t8 VALUES (2, "pa4");
+    INSERT INTO t8 VALUES (3, NULL);
+    INSERT INTO t8 VALUES (4, NULL);
+    INSERT INTO t8 VALUES (130, "pa31");
+    INSERT INTO t8 VALUES (131, "pa30");
 
-#     SELECT coalesce(t8.a,999) from t7 LEFT JOIN t8 on y=a;
-#   }
-# } {1 999 999 2 131 130 999}
+    SELECT coalesce(t8.a,999) from t7 LEFT JOIN t8 on y=a;
+  }
+} {1 999 999 2 131 130 999}
+
+# MUST_WORK_TEST
 
 # # Make sure a left join where the right table is really a view that
 # # is itself a join works right.  Ticket #306.
@@ -510,38 +512,41 @@ do_test join-3.4.2 {
 # }
 # } ;# ifcapable view
 
-# # Ticket #350 describes a scenario where LEFT OUTER JOIN does not
-# # function correctly if the right table in the join is really
-# # subquery.
-# #
-# # To test the problem, we generate the same LEFT OUTER JOIN in two
-# # separate selects but with on using a subquery and the other calling
-# # the table directly.  Then connect the two SELECTs using an EXCEPT.
-# # Both queries should generate the same results so the answer should
-# # be an empty set.
-# #
-# ifcapable compound {
-# do_test join-9.1 {
-#   execsql {
-#     BEGIN;
-#     CREATE TABLE t12(a,b);
-#     INSERT INTO t12 VALUES(1,11);
-#     INSERT INTO t12 VALUES(2,22);
-#     CREATE TABLE t13(b,c);
-#     INSERT INTO t13 VALUES(22,222);
-#     COMMIT;
-#   }
-# } {}
+# Ticket #350 describes a scenario where LEFT OUTER JOIN does not
+# function correctly if the right table in the join is really
+# subquery.
+#
+# To test the problem, we generate the same LEFT OUTER JOIN in two
+# separate selects but with on using a subquery and the other calling
+# the table directly.  Then connect the two SELECTs using an EXCEPT.
+# Both queries should generate the same results so the answer should
+# be an empty set.
+#
+ifcapable compound {
+do_test join-9.1 {
+  execsql {
+    BEGIN;
+    CREATE TABLE t12(a primary key,b);
+    INSERT INTO t12 VALUES(1,11);
+    INSERT INTO t12 VALUES(2,22);
+    CREATE TABLE t13(b primary key,c);
+    INSERT INTO t13 VALUES(22,222);
+    COMMIT;
+  }
+} {}
 
-# ifcapable subquery {
-#   do_test join-9.1.1 {
-#     execsql {
-#       SELECT * FROM t12 NATURAL LEFT JOIN t13
-#       EXCEPT
-#       SELECT * FROM t12 NATURAL LEFT JOIN (SELECT * FROM t13 WHERE b>0);
-#     }
-#   } {}
-# }
+ifcapable subquery {
+  do_test join-9.1.1 {
+    execsql {
+      SELECT * FROM t12 NATURAL LEFT JOIN t13
+      EXCEPT
+      SELECT * FROM t12 NATURAL LEFT JOIN (SELECT * FROM t13 WHERE b>0);
+    }
+  } {}
+}
+
+# MUST_WORK_TEST
+
 # ifcapable view {
 #   do_test join-9.2 {
 #     execsql {
@@ -552,167 +557,179 @@ do_test join-3.4.2 {
 #     }
 #   } {}
 # } ;# ifcapable view
-# } ;# ifcapable compound
+} ;# ifcapable compound
 
-# ifcapable subquery {
-#   # Ticket #1697:  Left Join WHERE clause terms that contain an
-#   # aggregate subquery.
-#   #
-#   do_test join-10.1 {
-#     execsql {
-#       CREATE TABLE t21(a,b,c);
-#       CREATE TABLE t22(p,q);
-#       CREATE INDEX i22 ON t22(q);
-#       SELECT a FROM t21 LEFT JOIN t22 ON b=p WHERE q=
-#          (SELECT max(m.q) FROM t22 m JOIN t21 n ON n.b=m.p WHERE n.c=1);
-#     }  
-#   } {}
+ifcapable subquery {
+  # Ticket #1697:  Left Join WHERE clause terms that contain an
+  # aggregate subquery.
+  #
+  do_test join-10.1 {
+    execsql {
+      CREATE TABLE t21(a primary key,b,c);
+      CREATE TABLE t22(p primary key,q);
+      CREATE INDEX i22 ON t22(q);
+      SELECT a FROM t21 LEFT JOIN t22 ON b=p WHERE q=
+         (SELECT max(m.q) FROM t22 m JOIN t21 n ON n.b=m.p WHERE n.c=1);
+    }  
+  } {}
 
-#   # Test a LEFT JOIN when the right-hand side of hte join is an empty
-#   # sub-query. Seems fine.
-#   #
-#   do_test join-10.2 {
-#     execsql {
-#       CREATE TABLE t23(a, b, c);
-#       CREATE TABLE t24(a, b, c);
-#       INSERT INTO t23 VALUES(1, 2, 3);
-#     }
-#     execsql {
-#       SELECT * FROM t23 LEFT JOIN t24;
-#     }
-#   } {1 2 3 {} {} {}}
-#   do_test join-10.3 {
-#     execsql {
-#       SELECT * FROM t23 LEFT JOIN (SELECT * FROM t24);
-#     }
-#   } {1 2 3 {} {} {}}
+  # Test a LEFT JOIN when the right-hand side of hte join is an empty
+  # sub-query. Seems fine.
+  #
+  do_test join-10.2 {
+    execsql {
+      CREATE TABLE t23(a primary key, b, c);
+      CREATE TABLE t24(a primary key, b, c);
+      INSERT INTO t23 VALUES(1, 2, 3);
+    }
+    execsql {
+      SELECT * FROM t23 LEFT JOIN t24;
+    }
+  } {1 2 3 {} {} {}}
+  do_test join-10.3 {
+    execsql {
+      SELECT * FROM t23 LEFT JOIN (SELECT * FROM t24);
+    }
+  } {1 2 3 {} {} {}}
 
-# } ;# ifcapable subquery
+} ;# ifcapable subquery
 
-# #-------------------------------------------------------------------------
-# # The following tests are to ensure that bug b73fb0bd64 is fixed.
-# #
-# do_test join-11.1 {
-#   drop_all_tables
-#   execsql {
-#     CREATE TABLE t1(a INTEGER PRIMARY KEY, b TEXT);
-#     CREATE TABLE t2(a INTEGER PRIMARY KEY, b TEXT);
-#     INSERT INTO t1 VALUES(1,'abc');
-#     INSERT INTO t1 VALUES(2,'def');
-#     INSERT INTO t2 VALUES(1,'abc');
-#     INSERT INTO t2 VALUES(2,'def');
-#     SELECT * FROM t1 NATURAL JOIN t2;
-#   }
-# } {1 abc 2 def}
+#-------------------------------------------------------------------------
+# The following tests are to ensure that bug b73fb0bd64 is fixed.
+#
+do_test join-11.1 {
+  execsql {
+    DROP TABLE IF EXISTS t1;
+    DROP TABLE IF EXISTS t2;
+  }
+  execsql {
+    CREATE TABLE t1(a INTEGER PRIMARY KEY, b TEXT);
+    CREATE TABLE t2(a INTEGER PRIMARY KEY, b TEXT);
+    INSERT INTO t1 VALUES(1,'abc');
+    INSERT INTO t1 VALUES(2,'def');
+    INSERT INTO t2 VALUES(1,'abc');
+    INSERT INTO t2 VALUES(2,'def');
+    SELECT * FROM t1 NATURAL JOIN t2;
+  }
+} {1 abc 2 def}
 
-# do_test join-11.2 {
-#   execsql { SELECT a FROM t1 JOIN t1 USING (a)}
-# } {1 2}
-# do_test join-11.3 {
-#   execsql { SELECT a FROM t1 JOIN t1 AS t2 USING (a)}
-# } {1 2}
-# do_test join-11.3 {
-#   execsql { SELECT * FROM t1 NATURAL JOIN t1 AS t2}
-# } {1 abc 2 def}
-# do_test join-11.4 {
-#   execsql { SELECT * FROM t1 NATURAL JOIN t1 }
-# } {1 abc 2 def}
+do_test join-11.2 {
+  execsql { SELECT a FROM t1 JOIN t1 USING (a)}
+} {1 2}
+do_test join-11.3 {
+  execsql { SELECT a FROM t1 JOIN t1 AS t2 USING (a)}
+} {1 2}
+do_test join-11.3 {
+  execsql { SELECT * FROM t1 NATURAL JOIN t1 AS t2}
+} {1 abc 2 def}
+do_test join-11.4 {
+  execsql { SELECT * FROM t1 NATURAL JOIN t1 }
+} {1 abc 2 def}
 
-# do_test join-11.5 {
-#   drop_all_tables
-#   execsql {
-#     CREATE TABLE t1(a COLLATE nocase, b);
-#     CREATE TABLE t2(a, b);
-#     INSERT INTO t1 VALUES('ONE', 1);
-#     INSERT INTO t1 VALUES('two', 2);
-#     INSERT INTO t2 VALUES('one', 1);
-#     INSERT INTO t2 VALUES('two', 2);
-#   }
-# } {}
+do_test join-11.5 {
+  execsql {
+    DROP TABLE IF EXISTS t1;
+    DROP TABLE IF EXISTS t2;
+  }
+  execsql {
+    CREATE TABLE t1(id primary key, a COLLATE nocase, b);
+    CREATE TABLE t2(id primary key, a, b);
+    INSERT INTO t1 VALUES(1, 'ONE', 1);
+    INSERT INTO t1 VALUES(2, 'two', 2);
+    INSERT INTO t2 VALUES(1, 'one', 1);
+    INSERT INTO t2 VALUES(2, 'two', 2);
+  }
+} {}
+
+# MUST_WORK_TEST
+
 # do_test join-11.6 {
-#   execsql { SELECT * FROM t1 NATURAL JOIN t2 }
+#   execsql { SELECT a,b FROM t1 NATURAL JOIN t2 }
 # } {ONE 1 two 2}
-# do_test join-11.7 {
-#   execsql { SELECT * FROM t2 NATURAL JOIN t1 }
-# } {two 2}
+do_test join-11.7 {
+  execsql { SELECT a,b FROM t2 NATURAL JOIN t1 }
+} {two 2}
 
-# do_test join-11.8 {
-#   drop_all_tables
-#   execsql {
-#     CREATE TABLE t1(a, b TEXT);
-#     CREATE TABLE t2(b INTEGER, a);
-#     INSERT INTO t1 VALUES('one', '1.0');
-#     INSERT INTO t1 VALUES('two', '2');
-#     INSERT INTO t2 VALUES(1, 'one');
-#     INSERT INTO t2 VALUES(2, 'two');
-#   }
-# } {}
-# do_test join-11.9 {
-#   execsql { SELECT * FROM t1 NATURAL JOIN t2 }
-# } {one 1.0 two 2}
-# do_test join-11.10 {
-#   execsql { SELECT * FROM t2 NATURAL JOIN t1 }
-# } {1 one 2 two}
+do_test join-11.8 {
+  execsql {
+    DROP TABLE IF EXISTS t1;
+    DROP TABLE IF EXISTS t2;
+  }
+  execsql {
+    CREATE TABLE t1(a primary key, b TEXT);
+    CREATE TABLE t2(b INTEGER primary key, a);
+    INSERT INTO t1 VALUES('one', '1.0');
+    INSERT INTO t1 VALUES('two', '2');
+    INSERT INTO t2 VALUES(1, 'one');
+    INSERT INTO t2 VALUES(2, 'two');
+  }
+} {}
+do_test join-11.9 {
+  execsql { SELECT * FROM t1 NATURAL JOIN t2 }
+} {one 1.0 two 2}
+do_test join-11.10 {
+  execsql { SELECT * FROM t2 NATURAL JOIN t1 }
+} {1 one 2 two}
 
-# #-------------------------------------------------------------------------
-# # Test that at most 64 tables are allowed in a join.
-# #
-# do_execsql_test join-12.1 {
-#   CREATE TABLE t14(x);
-#   INSERT INTO t14 VALUES('abcdefghij');
-# }
+#-------------------------------------------------------------------------
+# Test that at most 64 tables are allowed in a join.
+#
+do_execsql_test join-12.1 {
+  CREATE TABLE t14(x primary key);
+  INSERT INTO t14 VALUES('abcdefghij');
+}
 
-# proc jointest {tn nTbl res} {
-#   set sql "SELECT 1 FROM [string repeat t14, [expr $nTbl-1]] t14;"
-#   uplevel [list do_catchsql_test $tn $sql $res]
-# }
+proc jointest {tn nTbl res} {
+  set sql "SELECT 1 FROM [string repeat t14, [expr $nTbl-1]] t14;"
+  uplevel [list do_catchsql_test $tn $sql $res]
+}
 
-# jointest join-12.2 30 {0 1}
-# jointest join-12.3 63 {0 1}
-# jointest join-12.4 64 {0 1}
-# jointest join-12.5 65 {1 {at most 64 tables in a join}}
-# jointest join-12.6 66 {1 {at most 64 tables in a join}}
-# jointest join-12.7 127 {1 {at most 64 tables in a join}}
-# jointest join-12.8 128 {1 {at most 64 tables in a join}}
-# jointest join-12.9 1000 {1 {at most 64 tables in a join}}
+jointest join-12.2 30 {0 1}
+jointest join-12.3 63 {0 1}
+jointest join-12.4 64 {0 1}
+jointest join-12.5 65 {1 {at most 64 tables in a join}}
+jointest join-12.6 66 {1 {at most 64 tables in a join}}
+jointest join-12.7 127 {1 {at most 64 tables in a join}}
+jointest join-12.8 128 {1 {at most 64 tables in a join}}
+jointest join-12.9 1000 {1 {at most 64 tables in a join}}
 
-# # If SQLite is built with SQLITE_MEMDEBUG, then the huge number of realloc()
-# # calls made by the following test cases are too time consuming to run.
-# # Without SQLITE_MEMDEBUG, realloc() is fast enough that these are not
-# # a problem.
-# ifcapable pragma&&compileoption_diags {
-#   if {[lsearch [db eval {PRAGMA compile_options}] MEMDEBUG]<0} {
-#     jointest join-12.10 65534 {1 {at most 64 tables in a join}}
-#     jointest join-12.11 65535 {1 {too many references to "t14": max 65535}}
-#     jointest join-12.12 65536 {1 {too many references to "t14": max 65535}}
-#     jointest join-12.13 65537 {1 {too many references to "t14": max 65535}}
-#   }
-# }
+# If SQLite is built with SQLITE_MEMDEBUG, then the huge number of realloc()
+# calls made by the following test cases are too time consuming to run.
+# Without SQLITE_MEMDEBUG, realloc() is fast enough that these are not
+# a problem.
+ifcapable pragma&&compileoption_diags {
+  if {[lsearch [db eval {PRAGMA compile_options}] MEMDEBUG]<0} {
+    jointest join-12.10 65534 {1 {at most 64 tables in a join}}
+    jointest join-12.11 65535 {1 {too many references to "t14": max 65535}}
+    jointest join-12.12 65536 {1 {too many references to "t14": max 65535}}
+    jointest join-12.13 65537 {1 {too many references to "t14": max 65535}}
+  }
+}
 
 
-# #-------------------------------------------------------------------------
-# # Test a problem with reordering tables following a LEFT JOIN.
-# #
-# do_execsql_test join-13.0 {
-#   CREATE TABLE aa(a);
-#   CREATE TABLE bb(b);
-#   CREATE TABLE cc(c);
+#-------------------------------------------------------------------------
+# Test a problem with reordering tables following a LEFT JOIN.
+#
+do_execsql_test join-13.0 {
+  CREATE TABLE aa(a primary key);
+  CREATE TABLE bb(b primary key);
+  CREATE TABLE cc(id primary key, c);
 
-#   INSERT INTO aa VALUES(45);
-#   INSERT INTO cc VALUES(45);
-#   INSERT INTO cc VALUES(45);
-# }
+  INSERT INTO aa VALUES(45);
+  INSERT INTO cc VALUES(1, 45);
+  INSERT INTO cc VALUES(2, 45);
+}
 
-# do_execsql_test join-13.1 {
-#   SELECT * FROM aa LEFT JOIN bb, cc WHERE cc.c=aa.a;
-# } {45 {} 45 45 {} 45}
+do_execsql_test join-13.1 {
+  SELECT a,b,c FROM aa LEFT JOIN bb, cc WHERE cc.c=aa.a;
+} {45 {} 45 45 {} 45}
 
-# # In the following, the order of [cc] and [bb] must not be exchanged, even
-# # though this would be helpful if the query used an inner join.
-# do_execsql_test join-13.2 {
-#   CREATE INDEX ccc ON cc(c);
-#   SELECT * FROM aa LEFT JOIN bb, cc WHERE cc.c=aa.a;
-# } {45 {} 45 45 {} 45}
+# In the following, the order of [cc] and [bb] must not be exchanged, even
+# though this would be helpful if the query used an inner join.
+do_execsql_test join-13.2 {
+  CREATE INDEX ccc ON cc(c);
+  SELECT a,b,c FROM aa LEFT JOIN bb, cc WHERE cc.c=aa.a;
+} {45 {} 45 45 {} 45}
 
 
 finish_test

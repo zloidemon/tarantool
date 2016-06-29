@@ -88,7 +88,7 @@ schema_object_name(enum schema_object_type type);
  * since there is a mismatch between enum name (STRING) and type
  * name literal ("STR"). STR is already used as Objective C type.
  */
-enum field_type { UNKNOWN = 0, NUM, STRING, ARRAY, NUMBER, field_type_MAX };
+enum field_type { UNKNOWN = 0, NUM, STRING, ARRAY, NUMBER, INT, SCALAR, field_type_MAX };
 extern const char *field_type_strs[];
 
 /* MsgPack type names */
@@ -174,6 +174,10 @@ struct key_opts {
 	uint32_t page_size;
 	uint32_t sync;
 	uint32_t amqf;
+	uint32_t read_oldest;
+	uint32_t expire;
+
+	char crt_stmt[BOX_CRT_STMT_MAX];
 };
 
 extern const struct key_opts key_opts_default;
@@ -212,6 +216,13 @@ struct key_def {
 	/** Description of parts of a multipart index. */
 	struct key_part parts[];
 };
+
+struct key_def *
+key_def_dup(struct key_def *def);
+
+/* Destroy and free a key_def. */
+void
+key_def_delete(struct key_def *def);
 
 /**
  * Encapsulates privileges of a user on an object.
@@ -346,7 +357,7 @@ typedef int (*box_function_f)(box_function_ctx_t *ctx,
 static inline size_t
 key_def_sizeof(uint32_t part_count)
 {
-	return sizeof(struct key_def) + sizeof(struct key_part) * part_count;
+	return sizeof(struct key_def) + sizeof(struct key_part) * (part_count + 1);
 }
 
 /** Initialize a pre-allocated key_def. */
@@ -411,10 +422,6 @@ key_part_cmp(const struct key_part *parts1, uint32_t part_count1,
  */
 int
 key_def_cmp(const struct key_def *key1, const struct key_def *key2);
-
-/* Destroy and free a key_def. */
-void
-key_def_delete(struct key_def *def);
 
 /** Add a key to the list of keys. */
 static inline  void

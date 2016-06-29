@@ -233,13 +233,13 @@ do_test where9-1.3.4 {
 
 # MUST_WORK_TEST
 
-# do_test where9-1.4 {
-#   count_steps {
-#     SELECT a FROM t1
-#      WHERE (b>=950 AND b<=1010) OR (b IS NULL AND c NOT NULL)
-#     ORDER BY a
-#   }
-# } {87 88 89 90 91 scan 0 sort 1}
+do_test where9-1.4 {
+  count_steps {
+    SELECT a FROM t1
+     WHERE (b>=950 AND b<=1010) OR (b IS NULL AND c NOT NULL)
+    ORDER BY a
+  }
+} {87 88 89 90 91 scan 0 sort 1}
 do_test where9-1.5 {
   # When this test was originally written, SQLite used a rowset object 
   # to optimize the "ORDER BY a" clause. Now that it is using a rowhash,
@@ -313,14 +313,17 @@ do_test where9-2.4 {
     ORDER BY 1
   }
 } {9999 scan 98 sort 1}
-# do_test where9-2.5 {
-#   count_steps {
-#     SELECT t1.a, coalesce(t2.a,9999)
-#       FROM t1 LEFT JOIN t2 ON (t1.c=t2.c AND t1.d=t2.d) OR (t1.f)=t2.f
-#      WHERE t1.a=80 OR t1.b=880 OR (t1.c=27027 AND round(t1.d)==80)
-#     ORDER BY 1
-#   }
-# } {80 80 80 2 80 28 80 54 scan 0 sort 1}
+
+# MUST_WORK_TEST
+
+do_test where9-2.5 {
+  count_steps {
+    SELECT t1.a, coalesce(t2.a,9999)
+      FROM t1 LEFT JOIN t2 ON (t1.c=t2.c AND t1.d=t2.d) OR (t1.f)=t2.f
+     WHERE t1.a=80 OR t1.b=880 OR (t1.c=27027 AND round(t1.d)==80)
+    ORDER BY 1
+  }
+} {80 80 80 2 80 28 80 54 scan 0 sort 1}
 do_test where9-2.6 {
   count_steps {
     SELECT t1.a, coalesce(t2.a,9999)
@@ -398,22 +401,27 @@ do_test where9-4.3 {
      ORDER BY +a
   }
 } {92 93 97 scan 98 sort 1}
-# do_test where9-4.4 {
-#   count_steps {
-#     SELECT a FROM t1 INDEXED BY t1b
-#      WHERE b>1000
-#        AND (c=31031 OR d IS NULL)
-#      ORDER BY +a
-#   }
-# } {92 93 97 scan 0 sort 1}
-# do_test where9-4.5 {
-#   catchsql {
-#     SELECT a FROM t1 INDEXED BY t1b
-#      WHERE +b>1000
-#        AND (c=31031 OR d IS NULL)
-#      ORDER BY +a
-#   }
-# } {1 {no query solution}}
+
+# MUST_WORK_TEST
+
+do_test where9-4.4 {
+  count_steps {
+    SELECT a FROM t1 INDEXED BY t1b
+     WHERE b>1000
+       AND (c=31031 OR d IS NULL)
+     ORDER BY +a
+  }
+} {92 93 97 scan 0 sort 1}
+do_test where9-4.5 {
+  catchsql {
+    SELECT a FROM t1 INDEXED BY t1b
+     WHERE +b>1000
+       AND (c=31031 OR d IS NULL)
+     ORDER BY +a
+  }
+} {1 {no query solution}}
+
+
 do_test where9-4.6 {
   count_steps {
     SELECT a FROM t1 NOT INDEXED
@@ -422,22 +430,25 @@ do_test where9-4.6 {
      ORDER BY +a
   }
 } {92 93 97 scan 98 sort 1}
-# do_test where9-4.7 {
-#   catchsql {
-#     SELECT a FROM t1 INDEXED BY t1c
-#      WHERE b>1000
-#        AND (c=31031 OR d IS NULL)
-#      ORDER BY +a
-#   }
-# } {1 {no query solution}}
-# do_test where9-4.8 {
-#   catchsql {
-#     SELECT a FROM t1 INDEXED BY t1d
-#      WHERE b>1000
-#        AND (c=31031 OR d IS NULL)
-#      ORDER BY +a
-#   }
-# } {1 {no query solution}}
+
+# MUST_WORK_TEST
+
+do_test where9-4.7 {
+  catchsql {
+    SELECT a FROM t1 INDEXED BY t1c
+     WHERE b>1000
+       AND (c=31031 OR d IS NULL)
+     ORDER BY +a
+  }
+} {1 {no query solution}}
+do_test where9-4.8 {
+  catchsql {
+    SELECT a FROM t1 INDEXED BY t1d
+     WHERE b>1000
+       AND (c=31031 OR d IS NULL)
+     ORDER BY +a
+  }
+} {1 {no query solution}}
 
 # ifcapable explain {
 #   # The (c=31031 OR d IS NULL) clause is preferred over b>1000 because
@@ -474,6 +485,8 @@ do_test where9-4.6 {
 do_test where9-6.2.1 {
   db eval {SELECT count(*) FROM t1 UNION ALL SELECT a FROM t1 WHERE a>=85}
 } {99 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99}
+
+# MUST_WORK_TEST
 
 # do_test where9-6.2.2 {   ;# Deletes entries 90 91 92 96 97 99
 #   count_steps {
@@ -774,6 +787,8 @@ do_test where9-6.2.1 {
 #         OR (b NOT NULL AND c NOT NULL AND d IS NULL)
 #   }
 # } {1 {no query solution}}
+
+# MUST_WORK_TEST
 
 # set solution_possible 0
 # ifcapable stat4||stat3 {

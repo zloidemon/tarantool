@@ -33,6 +33,7 @@
 #include "small/small.h"
 #include "small/quota.h"
 
+#include "trivia/util.h"
 #include "fiber.h"
 
 uint32_t snapshot_version;
@@ -366,6 +367,8 @@ tuple_update(struct tuple_format *format,
 				     expr, expr_end, old_tuple->data,
 				     old_tuple->data + old_tuple->bsize,
 				     &new_size, field_base);
+	if (new_data == NULL)
+		diag_raise();
 
 	return tuple_new(format, new_data, new_data + new_size);
 }
@@ -382,6 +385,8 @@ tuple_upsert(struct tuple_format *format,
 				     old_tuple->data,
 				     old_tuple->data + old_tuple->bsize,
 				     &new_size, field_base);
+	if (new_data == NULL)
+		diag_raise();
 
 	return tuple_new(format, new_data, new_data + new_size);
 }
@@ -412,30 +417,193 @@ tuple_new(struct tuple_format *format, const char *data, const char *end)
 inline __attribute__((always_inline)) int
 mp_compare_uint(const char **data_a, const char **data_b);
 
+enum mp_class {
+	MP_CLASS_NIL = 0,
+	MP_CLASS_BOOL,
+	MP_CLASS_NUMBER,
+	MP_CLASS_STR,
+	MP_CLASS_BIN,
+	MP_CLASS_ARRAY,
+	MP_CLASS_MAP
+};
+
+static enum mp_class mp_classes[] = {
+	/* .MP_NIL     = */ MP_CLASS_NIL,
+	/* .MP_UINT    = */ MP_CLASS_NUMBER,
+	/* .MP_INT     = */ MP_CLASS_NUMBER,
+	/* .MP_STR     = */ MP_CLASS_STR,
+	/* .MP_BIN     = */ MP_CLASS_BIN,
+	/* .MP_ARRAY   = */ MP_CLASS_ARRAY,
+	/* .MP_MAP     = */ MP_CLASS_MAP,
+	/* .MP_BOOL    = */ MP_CLASS_BOOL,
+	/* .MP_FLOAT   = */ MP_CLASS_NUMBER,
+	/* .MP_DOUBLE  = */ MP_CLASS_NUMBER,
+	/* .MP_BIN     = */ MP_CLASS_BIN
+};
+
+#define COMPARE_RESULT(a, b) (a < b ? -1 : a > b)
+
+static enum mp_class
+mp_classof(enum mp_type type)
+{
+	return mp_classes[type];
+}
+
+static inline double
+mp_decode_number(const char **data)
+{
+	double val;
+	switch (mp_typeof(**data)) {
+	case MP_UINT:
+		val = mp_decode_uint(data);
+		break;
+	case MP_INT:
+		val = mp_decode_int(data);
+		break;
+	case MP_FLOAT:
+		val = mp_decode_float(data);
+		break;
+	case MP_DOUBLE:
+		val = mp_decode_double(data);
+		break;
+	default:
+		unreachable();
+	}
+	return val;
+}
+
+static int
+mp_compare_nil(const char *field_a, const char *field_b)
+{
+	(void)field_a;
+	(void)field_b;
+	return 0;
+}
+
+static int
+mp_compare_bool(const char *field_a, const char *field_b)
+{
+	int a_val = mp_decode_bool(&field_a);
+	int b_val = mp_decode_bool(&field_b);
+	return COMPARE_RESULT(a_val, b_val);
+}
+
+static int
+mp_compare_integer(const char *field_a, const char *field_b)
+{
+	enum mp_type a_type = mp_typeof(*field_a);
+	enum mp_type b_type = mp_typeof(*field_b);
+	assert(mp_classof(a_type) == MP_CLASS_NUMBER);
+	assert(mp_classof(b_type) == MP_CLASS_NUMBER);
+	if (a_type == MP_UINT) {
+		uint64_t a_val = mp_decode_uint(&field_a);
+		if (b_type == MP_UINT) {
+			uint64_t b_val = mp_decode_uint(&field_b);
+			return COMPARE_RESULT(a_val, b_val);
+		} else {
+			int64_t b_val = mp_decode_int(&field_b);
+			if (b_val < 0)
+				return 1;
+			return COMPARE_RESULT(a_val, (uint64_t)b_val);
+		}
+	} else {
+		int64_t a_val = mp_decode_int(&field_a);
+		if (b_type == MP_UINT) {
+			uint64_t b_val = mp_decode_uint(&field_b);
+			if (a_val < 0)
+				return -1;
+			return COMPARE_RESULT((uint64_t)a_val, b_val);
+		} else {
+			int64_t b_val = mp_decode_int(&field_b);
+			return COMPARE_RESULT(a_val, b_val);
+		}
+	}
+}
+
+static int
+mp_compare_number(const char *field_a, const char *field_b)
+{
+	enum mp_type a_type = mp_typeof(*field_a);
+	enum mp_type b_type = mp_typeof(*field_b);
+	assert(mp_classof(a_type) == MP_CLASS_NUMBER);
+	assert(mp_classof(b_type) == MP_CLASS_NUMBER);
+	if (a_type == MP_FLOAT || a_type == MP_DOUBLE ||
+	    b_type == MP_FLOAT || b_type == MP_DOUBLE) {
+		double a_val = mp_decode_number(&field_a);
+		double b_val = mp_decode_number(&field_b);
+		return COMPARE_RESULT(a_val, b_val);
+	}
+	return mp_compare_integer(field_a, field_b);
+}
+
+static inline int
+mp_compare_str(const char *field_a, const char *field_b)
+{
+	uint32_t size_a = mp_decode_strl(&field_a);
+	uint32_t size_b = mp_decode_strl(&field_b);
+	int r = memcmp(field_a, field_b, MIN(size_a, size_b));
+	if (r != 0)
+		return r;
+	return COMPARE_RESULT(size_a, size_b);
+}
+
+static inline int
+mp_compare_bin(const char *field_a, const char *field_b)
+{
+	uint32_t size_a = mp_decode_binl(&field_a);
+	uint32_t size_b = mp_decode_binl(&field_b);
+	int r = memcmp(field_a, field_b, MIN(size_a, size_b));
+	if (r != 0)
+		return r;
+	return COMPARE_RESULT(size_a, size_b);
+}
+
+typedef int (*mp_compare_f)(const char *, const char *);
+static mp_compare_f mp_class_comparators[] = {
+	/* .MP_CLASS_NIL    = */ mp_compare_nil,
+	/* .MP_CLASS_BOOL   = */ mp_compare_bool,
+	/* .MP_CLASS_NUMBER = */ mp_compare_number,
+	/* .MP_CLASS_STR    = */ mp_compare_str,
+	/* .MP_CLASS_BIN    = */ mp_compare_bin,
+	/* .MP_CLASS_ARRAY  = */ NULL,
+	/* .MP_CLASS_MAP    = */ NULL,
+};
+
+static int
+mp_compare_scalar(const char *field_a, const char *field_b)
+{
+	enum mp_type a_type = mp_typeof(*field_a);
+	enum mp_type b_type = mp_typeof(*field_b);
+	enum mp_class a_class = mp_classof(a_type);
+	enum mp_class b_class = mp_classof(b_type);
+	if (a_class != b_class)
+		return COMPARE_RESULT(a_class, b_class);
+	mp_compare_f cmp = mp_class_comparators[a_class];
+	assert(cmp != NULL);
+	return cmp(field_a, field_b);
+}
+
 int
 tuple_compare_field(const char *field_a, const char *field_b,
+
+
 		    enum field_type type)
 {
 	switch (type) {
 	case NUM:
 		return mp_compare_uint(field_a, field_b);
 	case STRING:
-	{
-		uint32_t size_a = mp_decode_strl(&field_a);
-		uint32_t size_b = mp_decode_strl(&field_b);
-		const char *a = field_a;
-		const char *b = field_b;
-		int r = memcmp(a, b, MIN(size_a, size_b));
-		if (r == 0)
-			r = size_a < size_b ? -1 : size_a > size_b;
-		return r;
-	}
+		return mp_compare_str(field_a, field_b);
+	case INT:
+		return mp_compare_integer(field_a, field_b);
+	case NUMBER:
+		return mp_compare_number(field_a, field_b);
+	case SCALAR:
+		return mp_compare_scalar(field_a, field_b);
 	default:
-	{
-		assert(false);
+		unreachable();
 		return 0;
-	} /* end case */
-	} /* end switch */
+	}
 }
 
 int
@@ -576,29 +744,6 @@ void
 tuple_end_snapshot()
 {
 	small_alloc_setopt(&memtx_alloc, SMALL_DELAYED_FREE_MODE, false);
-}
-
-double mp_decode_num(const char **data, uint32_t i)
-{
-	double val;
-	switch (mp_typeof(**data)) {
-	case MP_UINT:
-		val = mp_decode_uint(data);
-		break;
-	case MP_INT:
-		val = mp_decode_int(data);
-		break;
-	case MP_FLOAT:
-		val = mp_decode_float(data);
-		break;
-	case MP_DOUBLE:
-		val = mp_decode_double(data);
-		break;
-	default:
-		tnt_raise(ClientError, ER_FIELD_TYPE, i + INDEX_OFFSET,
-			  field_type_strs[NUM]);
-	}
-	return val;
 }
 
 box_tuple_format_t *

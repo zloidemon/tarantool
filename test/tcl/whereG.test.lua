@@ -77,85 +77,94 @@ do_execsql_test whereG-1.2 {
      AND album.aid=track.aid;
 } {{Mass in B Minor, BWV 232}}
 
-# do_eqp_test whereG-1.3 {
-#   SELECT DISTINCT aname
-#     FROM album, composer, track
-#    WHERE likelihood(cname LIKE '%bach%', 0.5)
-#      AND composer.cid=track.cid
-#      AND album.aid=track.aid;
-# } {/.*track.*composer.*album.*/}
-# do_execsql_test whereG-1.4 {
-#   SELECT DISTINCT aname
-#     FROM album, composer, track
-#    WHERE likelihood(cname LIKE '%bach%', 0.5)
-#      AND composer.cid=track.cid
-#      AND album.aid=track.aid;
-# } {{Mass in B Minor, BWV 232}}
+# MUST_WORK_TEST
 
-# do_eqp_test whereG-1.5 {
-#   SELECT DISTINCT aname
-#     FROM album, composer, track
-#    WHERE cname LIKE '%bach%'
-#      AND composer.cid=track.cid
-#      AND album.aid=track.aid;
-# } {/.*track.*(composer.*album|album.*composer).*/}
-# do_execsql_test whereG-1.6 {
-#   SELECT DISTINCT aname
-#     FROM album, composer, track
-#    WHERE cname LIKE '%bach%'
-#      AND composer.cid=track.cid
-#      AND album.aid=track.aid;
-# } {{Mass in B Minor, BWV 232}}
+do_eqp_test whereG-1.3 {
+  SELECT DISTINCT aname
+    FROM album, composer, track
+   WHERE likelihood(cname LIKE '%bach%', 0.5)
+     AND composer.cid=track.cid
+     AND album.aid=track.aid;
+} {/.*track.*composer.*album.*/}
 
-# do_eqp_test whereG-1.7 {
-#   SELECT DISTINCT aname
-#     FROM album, composer, track
-#    WHERE cname LIKE '%bach%'
-#      AND unlikely(composer.cid=track.cid)
-#      AND unlikely(album.aid=track.aid);
-# } {/.*track.*(composer.*album|album.*composer).*/}
-# do_execsql_test whereG-1.8 {
-#   SELECT DISTINCT aname
-#     FROM album, composer, track
-#    WHERE cname LIKE '%bach%'
-#      AND unlikely(composer.cid=track.cid)
-#      AND unlikely(album.aid=track.aid);
-# } {{Mass in B Minor, BWV 232}}
+do_execsql_test whereG-1.4 {
+  SELECT DISTINCT aname
+    FROM album, composer, track
+   WHERE likelihood(cname LIKE '%bach%', 0.5)
+     AND composer.cid=track.cid
+     AND album.aid=track.aid;
+} {{Mass in B Minor, BWV 232}}
 
-# do_test whereG-2.1 {
-#   catchsql {
-#     SELECT DISTINCT aname
-#       FROM album, composer, track
-#      WHERE likelihood(cname LIKE '%bach%', -0.01)
-#        AND composer.cid=track.cid
-#        AND album.aid=track.aid;
-#   }
-# } {1 {second argument to likelihood() must be a constant between 0.0 and 1.0}}
-# do_test whereG-2.2 {
-#   catchsql {
-#     SELECT DISTINCT aname
-#       FROM album, composer, track
-#      WHERE likelihood(cname LIKE '%bach%', 1.01)
-#        AND composer.cid=track.cid
-#        AND album.aid=track.aid;
-#   }
-# } {1 {second argument to likelihood() must be a constant between 0.0 and 1.0}}
-# do_test whereG-2.3 {
-#   catchsql {
-#     SELECT DISTINCT aname
-#       FROM album, composer, track
-#      WHERE likelihood(cname LIKE '%bach%', track.cid)
-#        AND composer.cid=track.cid
-#        AND album.aid=track.aid;
-#   }
-# } {1 {second argument to likelihood() must be a constant between 0.0 and 1.0}}
+# MUST_WORK_TEST
 
-# # Commuting a term of the WHERE clause should not change the query plan
-# #
-# do_execsql_test whereG-3.0 {
-#   CREATE TABLE a(a1 PRIMARY KEY, a2);
-#   CREATE TABLE b(b1 PRIMARY KEY, b2);
-# } {}
+do_eqp_test whereG-1.5 {
+  SELECT DISTINCT aname
+    FROM album, composer, track
+   WHERE cname LIKE '%bach%'
+     AND composer.cid=track.cid
+     AND album.aid=track.aid;
+} {/.*track.*(composer.*album|album.*composer).*/}
+
+do_execsql_test whereG-1.6 {
+  SELECT DISTINCT aname
+    FROM album, composer, track
+   WHERE cname LIKE '%bach%'
+     AND composer.cid=track.cid
+     AND album.aid=track.aid;
+} {{Mass in B Minor, BWV 232}}
+
+# MUST_WORK_TEST
+
+do_eqp_test whereG-1.7 {
+  SELECT DISTINCT aname
+    FROM album, composer, track
+   WHERE cname LIKE '%bach%'
+     AND unlikely(composer.cid=track.cid)
+     AND unlikely(album.aid=track.aid);
+} {/.*track.*(composer.*album|album.*composer).*/}
+
+do_execsql_test whereG-1.8 {
+  SELECT DISTINCT aname
+    FROM album, composer, track
+   WHERE cname LIKE '%bach%'
+     AND unlikely(composer.cid=track.cid)
+     AND unlikely(album.aid=track.aid);
+} {{Mass in B Minor, BWV 232}}
+
+do_test whereG-2.1 {
+  catchsql {
+    SELECT DISTINCT aname
+      FROM album, composer, track
+     WHERE likelihood(cname LIKE '%bach%', -0.01)
+       AND composer.cid=track.cid
+       AND album.aid=track.aid;
+  }
+} {1 {second argument to likelihood() must be a constant between 0.0 and 1.0}}
+do_test whereG-2.2 {
+  catchsql {
+    SELECT DISTINCT aname
+      FROM album, composer, track
+     WHERE likelihood(cname LIKE '%bach%', 1.01)
+       AND composer.cid=track.cid
+       AND album.aid=track.aid;
+  }
+} {1 {second argument to likelihood() must be a constant between 0.0 and 1.0}}
+do_test whereG-2.3 {
+  catchsql {
+    SELECT DISTINCT aname
+      FROM album, composer, track
+     WHERE likelihood(cname LIKE '%bach%', track.cid)
+       AND composer.cid=track.cid
+       AND album.aid=track.aid;
+  }
+} {1 {second argument to likelihood() must be a constant between 0.0 and 1.0}}
+
+# Commuting a term of the WHERE clause should not change the query plan
+#
+do_execsql_test whereG-3.0 {
+  CREATE TABLE a(a1 PRIMARY KEY, a2);
+  CREATE TABLE b(b1 PRIMARY KEY, b2);
+} {}
 # do_eqp_test whereG-3.1 {
 #   SELECT * FROM a, b WHERE b1=a1 AND a2=5;
 # } {/.*SCAN TABLE a.*SEARCH TABLE b USING INDEX .*b_1 .b1=..*/}
@@ -169,32 +178,32 @@ do_execsql_test whereG-1.2 {
 #   SELECT * FROM a, b WHERE a2=5 AND a1=b1;
 # } {/.*SCAN TABLE a.*SEARCH TABLE b USING INDEX .*b_1 .b1=..*/}
 
-# # Ticket [1e64dd782a126f48d78c43a664844a41d0e6334e]:
-# # Incorrect result in a nested GROUP BY/DISTINCT due to the use of an OP_SCopy
-# # where an OP_Copy was needed.
-# #
-# do_execsql_test whereG-4.0 {
-#   CREATE TABLE t4(x);
-#   INSERT INTO t4 VALUES('right'),('wrong');
-#   SELECT DISTINCT x
-#    FROM (SELECT x FROM t4 GROUP BY x)
-#    WHERE x='right'
-#    ORDER BY x;
-# } {right}
+# Ticket [1e64dd782a126f48d78c43a664844a41d0e6334e]:
+# Incorrect result in a nested GROUP BY/DISTINCT due to the use of an OP_SCopy
+# where an OP_Copy was needed.
+#
+do_execsql_test whereG-4.0 {
+  CREATE TABLE t4(x PRIMARY key);
+  INSERT INTO t4 VALUES('right'),('wrong');
+  SELECT DISTINCT x
+   FROM (SELECT x FROM t4 GROUP BY x)
+   WHERE x='right'
+   ORDER BY x;
+} {right}
 
-# #-------------------------------------------------------------------------
-# # Test that likelihood() specifications on indexed terms are taken into 
-# # account by various forms of loops.
-# #
-# #   5.1.*: open ended range scans
-# #   5.2.*: skip-scans
-# #
+#-------------------------------------------------------------------------
+# Test that likelihood() specifications on indexed terms are taken into 
+# account by various forms of loops.
+#
+#   5.1.*: open ended range scans
+#   5.2.*: skip-scans
+#
 # reset_db
 
-# do_execsql_test 5.1 {
-#   CREATE TABLE t1(a, b, c);
-#   CREATE INDEX i1 ON t1(a, b);
-# }
+do_execsql_test 5.1 {
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1(a, b, c, PRIMARY KEY (a,b));
+}
 # do_eqp_test 5.1.2 {
 #   SELECT * FROM t1 WHERE a>?
 # } {0 0 0 {SEARCH TABLE t1 USING INDEX i1 (a>?)}}
@@ -232,23 +241,29 @@ do_execsql_test whereG-1.2 {
 #   SELECT * FROM t1 WHERE likely(a=?)
 # } {0 0 0 {SCAN TABLE t1}}
 
-# # 2015-06-18
-# # Ticket [https://www.sqlite.org/see/tktview/472f0742a1868fb58862bc588ed70]
-# #
+# 2015-06-18
+# Ticket [https://www.sqlite.org/see/tktview/472f0742a1868fb58862bc588ed70]
+#
+
+# MUST_WORK_TEST
+
 # do_execsql_test 6.0 {
 #   DROP TABLE IF EXISTS t1;
-#   CREATE TABLE t1(i int, x, y, z);
+#   CREATE TABLE t1(i int PRIMARY KEY, x, y, z);
 #   INSERT INTO t1 VALUES (1,1,1,1), (2,2,2,2), (3,3,3,3), (4,4,4,4);
 #   DROP TABLE IF EXISTS t2;
-#   CREATE TABLE t2(i int, bool char);
+#   CREATE TABLE t2(i int PRIMARY KEY, bool char);
 #   INSERT INTO t2 VALUES(1,'T'), (2,'F');
 #   SELECT count(*) FROM t1 LEFT JOIN t2 ON t1.i=t2.i AND bool='T';
 #   SELECT count(*) FROM t1 LEFT JOIN t2 ON likely(t1.i=t2.i) AND bool='T';
 # } {4 4}
 
-# # 2015-06-20
-# # Crash discovered by AFL
-# #
+# 2015-06-20
+# Crash discovered by AFL
+#
+
+# MUST_WORK_TEST
+
 # do_execsql_test 7.0 {
 #   DROP TABLE IF EXISTS t1;
 #   CREATE TABLE t1(a, b, PRIMARY KEY(a,b));

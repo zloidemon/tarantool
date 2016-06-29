@@ -1,0 +1,22 @@
+whereK-1.1... Ok
+whereK-1.1eqp...
+Expected: [/SEARCH TABLE t1 USING INDEX t1bc/]
+     Got: [0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_t1bc (b>?)} 0 0 0 {USE TEMP B-TREE FOR ORDER BY}]
+whereK-1.2... Ok
+whereK-1.2eqp...
+Expected: [/SEARCH TABLE t1 USING INDEX t1bc/]
+     Got: [0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_t1bc (b>?)} 0 0 0 {USE TEMP B-TREE FOR ORDER BY}]
+whereK-1.3... Ok
+whereK-1.3eqp...
+Expected: [/SEARCH TABLE t1 USING INDEX t1bc/]
+     Got: [0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_t1bc (b>?)} 0 0 0 {USE TEMP B-TREE FOR ORDER BY}]
+whereK-1.4... Ok
+whereK-1.4eqp...
+Expected: [/SEARCH TABLE t1 USING INDEX t1bc/]
+     Got: [0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_t1bc (b>?)} 0 0 0 {USE TEMP B-TREE FOR ORDER BY}]
+whereK-1.5... Ok
+whereK-1.5eqp...
+Expected: [/SEARCH TABLE t1 USING INDEX t1bc/]
+     Got: [0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_t1bc (b>?)} 0 0 0 {EXECUTE LIST SUBQUERY 1} 0 0 0 {USE TEMP B-TREE FOR ORDER BY}]
+5 errors out of 11 tests
+Failures on these tests: whereK-1.1eqp whereK-1.2eqp whereK-1.3eqp whereK-1.4eqp whereK-1.5eqp

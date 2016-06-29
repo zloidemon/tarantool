@@ -39,39 +39,37 @@ do_test whereB-1.1 {
   }
 } {1 2 0}
 
-# MUST_WORK_TEST
-
-# do_test whereB-1.2 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {}
-# do_test whereB-1.3 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {}
-# do_test whereB-1.4 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
-# do_test whereB-1.100 {
-#   db eval {
-#     DROP INDEX '532_1_t2b';
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {}
-# do_test whereB-1.101 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {}
-# do_test whereB-1.102 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
+do_test whereB-1.2 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {}
+do_test whereB-1.3 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {}
+do_test whereB-1.4 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
+do_test whereB-1.100 {
+  db eval {
+    DROP INDEX '522_1_t2b';
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {}
+do_test whereB-1.101 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {}
+do_test whereB-1.102 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
 
 # For this set of tests:
 #
@@ -97,39 +95,37 @@ do_test whereB-2.1 {
   }
 } {1 2 0}
 
-# MUST_WORK_TEST
-
-# do_test whereB-2.2 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {}
-# do_test whereB-2.3 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {}
-# do_test whereB-2.4 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
-# do_test whereB-2.100 {
-#   db eval {
-#     DROP INDEX '532_1_t2b';
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {}
-# do_test whereB-2.101 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {}
-# do_test whereB-2.102 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
+do_test whereB-2.2 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {}
+do_test whereB-2.3 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {}
+do_test whereB-2.4 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
+do_test whereB-2.100 {
+  db eval {
+    DROP INDEX '522_1_t2b';
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {}
+do_test whereB-2.101 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {}
+do_test whereB-2.102 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
 
 # For this set of tests:
 #
@@ -139,6 +135,7 @@ do_test whereB-2.1 {
 # These values are not equal and because neither affinity is NUMERIC
 # no type conversion occurs.
 #
+
 do_test whereB-3.1 {
   db eval {
     DROP TABLE t1;
@@ -154,37 +151,37 @@ do_test whereB-3.1 {
     SELECT x, a, y=b FROM t1, t2;
   }
 } {1 2 0}
-# do_test whereB-3.2 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {}
-# do_test whereB-3.3 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {}
-# do_test whereB-3.4 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
-# do_test whereB-3.100 {
-#   db eval {
-#     DROP INDEX t2b;
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {}
-# do_test whereB-3.101 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {}
-# do_test whereB-3.102 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
+do_test whereB-3.2 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {}
+do_test whereB-3.3 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {}
+do_test whereB-3.4 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
+do_test whereB-3.100 {
+  db eval {
+    DROP INDEX "522_1_t2b";
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {}
+do_test whereB-3.101 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {}
+do_test whereB-3.102 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
 
 
 # For this set of tests:
@@ -197,8 +194,8 @@ do_test whereB-3.1 {
 #
 do_test whereB-4.1 {
   db eval {
-    DROP TABLE t1;
-    DROP TABLE t2;
+    DROP TABLE IF EXISTS t1;
+    DROP TABLE IF EXISTS t2;
 
     CREATE TABLE t1(x primary key, y BLOB);    -- affinity of t1.y is NONE
     INSERT INTO t1 VALUES(1,'99');
@@ -229,7 +226,7 @@ do_test whereB-4.4 {
 } {}
 do_test whereB-4.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -290,7 +287,7 @@ do_test whereB-5.4 {
 } {}
 do_test whereB-5.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -308,64 +305,64 @@ do_test whereB-5.102 {
 } {}
 
 
-# # For this set of tests:
-# #
-# #  *   t1.y holds a text value with affinity NONE
-# #  *   t2.b holds an integer value with affinity REAL
-# #
-# # Because t2.b has a numeric affinity, type conversion should occur
-# # and the two fields should be equal.
-# #
-# do_test whereB-6.1 {
-#   db eval {
-#     DROP TABLE t1;
-#     DROP TABLE t2;
+# For this set of tests:
+#
+#  *   t1.y holds a text value with affinity NONE
+#  *   t2.b holds an integer value with affinity REAL
+#
+# Because t2.b has a numeric affinity, type conversion should occur
+# and the two fields should be equal.
+#
+do_test whereB-6.1 {
+  db eval {
+    DROP TABLE t1;
+    DROP TABLE t2;
 
-#     CREATE TABLE t1(x, y BLOB);    -- affinity of t1.y is NONE
-#     INSERT INTO t1 VALUES(1,'99');
+    CREATE TABLE t1(x primary key, y BLOB);    -- affinity of t1.y is NONE
+    INSERT INTO t1 VALUES(1,'99');
 
-#     CREATE TABLE t2(a, b REAL);  -- affinity of t2.b is REAL
-#     CREATE INDEX t2b ON t2(b);
-#     INSERT INTO t2 VALUES(2,99.0);
+    CREATE TABLE t2(a primary key, b REAL);  -- affinity of t2.b is REAL
+    CREATE INDEX t2b ON t2(b);
+    INSERT INTO t2 VALUES(2,99.0);
 
-#     SELECT x, a, y=b FROM t1, t2;
-#   }
-# } {1 2 1}
-# do_test whereB-6.2 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {1 2 1}
-# do_test whereB-6.3 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {1 2 1}
-# do_test whereB-6.4 {
-#   # In this case the unary "+" operator removes the column affinity so
-#   # the columns compare false
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
-# do_test whereB-6.100 {
-#   db eval {
-#     DROP INDEX t2b;
-#     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
-#   }
-# } {1 2 1}
-# do_test whereB-6.101 {
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE b=y;
-#   }
-# } {1 2 1}
-# do_test whereB-6.102 {
-#   # In this case the unary "+" operator removes the column affinity so
-#   # the columns compare false
-#   db eval {
-#     SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
-#   }
-# } {}
+    SELECT x, a, y=b FROM t1, t2;
+  }
+} {1 2 1}
+do_test whereB-6.2 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {1 2 1}
+do_test whereB-6.3 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {1 2 1}
+do_test whereB-6.4 {
+  # In this case the unary "+" operator removes the column affinity so
+  # the columns compare false
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
+do_test whereB-6.100 {
+  db eval {
+    DROP INDEX "522_1_t2b";
+    SELECT x, a, y=b FROM t1, t2 WHERE y=b;
+  }
+} {1 2 1}
+do_test whereB-6.101 {
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE b=y;
+  }
+} {1 2 1}
+do_test whereB-6.102 {
+  # In this case the unary "+" operator removes the column affinity so
+  # the columns compare false
+  db eval {
+    SELECT x, a, y=b FROM t1, t2 WHERE +y=+b;
+  }
+} {}
 
 
 # For this set of tests:
@@ -410,7 +407,7 @@ do_test whereB-7.4 {
 } {}
 do_test whereB-7.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -469,7 +466,7 @@ do_test whereB-8.4 {
 } {}
 do_test whereB-8.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -528,7 +525,7 @@ do_test whereB-9.4 {
 } {}
 do_test whereB-9.100 {
   db eval {
-    DROP INDEX '532_1_t2b';
+    DROP INDEX '522_1_t2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
