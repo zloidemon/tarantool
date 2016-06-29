@@ -81,12 +81,10 @@ do_test delete1-3.0 {
   execsql {select name from test3}
 } {Vlad Brian}
 
-# MUST_WORK_TEST
-
-# do_test delete1-3.1 {
-#   execsql {delete from test3 where surname = "Hankok"}
-#   execsql {select id from test3}
-# } {1}
+do_test delete1-3.1 {
+  execsql {delete from test3 where surname = "Hankok"}
+  execsql {select id from test3}
+} {1}
 
 do_test delete1-4.0 {
   execsql {delete from test4 where foo >= 300}
