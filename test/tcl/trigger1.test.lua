@@ -146,27 +146,28 @@ do_test trigger1-1.7 {
     }
 } {1 {no such trigger: tr1}}
 
-ifcapable tempdb {
-  execsql {
-    CREATE TEMP TABLE temp_table(a int PRIMARY KEY);
-  }
-  do_test trigger1-1.8 {
-    execsql {
-          CREATE TRIGGER temp_trig UPDATE ON temp_table BEGIN
-              SELECT * from sqlite_master;
-          END;
-          SELECT count(*) FROM sqlite_master WHERE name = 'temp_trig';
-    }
-  } {0}
-}
+# MUST_WORK_TEST
+# ifcapable tempdb {
+#   execsql {
+#     CREATE TEMP TABLE temp_table(a int PRIMARY KEY);
+#   }
+#   do_test trigger1-1.8 {
+#     execsql {
+#           CREATE TRIGGER temp_trig UPDATE ON temp_table BEGIN
+#               SELECT * from _space;
+#           END;
+#           SELECT count(*) FROM _trigger WHERE name = 'temp_trig';
+#     }
+#   } {0}
+# }
 
-do_test trigger1-1.9 {
-  catchsql {
-    CREATE TRIGGER tr1 AFTER UPDATE ON sqlite_master BEGIN
-       SELECT * FROM sqlite_master;
-    END;
-  }
-} {1 {cannot create trigger on system table}}
+# do_test trigger1-1.9 {
+#   catchsql {
+#     CREATE TRIGGER tr1 AFTER UPDATE ON sqlite_master BEGIN
+#        SELECT * FROM sqlite_master;
+#     END;
+#   }
+# } {1 {cannot create trigger on system table}}
 
 # Check to make sure that a DELETE statement within the body of
 # a trigger does not mess up the DELETE that caused the trigger to
@@ -434,9 +435,9 @@ do_test trigger1-6.3 {
   catchsql {DELETE FROM t2}
 } {1 {deletes are not permitted}}
 # verify_ex_errcode trigger1-6.3b SQLITE_CONSTRAINT_TRIGGER
-# do_test trigger1-6.4 {
-#   execsql {SELECT * FROM t2}
-# } {3 4 7 8}
+do_test trigger1-6.4 {
+  execsql {SELECT * FROM t2}
+} {3 4 7 8}
 # do_test trigger1-6.5 {
 #   db close
 #   sqlite3 db test.db
@@ -456,6 +457,8 @@ do_test trigger1-6.3 {
 #   sqlite3 db test.db
 #   execsql {SELECT * FROM t2}
 # } {3 4 7 8}
+
+execsql {DROP TRIGGER IF EXISTS t2}
 
 # integrity_check trigger1-7.1
 
@@ -495,7 +498,7 @@ do_test trigger1-8.5 {
 do_test trigger1-8.6 {
   execsql {
     DROP TRIGGER [trigger];
-    SELECT name FROM sqlite_master WHERE type='trigger';
+    SELECT name FROM _trigger;
   }
 } {}
 
