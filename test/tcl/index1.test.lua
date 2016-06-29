@@ -132,7 +132,6 @@ do_test index-4.1 {
   execsql {CREATE INDEX index9 ON test1(cnt)}
   execsql {CREATE INDEX indext ON test1(power)}
   execsql {SELECT name FROM _index WHERE name='index9' OR name='indext'; SELECT name FROM _space WHERE name='test1';}
-  #execsql {SELECT name FROM sqlite_master WHERE type!='meta' ORDER BY name}
 } {index9 indext test1}
 do_test index-4.2 {
   execsql {SELECT cnt FROM test1 WHERE power=4}
@@ -176,6 +175,9 @@ do_test index-4.13 {
   execsql {SELECT name FROM _space WHERE name='test1'}
   #execsql {SELECT name FROM sqlite_master WHERE type!='meta' ORDER BY name}
 } {}
+
+# MUST_WORK_TEST
+
 # integrity_check index-4.14
 
 # # Do not allow indices to be added to sqlite_master
@@ -232,6 +234,9 @@ do_test index-6.4 {
     SELECT name FROM _space WHERE name='test1';
   }
 } {}
+
+# MUST_WORK_TEST
+
 # integrity_check index-6.5
 
 
@@ -249,16 +254,14 @@ do_test index-7.2 {
 } {16}
 do_test index-7.3 {
   execsql {SELECT name FROM _index WHERE id=517}
-  # execsql {
-  #   SELECT name FROM sqlite_master 
-  #   WHERE type='index' AND tbl_name='test1'
-  # }
 } {a_ind_test1_1}
 do_test index-7.4 {
   execsql {DROP table test1}
   execsql {SELECT name FROM _space WHERE name='test1'}
-  #execsql {SELECT name FROM sqlite_master WHERE type!='meta'}
 } {}
+
+# MUST_WORK_TEST
+
 # integrity_check index-7.5
 
 # Make sure we cannot drop a non-existant index.
@@ -282,6 +285,9 @@ do_test index-9.2 {
   execsql {CREATE INDEX idx1 ON tab1(a)}
   execsql {SELECT name FROM _index WHERE name='idx1'; SELECT name FROM _space WHERE name='tab1'}
 } {idx1 tab1}
+
+# MUST_WORK_TEST
+
 # integrity_check index-9.3
 
 # Allow more than one entry with the same key.
@@ -357,6 +363,9 @@ do_test index-10.8 {
     SELECT b FROM t1 ORDER BY b;
   }
 } {0}
+
+# MUST_WORK_TEST
+
 # integrity_check index-10.9
 
 # Automatically create an index when we specify a primary key.
@@ -376,6 +385,9 @@ do_test index-11.1 {
   set sqlite_search_count 0
   concat [execsql {SELECT c FROM t3 WHERE b==10}] $sqlite_search_count
 } {0.1 2}
+
+# MUST_WORK_TEST
+
 # integrity_check index-11.2
 
 
@@ -431,6 +443,9 @@ do_test index-12.7 {
     SELECT a FROM t4 WHERE a>-0.5 ORDER BY b
   }
 } {0 0 abc 1 0 0}
+
+# MUST_WORK_TEST
+
 # integrity_check index-12.8
 
 # Make sure we cannot drop an automatically created index.
@@ -466,6 +481,9 @@ do_test index-13.1 {
 #     SELECT * FROM t5;
 #   }
 # } {1 2.0 3 a b c}
+
+# MUST_WORK_TEST
+
 # integrity_check index-13.5
 
 # Check the sort order of data in an index.
@@ -532,6 +550,9 @@ do_test index-14.11 {
     SELECT c FROM t6 WHERE a<'';
   }
 } {5}
+
+# MUST_WORK_TEST
+
 # integrity_check index-14.12
 
 do_test index-15.1 {
@@ -565,6 +586,9 @@ do_test index-15.1 {
 #     SELECT b FROM t1 WHERE typeof(a) IN ('integer','real') ORDER BY b;
 #   }
 # } {1 2 3 5 6 8 10 11 12 13 14 15}
+
+# MUST_WORK_TEST
+
 # integrity_check index-15.4
 
 # The following tests - index-16.* - test that when a table definition

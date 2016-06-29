@@ -30,6 +30,9 @@ do_test index3-1.1 {
     SELECT a FROM t1;
   }
 } {1 1}
+
+# MUST_WORK_TEST
+
 # do_test index3-1.2 {
 #   catchsql {
 #     BEGIN;
