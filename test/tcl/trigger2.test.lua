@@ -141,88 +141,89 @@ ifcapable subquery {
   	         3 3 4 13 24 30 40 \
   	         4 3 4 40 60 30 40 \
              1 1 2 13 24 10 20 ]
-  }
-#     execsql {
-#       DELETE FROM rlog;
-#       DELETE FROM tbl;
-#       INSERT INTO tbl VALUES (100, 100);
-#       INSERT INTO tbl VALUES (300, 200);
-#       CREATE TRIGGER delete_before_row BEFORE DELETE ON tbl FOR EACH ROW
-#         BEGIN
-#         INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
-#   	  old.a, old.b,
-#   	  (SELECT coalesce(sum(a),0) FROM tbl),
-#           (SELECT coalesce(sum(b),0) FROM tbl),
-#   	  0, 0);
-#       END;
 
-#       CREATE TRIGGER delete_after_row AFTER DELETE ON tbl FOR EACH ROW
-#         BEGIN
-#         INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
-#   	  old.a, old.b,
-#   	  (SELECT coalesce(sum(a),0) FROM tbl),
-#           (SELECT coalesce(sum(b),0) FROM tbl),
-#   	  0, 0);
-#       END;
-#     }
-#     do_test trigger2-1.$ii.2 {
-#       set r {}
-#       foreach v [execsql {
-#         DELETE FROM tbl;
-#         SELECT * FROM rlog;
-#       }] {
-#         lappend r [expr {int($v)}]
-#       }
-#       set r
-#     } [list 1 100 100 400 300 0 0 \
-#             2 100 100 300 200 0 0 \
-#             3 300 200 300 200 0 0 \
-#             4 300 200 0 0 0 0 ]
+    execsql {
+      DELETE FROM tbl;
+      DELETE FROM rlog;
+      INSERT INTO tbl VALUES (100, 100);
+      INSERT INTO tbl VALUES (300, 200);
+      CREATE TRIGGER delete_before_row BEFORE DELETE ON tbl FOR EACH ROW
+        BEGIN
+        INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
+  	  old.a, old.b,
+  	  (SELECT coalesce(sum(a),0) FROM tbl),
+          (SELECT coalesce(sum(b),0) FROM tbl),
+  	  0, 0);
+      END;
 
-#     execsql {
-#       DELETE FROM rlog;
-#       CREATE TRIGGER insert_before_row BEFORE INSERT ON tbl FOR EACH ROW
-#         BEGIN
-#         INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
-#   	  0, 0,
-#   	  (SELECT coalesce(sum(a),0) FROM tbl),
-#           (SELECT coalesce(sum(b),0) FROM tbl),
-#   	  new.a, new.b);
-#       END;
+      CREATE TRIGGER delete_after_row AFTER DELETE ON tbl FOR EACH ROW
+        BEGIN
+        INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
+  	  old.a, old.b,
+  	  (SELECT coalesce(sum(a),0) FROM tbl),
+          (SELECT coalesce(sum(b),0) FROM tbl),
+  	  0, 0);
+      END;
+    }
 
-#       CREATE TRIGGER insert_after_row AFTER INSERT ON tbl FOR EACH ROW
-#         BEGIN
-#         INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
-#   	  0, 0,
-#   	  (SELECT coalesce(sum(a),0) FROM tbl),
-#           (SELECT coalesce(sum(b),0) FROM tbl),
-#   	  new.a, new.b);
-#       END;
-#     }
-#     do_test trigger2-1.$ii.3 {
-#       execsql {
+    do_test trigger2-1.$ii.2 {
+      set r {}
+      foreach v [execsql {
+        DELETE FROM tbl ;
+        SELECT * FROM rlog;
+      }] {
+        lappend r [expr {int($v)}]
+      }
+      set r
+    } [list 1 100 100 400 300 0 0 \
+            2 100 100 300 200 0 0 \
+            3 300 200 300 200 0 0 \
+            4 300 200 0 0 0 0 ]
 
-#         CREATE TABLE other_tbl(a, b);
-#         INSERT INTO other_tbl VALUES(1, 2);
-#         INSERT INTO other_tbl VALUES(3, 4);
-#         -- INSERT INTO tbl SELECT * FROM other_tbl;
-#         INSERT INTO tbl VALUES(5, 6);
-#         DROP TABLE other_tbl;
+    execsql {
+      DELETE FROM rlog;
+      CREATE TRIGGER insert_before_row BEFORE INSERT ON tbl FOR EACH ROW
+        BEGIN
+        INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
+  	  0, 0,
+  	  (SELECT coalesce(sum(a),0) FROM tbl),
+          (SELECT coalesce(sum(b),0) FROM tbl),
+  	  new.a, new.b);
+      END;
 
-#         SELECT * FROM rlog;
-#       }
-#     } [list 1 0 0 0 0 5 6 \
-#             2 0 0 5 6 5 6 ]
+      CREATE TRIGGER insert_after_row AFTER INSERT ON tbl FOR EACH ROW
+        BEGIN
+        INSERT INTO rlog VALUES ( (SELECT coalesce(max(idx),0) + 1 FROM rlog),
+  	  0, 0,
+  	  (SELECT coalesce(sum(a),0) FROM tbl),
+          (SELECT coalesce(sum(b),0) FROM tbl),
+  	  new.a, new.b);
+      END;
+    }
+    do_test trigger2-1.$ii.3 {
+      execsql {
+
+        CREATE TABLE other_tbl(a PRIMARY KEY, b);
+        INSERT INTO other_tbl VALUES(1, 2);
+        INSERT INTO other_tbl VALUES(3, 4);
+        -- INSERT INTO tbl SELECT * FROM other_tbl;
+        INSERT INTO tbl VALUES(5, 6);
+        DROP TABLE other_tbl;
+
+        SELECT * FROM rlog;
+      }
+    } [list 1 0 0 0 0 5 6 \
+            2 0 0 5 6 5 6 ]
 
 #     integrity_check trigger2-1.$ii.4
-#   }
-#   catchsql {
-#     DROP TABLE rlog;
-#     DROP TABLE clog;
-#     DROP TABLE tbl;
-#     DROP TABLE other_tbl;
-#   }
-# }
+  }
+  catchsql {
+    DROP TABLE rlog;
+    DROP TABLE clog;
+    DROP TABLE tbl;
+    DROP TABLE other_tbl;
+  }
+}
 
 # # 2.
 # set ii 0
@@ -343,10 +344,11 @@ ifcapable subquery {
 
 # # 3.
 
-# # trigger2-3.1: UPDATE OF triggers
+# MUST_WORK_TEST
+# trigger2-3.1: UPDATE OF triggers
 # execsql {
-#   CREATE TABLE tbl (a, b, c, d);
-#   CREATE TABLE log (a);
+#   CREATE TABLE tbl (a PRIMARY KEY, b, c, d);
+#   CREATE TABLE log (a PRIMARY KEY);
 #   INSERT INTO log VALUES (0);
 #   INSERT INTO tbl VALUES (0, 0, 0, 0);
 #   INSERT INTO tbl VALUES (1, 0, 0, 0);
@@ -369,117 +371,117 @@ ifcapable subquery {
 #   DROP TABLE log;
 # }
 
-# # trigger2-3.2: WHEN clause
-# set when_triggers [list {t1 BEFORE INSERT ON tbl WHEN new.a > 20}]
-# ifcapable subquery {
-#   lappend when_triggers \
-#       {t2 BEFORE INSERT ON tbl WHEN (SELECT count(*) FROM tbl) = 0}
-# }
+# trigger2-3.2: WHEN clause
+set when_triggers [list {t1 BEFORE INSERT ON tbl WHEN new.a > 20}]
+ifcapable subquery {
+  lappend when_triggers \
+      {t2 BEFORE INSERT ON tbl WHEN (SELECT count(*) FROM tbl) = 0}
+}
 
-# execsql {
-#   CREATE TABLE tbl (a, b, c, d);
-#   CREATE TABLE log (a);
-#   INSERT INTO log VALUES (0);
-# }
+execsql {
+  CREATE TABLE tbl (a , b PRIMARY KEY, c, d);
+  CREATE TABLE log (a PRIMARY KEY);
+  INSERT INTO log VALUES (0);
+}
 
-# foreach trig $when_triggers {
-#   execsql "CREATE TRIGGER $trig BEGIN UPDATE log set a = a + 1; END;"
-# }
+foreach trig $when_triggers {
+  execsql "CREATE TRIGGER $trig BEGIN UPDATE log set a = a + 1; END;"
+}
 
-# ifcapable subquery {
-#   set t232 {1 0 1}
-# } else {
-#   set t232 {0 0 1}
-# }
-# do_test trigger2-3.2 {
-#   execsql {
+ifcapable subquery {
+  set t232 {1 0 1}
+} else {
+  set t232 {0 0 1}
+}
+do_test trigger2-3.2 {
+  execsql {
 
-#     INSERT INTO tbl VALUES(0, 0, 0, 0);     -- 1 (ifcapable subquery)
-#     SELECT * FROM log;
-#     UPDATE log SET a = 0;
+    INSERT INTO tbl VALUES(0, 1, 0, 0);     -- 1 (ifcapable subquery)
+    SELECT * FROM log;
+    UPDATE log SET a = 0;
 
-#     INSERT INTO tbl VALUES(0, 0, 0, 0);     -- 0
-#     SELECT * FROM log;
-#     UPDATE log SET a = 0;
+    INSERT INTO tbl VALUES(0, 2, 0, 0);     -- 0
+    SELECT * FROM log;
+    UPDATE log SET a = 0;
 
-#     INSERT INTO tbl VALUES(200, 0, 0, 0);     -- 1
-#     SELECT * FROM log;
-#     UPDATE log SET a = 0;
-#   }
-# } $t232
-# execsql {
-#   DROP TABLE tbl;
-#   DROP TABLE log;
-# }
+    INSERT INTO tbl VALUES(200, 3, 0, 0);     -- 1
+    SELECT * FROM log;
+    UPDATE log SET a = 0;
+  }
+} $t232
+execsql {
+  DROP TABLE tbl;
+  DROP TABLE log;
+}
 # integrity_check trigger2-3.3
 
 # # Simple cascaded trigger
-# execsql {
-#   CREATE TABLE tblA(a, b);
-#   CREATE TABLE tblB(a, b);
-#   CREATE TABLE tblC(a, b);
+execsql {
+  CREATE TABLE tblA(a PRIMARY KEY, b);
+  CREATE TABLE tblB(a PRIMARY KEY, b);
+  CREATE TABLE tblC(a PRIMARY KEY, b);
 
-#   CREATE TRIGGER tr1 BEFORE INSERT ON tblA BEGIN
-#     INSERT INTO tblB values(new.a, new.b);
-#   END;
+  CREATE TRIGGER tr1 BEFORE INSERT ON tblA BEGIN
+    INSERT INTO tblB values(new.a, new.b);
+  END;
 
-#   CREATE TRIGGER tr2 BEFORE INSERT ON tblB BEGIN
-#     INSERT INTO tblC values(new.a, new.b);
-#   END;
-# }
-# do_test trigger2-4.1 {
-#   execsql {
-#     INSERT INTO tblA values(1, 2);
-#     SELECT * FROM tblA;
-#     SELECT * FROM tblB;
-#     SELECT * FROM tblC;
-#   }
-# } {1 2 1 2 1 2}
-# execsql {
-#   DROP TABLE tblA;
-#   DROP TABLE tblB;
-#   DROP TABLE tblC;
-# }
+  CREATE TRIGGER tr2 BEFORE INSERT ON tblB BEGIN
+    INSERT INTO tblC values(new.a, new.b);
+  END;
+}
+do_test trigger2-4.1 {
+  execsql {
+    INSERT INTO tblA values(1, 2);
+    SELECT * FROM tblA;
+    SELECT * FROM tblB;
+    SELECT * FROM tblC;
+  }
+} {1 2 1 2 1 2}
+execsql {
+  DROP TABLE tblA;
+  DROP TABLE tblB;
+  DROP TABLE tblC;
+}
 
-# # Simple recursive trigger
-# execsql {
-#   CREATE TABLE tbl(a, b, c);
-#   CREATE TRIGGER tbl_trig BEFORE INSERT ON tbl
-#     BEGIN
-#       INSERT INTO tbl VALUES (new.a, new.b, new.c);
-#     END;
-# }
-# do_test trigger2-4.2 {
-#   execsql {
-#     INSERT INTO tbl VALUES (1, 2, 3);
-#     select * from tbl;
-#   }
-# } {1 2 3 1 2 3}
-# execsql {
-#   DROP TABLE tbl;
-# }
+# Simple recursive trigger
+execsql {
+  CREATE TABLE tbl(a PRIMARY KEY, b, c);
+  CREATE TRIGGER tbl_trig BEFORE INSERT ON tbl
+    BEGIN
+      INSERT INTO tbl VALUES (new.a + 1, new.b + 1, new.c + 1);
+    END;
+}
+do_test trigger2-4.2 {
+  execsql {
+    INSERT INTO tbl VALUES (1, 2, 3);
+    select * from tbl;
+  }
+} {1 2 3 2 3 4}
+execsql {
+  DROP TABLE tbl;
+}
 
-# # 5.
-# execsql {
-#   CREATE TABLE tbl(a, b, c);
-#   CREATE TRIGGER tbl_trig BEFORE INSERT ON tbl
-#     BEGIN
-#       INSERT INTO tbl VALUES (1, 2, 3);
-#       INSERT INTO tbl VALUES (2, 2, 3);
-#       UPDATE tbl set b = 10 WHERE a = 1;
-#       DELETE FROM tbl WHERE a = 1;
-#       DELETE FROM tbl;
-#     END;
-# }
-# do_test trigger2-5 {
-#   execsql {
-#     INSERT INTO tbl VALUES(100, 200, 300);
-#   }
-#   db changes
-# } {1}
-# execsql {
-#   DROP TABLE tbl;
-# }
+# 5.
+execsql {
+  CREATE TABLE tbl(a PRIMARY KEY, b, c);
+  CREATE TRIGGER tbl_trig BEFORE INSERT ON tbl
+    BEGIN
+      INSERT INTO tbl VALUES (1, 2, 3);
+      INSERT INTO tbl VALUES (2, 2, 3);
+      UPDATE tbl set b = 10 WHERE a = 1;
+      DELETE FROM tbl WHERE a = 1;
+      DELETE FROM tbl;
+    END;
+}
+do_test trigger2-5 {
+  execsql {
+    INSERT INTO tbl VALUES(100, 200, 300);
+  }
+  db changes
+} {1}
+execsql {
+  DROP TABLE tbl;
+}
 
 # ifcapable conflict {
 #   # Handling of ON CONFLICT by INSERT statements inside triggers
@@ -602,8 +604,8 @@ ifcapable subquery {
 
 # do_test trigger2-7.1 {
 #   execsql {
-#   CREATE TABLE ab(a, b);
-#   CREATE TABLE cd(c, d);
+#   CREATE TABLE ab(a PRIMARY KEY, b);
+#   CREATE TABLE cd(c PRIMARY KEY, d);
 #   INSERT INTO ab VALUES (1, 2);
 #   INSERT INTO ab VALUES (0, 0);
 #   INSERT INTO cd VALUES (3, 4);
@@ -655,7 +657,7 @@ ifcapable subquery {
 # 	 4 1 2 3 4 0 0 0 0 \
 # 	 5 0 0 0 0 10 20 30 40 \
 # 	 6 0 0 0 0 10 20 30 40 ]
-
+#
 # do_test trigger2-7.3 {
 #   execsql {
 #     DELETE FROM tlog;
@@ -755,7 +757,7 @@ ifcapable subquery {
 #   }
 # } {}
 
-# } ;# ifcapable view
+#} ;# ifcapable view
 
 # integrity_check trigger2-9.9
 
