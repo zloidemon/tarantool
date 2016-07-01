@@ -8,8 +8,6 @@ trigger1-1.2.3... Ok
 trigger1-1.6.1... Ok
 trigger1-1.6.2... Ok
 trigger1-1.7... Ok
-trigger1-1.8... Ok
-trigger1-1.9... Ok
 trigger1-1.10... Ok
 trigger1-1.11... Ok
 trigger1-1.12... Ok
@@ -19,6 +17,7 @@ trigger1-2.1... Ok
 trigger1-2.2... Ok
 trigger1-6.2... Ok
 trigger1-6.3... Ok
+trigger1-6.4... Ok
 trigger1-8.1... Ok
 trigger1-8.2... Ok
 trigger1-8.3... Ok
