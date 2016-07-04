@@ -462,26 +462,26 @@ execsql {
 }
 
 # 5.
-execsql {
-  CREATE TABLE tbl(a PRIMARY KEY, b, c);
-  CREATE TRIGGER tbl_trig BEFORE INSERT ON tbl
-    BEGIN
-      INSERT INTO tbl VALUES (1, 2, 3);
-      INSERT INTO tbl VALUES (2, 2, 3);
-      UPDATE tbl set b = 10 WHERE a = 1;
-      DELETE FROM tbl WHERE a = 1;
-      DELETE FROM tbl;
-    END;
-}
-do_test trigger2-5 {
-  execsql {
-    INSERT INTO tbl VALUES(100, 200, 300);
-  }
-  db changes
-} {1}
-execsql {
-  DROP TABLE tbl;
-}
+# execsql {
+#   CREATE TABLE tbl(a PRIMARY KEY, b, c);
+#   CREATE TRIGGER tbl_trig BEFORE INSERT ON tbl
+#     BEGIN
+#       INSERT INTO tbl VALUES (1, 2, 3);
+#       INSERT INTO tbl VALUES (2, 2, 3);
+#       UPDATE tbl set b = 10 WHERE a = 1;
+#       DELETE FROM tbl WHERE a = 1;
+#       DELETE FROM tbl;
+#     END;
+# }
+# do_test trigger2-5 {
+#   execsql {
+#     INSERT INTO tbl VALUES(100, 200, 300);
+#   }
+#   db changes
+# } {1}
+# execsql {
+#   DROP TABLE tbl;
+# }
 
 # ifcapable conflict {
 #   # Handling of ON CONFLICT by INSERT statements inside triggers
@@ -599,163 +599,163 @@ execsql {
 #   }
 # } ; # ifcapable conflict
 
-# # 7. Triggers on views
-# ifcapable view {
+# 7. Triggers on views
+ifcapable view {
 
-# do_test trigger2-7.1 {
-#   execsql {
-#   CREATE TABLE ab(a PRIMARY KEY, b);
-#   CREATE TABLE cd(c PRIMARY KEY, d);
-#   INSERT INTO ab VALUES (1, 2);
-#   INSERT INTO ab VALUES (0, 0);
-#   INSERT INTO cd VALUES (3, 4);
+do_test trigger2-7.1 {
+  execsql {
+  CREATE TABLE ab(a PRIMARY KEY, b) WITHOUT ROWID;
+  CREATE TABLE cd(c PRIMARY KEY, d) WITHOUT ROWID;
+  INSERT INTO ab VALUES (1, 2);
+  INSERT INTO ab VALUES (0, 0);
+  INSERT INTO cd VALUES (3, 4);
 
-#   CREATE TABLE tlog(ii INTEGER PRIMARY KEY,
-#       olda, oldb, oldc, oldd, newa, newb, newc, newd);
+  CREATE TABLE tlog(ii INTEGER PRIMARY KEY,
+      olda, oldb, oldc, oldd, newa, newb, newc, newd);
 
-#   CREATE VIEW abcd AS SELECT a, b, c, d FROM ab, cd;
+  CREATE VIEW abcd AS SELECT a, b, c, d FROM ab, cd;
 
-#   CREATE TRIGGER before_update INSTEAD OF UPDATE ON abcd BEGIN
-#     INSERT INTO tlog VALUES(NULL,
-# 	old.a, old.b, old.c, old.d, new.a, new.b, new.c, new.d);
-#   END;
-#   CREATE TRIGGER after_update INSTEAD OF UPDATE ON abcd BEGIN
-#     INSERT INTO tlog VALUES(NULL,
-# 	old.a, old.b, old.c, old.d, new.a, new.b, new.c, new.d);
-#   END;
+  CREATE TRIGGER before_update INSTEAD OF UPDATE ON abcd BEGIN
+    INSERT INTO tlog VALUES( (SELECT coalesce(max(ii),0) + 1 FROM tlog),
+	old.a, old.b, old.c, old.d, new.a, new.b, new.c, new.d);
+  END;
+  CREATE TRIGGER after_update INSTEAD OF UPDATE ON abcd BEGIN
+    INSERT INTO tlog VALUES( (SELECT coalesce(max(ii),0) + 1 FROM tlog),
+	old.a, old.b, old.c, old.d, new.a, new.b, new.c, new.d);
+  END;
 
-#   CREATE TRIGGER before_delete INSTEAD OF DELETE ON abcd BEGIN
-#     INSERT INTO tlog VALUES(NULL,
-# 	old.a, old.b, old.c, old.d, 0, 0, 0, 0);
-#   END;
-#   CREATE TRIGGER after_delete INSTEAD OF DELETE ON abcd BEGIN
-#     INSERT INTO tlog VALUES(NULL,
-# 	old.a, old.b, old.c, old.d, 0, 0, 0, 0);
-#   END;
+  CREATE TRIGGER before_delete INSTEAD OF DELETE ON abcd BEGIN
+    INSERT INTO tlog VALUES( (SELECT coalesce(max(ii),0) + 1 FROM tlog),
+	old.a, old.b, old.c, old.d, 0, 0, 0, 0);
+  END;
+  CREATE TRIGGER after_delete INSTEAD OF DELETE ON abcd BEGIN
+    INSERT INTO tlog VALUES( (SELECT coalesce(max(ii),0) + 1 FROM tlog),
+	old.a, old.b, old.c, old.d, 0, 0, 0, 0);
+  END;
 
-#   CREATE TRIGGER before_insert INSTEAD OF INSERT ON abcd BEGIN
-#     INSERT INTO tlog VALUES(NULL,
-# 	0, 0, 0, 0, new.a, new.b, new.c, new.d);
-#   END;
-#    CREATE TRIGGER after_insert INSTEAD OF INSERT ON abcd BEGIN
-#     INSERT INTO tlog VALUES(NULL,
-# 	0, 0, 0, 0, new.a, new.b, new.c, new.d);
-#    END;
-#   }
-# } {};
+  CREATE TRIGGER before_insert INSTEAD OF INSERT ON abcd BEGIN
+    INSERT INTO tlog VALUES( (SELECT coalesce(max(ii),0) + 1 FROM tlog),
+	0, 0, 0, 0, new.a, new.b, new.c, new.d);
+  END;
+   CREATE TRIGGER after_insert INSTEAD OF INSERT ON abcd BEGIN
+    INSERT INTO tlog VALUES( (SELECT coalesce(max(ii),0) + 1 FROM tlog),
+	0, 0, 0, 0, new.a, new.b, new.c, new.d);
+   END;
+  }
+} {};
 
-# do_test trigger2-7.2 {
-#   execsql {
-#     UPDATE abcd SET a = 100, b = 5*5 WHERE a = 1;
-#     DELETE FROM abcd WHERE a = 1;
-#     INSERT INTO abcd VALUES(10, 20, 30, 40);
-#     SELECT * FROM tlog;
-#   }
-# } [ list 1 1 2 3 4 100 25 3 4 \
-#          2 1 2 3 4 100 25 3 4 \
-# 	 3 1 2 3 4 0 0 0 0 \
-# 	 4 1 2 3 4 0 0 0 0 \
-# 	 5 0 0 0 0 10 20 30 40 \
-# 	 6 0 0 0 0 10 20 30 40 ]
-#
-# do_test trigger2-7.3 {
-#   execsql {
-#     DELETE FROM tlog;
-#     INSERT INTO abcd VALUES(10, 20, 30, 40);
-#     UPDATE abcd SET a = 100, b = 5*5 WHERE a = 1;
-#     DELETE FROM abcd WHERE a = 1;
-#     SELECT * FROM tlog;
-#   }
-# } [ list \
-#    1 0 0 0 0 10 20 30 40 \
-#    2 0 0 0 0 10 20 30 40 \
-#    3 1 2 3 4 100 25 3 4 \
-#    4 1 2 3 4 100 25 3 4 \
-#    5 1 2 3 4 0 0 0 0 \
-#    6 1 2 3 4 0 0 0 0 \
-# ]
-# do_test trigger2-7.4 {
-#   execsql {
-#     DELETE FROM tlog;
-#     DELETE FROM abcd WHERE a = 1;
-#     INSERT INTO abcd VALUES(10, 20, 30, 40);
-#     UPDATE abcd SET a = 100, b = 5*5 WHERE a = 1;
-#     SELECT * FROM tlog;
-#   }
-# } [ list \
-#    1 1 2 3 4 0 0 0 0 \
-#    2 1 2 3 4 0 0 0 0 \
-#    3 0 0 0 0 10 20 30 40 \
-#    4 0 0 0 0 10 20 30 40 \
-#    5 1 2 3 4 100 25 3 4 \
-#    6 1 2 3 4 100 25 3 4 \
-# ]
+do_test trigger2-7.2 {
+  execsql {
+    UPDATE abcd SET a = 100, b = 5*5 WHERE a = 1;
+    DELETE FROM abcd WHERE a = 1;
+    INSERT INTO abcd VALUES(10, 20, 30, 40);
+    SELECT * FROM tlog;
+  }
+} [ list 1 1 2 3 4 100 25 3 4 \
+         2 1 2 3 4 100 25 3 4 \
+	 3 1 2 3 4 0 0 0 0 \
+	 4 1 2 3 4 0 0 0 0 \
+	 5 0 0 0 0 10 20 30 40 \
+	 6 0 0 0 0 10 20 30 40 ]
 
-# do_test trigger2-8.1 {
-#   execsql {
-#     CREATE TABLE t1(a,b,c);
-#     INSERT INTO t1 VALUES(1,2,3);
-#     CREATE VIEW v1 AS
-#       SELECT a+b AS x, b+c AS y, a+c AS z FROM t1;
-#     SELECT * FROM v1;
-#   }
-# } {3 5 4}
-# do_test trigger2-8.2 {
-#   execsql {
-#     CREATE TABLE v1log(a,b,c,d,e,f);
-#     CREATE TRIGGER r1 INSTEAD OF DELETE ON v1 BEGIN
-#       INSERT INTO v1log VALUES(OLD.x,NULL,OLD.y,NULL,OLD.z,NULL);
-#     END;
-#     DELETE FROM v1 WHERE x=1;
-#     SELECT * FROM v1log;
-#   }
-# } {}
-# do_test trigger2-8.3 {
-#   execsql {
-#     DELETE FROM v1 WHERE x=3;
-#     SELECT * FROM v1log;
-#   }
-# } {3 {} 5 {} 4 {}}
-# do_test trigger2-8.4 {
-#   execsql {
-#     INSERT INTO t1 VALUES(4,5,6);
-#     DELETE FROM v1log;
-#     DELETE FROM v1 WHERE y=11;
-#     SELECT * FROM v1log;
-#   }
-# } {9 {} 11 {} 10 {}}
-# do_test trigger2-8.5 {
-#   execsql {
-#     CREATE TRIGGER r2 INSTEAD OF INSERT ON v1 BEGIN
-#       INSERT INTO v1log VALUES(NULL,NEW.x,NULL,NEW.y,NULL,NEW.z);
-#     END;
-#     DELETE FROM v1log;
-#     INSERT INTO v1 VALUES(1,2,3);
-#     SELECT * FROM v1log;
-#   }
-# } {{} 1 {} 2 {} 3}
-# do_test trigger2-8.6 {
-#   execsql {
-#     CREATE TRIGGER r3 INSTEAD OF UPDATE ON v1 BEGIN
-#       INSERT INTO v1log VALUES(OLD.x,NEW.x,OLD.y,NEW.y,OLD.z,NEW.z);
-#     END;
-#     DELETE FROM v1log;
-#     UPDATE v1 SET x=x+100, y=y+200, z=z+300;
-#     SELECT * FROM v1log;
-#   }
-# } {3 103 5 205 4 304 9 109 11 211 10 310}
+do_test trigger2-7.3 {
+  execsql {
+    DELETE FROM tlog;
+    INSERT INTO abcd VALUES(10, 20, 30, 40);
+    UPDATE abcd SET a = 100, b = 5*5 WHERE a = 1;
+    DELETE FROM abcd WHERE a = 1;
+    SELECT * FROM tlog;
+  }
+} [ list \
+   1 0 0 0 0 10 20 30 40 \
+   2 0 0 0 0 10 20 30 40 \
+   3 1 2 3 4 100 25 3 4 \
+   4 1 2 3 4 100 25 3 4 \
+   5 1 2 3 4 0 0 0 0 \
+   6 1 2 3 4 0 0 0 0 \
+]
+do_test trigger2-7.4 {
+  execsql {
+    DELETE FROM tlog;
+    DELETE FROM abcd WHERE a = 1;
+    INSERT INTO abcd VALUES(10, 20, 30, 40);
+    UPDATE abcd SET a = 100, b = 5*5 WHERE a = 1;
+    SELECT * FROM tlog;
+  }
+} [ list \
+   1 1 2 3 4 0 0 0 0 \
+   2 1 2 3 4 0 0 0 0 \
+   3 0 0 0 0 10 20 30 40 \
+   4 0 0 0 0 10 20 30 40 \
+   5 1 2 3 4 100 25 3 4 \
+   6 1 2 3 4 100 25 3 4 \
+]
 
-# # At one point the following was causing a segfault.
-# do_test trigger2-9.1 {
-#   execsql {
-#     CREATE TABLE t3(a TEXT, b TEXT);
-#     CREATE VIEW v3 AS SELECT t3.a FROM t3;
-#     CREATE TRIGGER trig1 INSTEAD OF DELETE ON v3 BEGIN
-#       SELECT 1;
-#     END;
-#     DELETE FROM v3 WHERE a = 1;
-#   }
-# } {}
+do_test trigger2-8.1 {
+  execsql {
+    CREATE TABLE t1(a PRIMARY KEY,b,c);
+    INSERT INTO t1 VALUES(1,2,3);
+    CREATE VIEW v1 AS
+      SELECT a+b AS x, b+c AS y, a+c AS z FROM t1;
+    SELECT * FROM v1;
+  }
+} {3 5 4}
+do_test trigger2-8.2 {
+  execsql {
+    CREATE TABLE v1log(a PRIMARY KEY ,b,c,d,e,f);
+    CREATE TRIGGER r1 INSTEAD OF DELETE ON v1 BEGIN
+      INSERT INTO v1log VALUES(OLD.x,NULL,OLD.y,NULL,OLD.z,NULL);
+    END;
+    DELETE FROM v1 WHERE x=1;
+    SELECT * FROM v1log;
+  }
+} {}
+do_test trigger2-8.3 {
+  execsql {
+    DELETE FROM v1 WHERE x=3;
+    SELECT * FROM v1log;
+  }
+} {3 {} 5 {} 4 {}}
+do_test trigger2-8.4 {
+  execsql {
+    INSERT INTO t1 VALUES(4,5,6);
+    DELETE FROM v1log;
+    DELETE FROM v1 WHERE y=11;
+    SELECT * FROM v1log;
+  }
+} {9 {} 11 {} 10 {}}
+do_test trigger2-8.5 {
+  execsql {
+    CREATE TRIGGER r2 INSTEAD OF INSERT ON v1 BEGIN
+      INSERT INTO v1log VALUES(NULL,NEW.x,NULL,NEW.y,NULL,NEW.z);
+    END;
+    DELETE FROM v1log;
+    INSERT INTO v1 VALUES(1,2,3);
+    SELECT * FROM v1log;
+  }
+} {{} 1 {} 2 {} 3}
+do_test trigger2-8.6 {
+  execsql {
+    CREATE TRIGGER r3 INSTEAD OF UPDATE ON v1 BEGIN
+      INSERT INTO v1log VALUES(OLD.x,NEW.x,OLD.y,NEW.y,OLD.z,NEW.z);
+    END;
+    DELETE FROM v1log;
+    UPDATE v1 SET x=x+100, y=y+200, z=z+300;
+    SELECT * FROM v1log;
+  }
+} {3 103 5 205 4 304 9 109 11 211 10 310}
+
+# At one point the following was causing a segfault.
+do_test trigger2-9.1 {
+  execsql {
+    CREATE TABLE t3(a TEXT PRIMARY KEY, b TEXT);
+    CREATE VIEW v3 AS SELECT t3.a FROM t3;
+    CREATE TRIGGER trig1 INSTEAD OF DELETE ON v3 BEGIN
+      SELECT 1;
+    END;
+    DELETE FROM v3 WHERE a = 1;
+  }
+} {}
 
 #} ;# ifcapable view
 
