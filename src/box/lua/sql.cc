@@ -1501,8 +1501,10 @@ get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db,
 	}
 	table->pSchema = pSchema;
 	table->iPKey = -1;
-	table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
-
+	/* View has not got any tableFlags in sqlite */
+	if (! is_view) {
+		table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
+	}
 	//Get flags
 	if (is_temp) *is_temp = false;
 	if (is_view) *is_view = false;
