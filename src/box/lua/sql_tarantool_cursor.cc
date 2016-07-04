@@ -406,6 +406,7 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 	int nCol = sql_index->nColumn;
 	u64 *serial_types = new u64[nCol];
 	int i, j;
+	sql_tarantool_api *trn_api = &db->trn_api;
 	for (i = 0; i < nCol; ++i) {
 		bytes = sqlite3GetVarint((const unsigned char *)iterator, serial_types + i);
 		iterator += bytes;
@@ -422,6 +423,17 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 		int step;
 		vals[i] = MValue::FromBtreeCell(iterator, serial_types[i], step);
 		iterator += step;
+		if (sql_index->is_autoincrement) {
+			int auto_col = sql_index->aiColumn[0];
+			if (i == auto_col) {
+				//this is autoincrement col in primary key integer index
+				if (vals[i].GetType() == MP_NIL) {
+					//get new id from tarantool
+					uint64_t new_id = trn_api->get_new_autoincrement_id_for(space_id);
+					vals[i] = MValue(new_id);
+				}
+			}
+		}
 		switch(vals[i].GetType()) {
 			case MP_NIL: msg_size += mp_sizeof_nil(); break;
 			case MP_UINT: msg_size += mp_sizeof_uint(vals[i].GetUint64()); break;

@@ -294,6 +294,13 @@ log_debug(const char *msg);
 void
 space_truncate_by_id(int space_id);
 
+/**
+ * Get maximal value of primary key integer index of space with name
+ * 'space_name'
+ */
+uint64_t
+get_new_autoincrement_id_for(int space_id);
+
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
 
 /**
@@ -675,6 +682,7 @@ on_commit_index(struct trigger * /*trigger*/, void * event) {
 			idxHash = &db->aDb[1].pSchema->idxHash;
 		}
 		Table *table = index->pTable;
+		if (index->is_autoincrement) table->tabFlags |= TF_Autoincrement;
 		if (table->pIndex == NULL) {
 			table->pIndex = index;
 		} else {
@@ -1028,6 +1036,9 @@ make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 		crt_stmt_len = strlen(crt_stmt);
 		opts_size++;
 	}
+	if (index->is_autoincrement) {
+		opts_size++;
+	}
 	const char *type = "TREE";
 	int type_len = strlen(type);
 	msg_size += mp_sizeof_uint(space_id);
@@ -1065,6 +1076,10 @@ make_msgpuck_from(const SIndex *index, int &size, const char *crt_stmt) {
 	if (crt_stmt) {
 		it = mp_encode_str(it, "crt_stmt", 8);
 		it = mp_encode_str(it, crt_stmt, crt_stmt_len);
+	}
+	if (index->is_autoincrement) {
+		it = mp_encode_str(it, "autoincrement", 13);
+		it = mp_encode_bool(it, true);
 	}
 	it = mp_encode_array(it, index->nKeyCol);
 	for (int i = 0; i < index->nKeyCol; ++i) {
@@ -1627,8 +1642,8 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 
 	data = box_tuple_field(index_tpl, 4);
 	int map_size = mp_decode_map(&data);
-	if (map_size > 2) {
-		say_debug("%s(): field[4] map size in INDEX must be <= 2, but is %u\n", __func_name, map_size);
+	if (map_size > 3) {
+		say_debug("%s(): field[4] map size in INDEX must be <= 3, but is %u\n", __func_name, map_size);
 		free_index_azColls();
 		return NULL;
 	}
@@ -1648,13 +1663,26 @@ get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bo
 				free_index_azColls();
 				return NULL;
 			}
-			say_debug("%s(): found index with crt_stmt: %s\n", __FUNCTION__, value.GetStr());
+			if ((key.GetStr()[0] == 'C') || (key.GetStr()[0] == 'c')) {
+				say_debug("%s(): found index with crt_stmt: %s\n", __FUNCTION__, value.GetStr());
+			} else {
+				say_debug("%s(): unknown index option: %s\n", __FUNCTION__, key.GetStr());
+				free_index_azColls();
+				return NULL;
+			}
 			continue;
 		}
 		if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
 			if (value.GetBool()) {
 				if (index->idxType != 2) index->idxType = 1;
 			}
+		} else if ((key.GetStr()[0] == 'A') || (key.GetStr()[0] == 'a')) {
+			say_debug("%s(): found index with autoincrement: %s\n", __FUNCTION__, index->zName);
+			index->is_autoincrement = 1;
+		} else {
+			say_debug("%s(): unknown index option: %s\n", __FUNCTION__, key.GetStr());
+			free_index_azColls();
+			return NULL;
 		}
 	}
 
@@ -1768,6 +1796,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->set_global_db = set_global_db;
 	ob->space_truncate_by_id = space_truncate_by_id;
 	ob->remove_and_free_sindex = remove_and_free_sindex;
+	ob->get_new_autoincrement_id_for = get_new_autoincrement_id_for;
 }
 
 void
@@ -1846,6 +1875,7 @@ get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
 				sqlite3HashInsert(tblHash, table->zName, NULL);
 				return;
 			}
+			if (index->is_autoincrement) table->tabFlags |= TF_Autoincrement;
 
 			sqlite3HashInsert(idxHash, index->zName, index);
 			if (!table->pIndex) {
@@ -1933,6 +1963,51 @@ void log_debug(const char *msg) {
 void
 space_truncate_by_id(int root_page) {
 	box_truncate(get_space_id_from(root_page));
+}
+
+uint64_t
+get_new_autoincrement_id_for(int space_id) {
+	struct space *space = space_by_id(space_id);
+	if (space == NULL) {
+		say_debug("%s(): space with id %d was not found\n", __FUNCTION__, space_id);
+		return 0;
+	}
+	struct key_def *key_def = NULL;
+	int id_of_index;
+	for (uint32_t i = 0; i < space->index_count; ++i) {
+		Index *index = space->index[i];
+		if (!index_is_primary(index)) {
+			continue;
+		}
+		key_def = index->key_def;
+		id_of_index = index_id(index);
+		break;
+	}
+	if (key_def == NULL) {
+		say_debug("%s(): key_def of primary index was not found\n", __FUNCTION__);
+		return 0;
+	}
+	if (key_def->part_count != 1) {
+		say_debug("%s(): autoincrement field must be single\n", __FUNCTION__);
+		return 0;
+	}
+	int fieldno = key_def->parts[0].fieldno;
+	MValue max_val((uint64_t)0);
+	SpaceIterator::SIteratorCallback callback =\
+		[](box_tuple_t *tpl, int, void **argv) -> int {
+			int fieldno = *((int *)argv[0]);
+			const char *data = box_tuple_field(tpl, fieldno);
+			MValue *max_val = (MValue *)argv[1];
+			*max_val = MValue::FromMSGPuck(&data);
+			return 0;
+		};
+	void *params[2];
+	params[0] = (void *)&fieldno;
+	params[1] = (void *)&max_val;
+	char key[2], *key_end = mp_encode_array(key, 0);
+	SpaceIterator space_iterator(2, params, callback, space_id, id_of_index, key, key_end, ITER_ALL);
+	space_iterator.IterateOver();
+	return max_val.GetUint64() + 1;
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~

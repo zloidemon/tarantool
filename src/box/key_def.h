@@ -178,6 +178,8 @@ struct key_opts {
 	uint32_t expire;
 
 	char crt_stmt[BOX_CRT_STMT_MAX];
+
+	bool autoincrement;
 };
 
 extern const struct key_opts key_opts_default;
