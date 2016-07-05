@@ -389,6 +389,7 @@ box.schema.index.create = function(space_id, name, options)
         id = 'number',
         if_not_exists = 'boolean',
         crt_stmt = 'string',
+        autoincrement = 'boolean',
         dimension = 'number',
         distance = 'string'
     }
@@ -439,7 +440,7 @@ box.schema.index.create = function(space_id, name, options)
     end
     local key_opts = { dimension = options.dimension,
         unique = options.unique, distance = options.distance,
-        crt_stmt = options.crt_stmt }
+        crt_stmt = options.crt_stmt, autoincrement = options.autoincrement }
     for k, v in pairs(options) do
         if options_template[k] == nil then
             key_opts[k] = v
@@ -487,6 +488,7 @@ box.schema.index.alter = function(space_id, index_id, options)
         parts = 'table',
         unique = 'boolean',
         crt_stmt = 'string',
+        autoincrement = 'boolean',
         dimension = 'number',
         distance = 'string',
     }
@@ -560,6 +562,9 @@ box.schema.index.alter = function(space_id, index_id, options)
     end
     if options.crt_stmt ~= nil then
         key_opts.crt_stmt = options.crt_stmt
+    end
+    if options.autoincrement ~= nil then
+        key_opts.autoincrement = options.autoincrement
     end
     if options.parts ~= nil then
         check_index_parts(options.parts)
