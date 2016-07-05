@@ -2132,7 +2132,7 @@ get_sql_triggers(void *self_, sqlite3 *db, Schema *pSchema,
 		crt_stmt[crt_stmt_len] = 0;
 		char *trig_name = new char[name_len + 1];
 		memcpy((void *) trig_name, (void *) trig_name_tuple, name_len);
-		crt_stmt[name_len] = 0;
+		trig_name[name_len] = 0;
 
 		const char *options = tuple_field(trigger_tpl, 7);
 		static uint32_t temporary_len = 9; // 9 = strlen("temporary")
