@@ -28,57 +28,59 @@ ifcapable {!trigger} {
   return
 }
 
-# do_test trigger6-1.1 {
-#   execsql {
-#     CREATE TABLE t1(x, y);
-#     CREATE TABLE log(a, b, c);
-#     CREATE TRIGGER r1 BEFORE INSERT ON t1 BEGIN
-#       INSERT INTO log VALUES(1, new.x, new.y);
-#     END;
-#     CREATE TRIGGER r2 BEFORE UPDATE ON t1 BEGIN
-#       INSERT INTO log VALUES(2, new.x, new.y);
-#     END;
-#   }
-#   set ::trigger6_cnt 0
-#   proc trigger6_counter {args} {
-#     incr ::trigger6_cnt
-#     return $::trigger6_cnt
-#   }
-#   db function counter trigger6_counter
-#   execsql {
-#     INSERT INTO t1 VALUES(1,counter());
-#     SELECT * FROM t1;
-#   }
-# } {1 1}
-# do_test trigger6-1.2 {
-#   execsql {
-#     SELECT * FROM log;
-#   }
-# } {1 1 1}
-# do_test trigger6-1.3 {
-#   execsql {
-#     DELETE FROM t1;
-#     DELETE FROM log;
-#     INSERT INTO t1 VALUES(2,counter(2,3)+4);
-#     SELECT * FROM t1;
-#   }
-# } {2 6}
-# do_test trigger6-1.4 {
-#   execsql {
-#     SELECT * FROM log;
-#   }
-# } {1 2 6}
-# do_test trigger6-1.5 {
-#   execsql {
-#     DELETE FROM log;
-#     UPDATE t1 SET y=counter(5);
-#     SELECT * FROM t1;
-#   }
-# } {2 3}
-# do_test trigger6-1.6 {
-#   execsql {
-#     SELECT * FROM log;
-#   }
-# } {2 2 3}
+do_test trigger6-1.1 {
+  execsql {
+    CREATE TABLE t1(x primary key, y);
+    CREATE TABLE log(a primary key, b, c);
+    CREATE TRIGGER r1 BEFORE INSERT ON t1 BEGIN
+      INSERT INTO log VALUES(1, new.x, new.y);
+    END;
+    CREATE TRIGGER r2 BEFORE UPDATE ON t1 BEGIN
+      INSERT INTO log VALUES(2, new.x, new.y);
+    END;
+  }
+  set ::trigger6_cnt 0
+  proc trigger6_counter {args} {
+    incr ::trigger6_cnt
+    return $::trigger6_cnt
+  }
+  db function counter trigger6_counter
+  execsql {
+    INSERT INTO t1 VALUES(1,counter());
+    SELECT * FROM t1;
+  }
+} {1 1}
+do_test trigger6-1.2 {
+  execsql {
+    SELECT * FROM log;
+  }
+} {1 1 1}
+do_test trigger6-1.3 {
+  execsql {
+    DELETE FROM t1;
+    DELETE FROM log;
+    INSERT INTO t1 VALUES(2,counter(2,3)+4);
+    SELECT * FROM t1;
+  }
+} {2 6}
+do_test trigger6-1.4 {
+  execsql {
+    SELECT * FROM log;
+  }
+} {1 2 6}
+do_test trigger6-1.5 {
+  execsql {
+    DELETE FROM log;
+    UPDATE t1 SET y=counter(5);
+    SELECT * FROM t1;
+  }
+} {2 3}
+do_test trigger6-1.6 {
+  execsql {
+    SELECT * FROM log;
+  }
+} {2 2 3}
 
-finish_test
+# MUST_WORK_TEST
+
+#finish_test

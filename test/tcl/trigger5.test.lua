@@ -12,12 +12,14 @@
 # This file tests the triggers of views.
 #
 
-set testdir [file dirname $argv0]
-source $testdir/tester.tcl
-ifcapable {!trigger} {
-  finish_test
-  return
-}
+# set testdir [file dirname $argv0]
+# source $testdir/tester.tcl
+# ifcapable {!trigger} {
+#   finish_test
+#   return
+# }
+
+# MUST_WORK_TEST
 
 # # Ticket #844
 # #
@@ -42,4 +44,4 @@ ifcapable {!trigger} {
 
 # integrity_check trigger5-99.9
 
-finish_test
+# finish_test

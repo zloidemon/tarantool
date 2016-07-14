@@ -30,55 +30,55 @@ ifcapable {!trigger} {
   return
 }
 
-# # Triggers on tables where the table has ordinary columns named
-# # rowid, oid, and _rowid_.
-# #
-# do_test triggerD-1.1 {
-#   db eval {
-#     CREATE TABLE t1(rowid, oid, _rowid_, x);
-#     CREATE TABLE log(a,b,c,d,e);
-#     CREATE TRIGGER r1 BEFORE INSERT ON t1 BEGIN
-#       INSERT INTO log VALUES('r1', new.rowid, new.oid, new._rowid_, new.x);
-#     END;
-#     CREATE TRIGGER r2 AFTER INSERT ON t1 BEGIN
-#       INSERT INTO log VALUES('r2', new.rowid, new.oid, new._rowid_, new.x);
-#     END;
-#     CREATE TRIGGER r3 BEFORE UPDATE ON t1 BEGIN
-#       INSERT INTO log VALUES('r3.old', old.rowid, old.oid, old._rowid_, old.x);
-#       INSERT INTO log VALUES('r3.new', new.rowid, new.oid, new._rowid_, new.x);
-#     END;
-#     CREATE TRIGGER r4 AFTER UPDATE ON t1 BEGIN
-#       INSERT INTO log VALUES('r4.old', old.rowid, old.oid, old._rowid_, old.x);
-#       INSERT INTO log VALUES('r4.new', new.rowid, new.oid, new._rowid_, new.x);
-#     END;
-#     CREATE TRIGGER r5 BEFORE DELETE ON t1 BEGIN
-#       INSERT INTO log VALUES('r5', old.rowid, old.oid, old._rowid_, old.x);
-#     END;
-#     CREATE TRIGGER r6 AFTER DELETE ON t1 BEGIN
-#       INSERT INTO log VALUES('r6', old.rowid, old.oid, old._rowid_, old.x);
-#     END;
-#   }
-# } {}
-# do_test triggerD-1.2 {
-#   db eval {
-#     INSERT INTO t1 VALUES(100,200,300,400);
-#     SELECT * FROM log
-#   }
-# } {r1 100 200 300 400 r2 100 200 300 400}
-# do_test triggerD-1.3 {
-#   db eval {
-#     DELETE FROM log;
-#     UPDATE t1 SET rowid=rowid+1;
-#     SELECT * FROM log
-#   }
-# } {r3.old 100 200 300 400 r3.new 101 200 300 400 r4.old 100 200 300 400 r4.new 101 200 300 400}
-# do_test triggerD-1.4 {
-#   db eval {
-#     DELETE FROM log;
-#     DELETE FROM t1;
-#     SELECT * FROM log
-#   }
-# } {r5 101 200 300 400 r6 101 200 300 400}
+# Triggers on tables where the table has ordinary columns named
+# rowid, oid, and _rowid_.
+#
+do_test triggerD-1.1 {
+  db eval {
+    CREATE TABLE t1(rowid PRIMARY KEY, oid, _rowid_, x);
+    CREATE TABLE log(a PRIMARY KEY,b,c,d,e);
+    CREATE TRIGGER r1 BEFORE INSERT ON t1 BEGIN
+      INSERT INTO log VALUES('r1', new.rowid, new.oid, new._rowid_, new.x);
+    END;
+    CREATE TRIGGER r2 AFTER INSERT ON t1 BEGIN
+      INSERT INTO log VALUES('r2', new.rowid, new.oid, new._rowid_, new.x);
+    END;
+    CREATE TRIGGER r3 BEFORE UPDATE ON t1 BEGIN
+      INSERT INTO log VALUES('r3.old', old.rowid, old.oid, old._rowid_, old.x);
+      INSERT INTO log VALUES('r3.new', new.rowid, new.oid, new._rowid_, new.x);
+    END;
+    CREATE TRIGGER r4 AFTER UPDATE ON t1 BEGIN
+      INSERT INTO log VALUES('r4.old', old.rowid, old.oid, old._rowid_, old.x);
+      INSERT INTO log VALUES('r4.new', new.rowid, new.oid, new._rowid_, new.x);
+    END;
+    CREATE TRIGGER r5 BEFORE DELETE ON t1 BEGIN
+      INSERT INTO log VALUES('r5', old.rowid, old.oid, old._rowid_, old.x);
+    END;
+    CREATE TRIGGER r6 AFTER DELETE ON t1 BEGIN
+      INSERT INTO log VALUES('r6', old.rowid, old.oid, old._rowid_, old.x);
+    END;
+  }
+} {}
+do_test triggerD-1.2 {
+  db eval {
+    INSERT INTO t1 VALUES(100,200,300,400);
+    SELECT * FROM log
+  }
+} {r1 100 200 300 400 r2 100 200 300 400}
+do_test triggerD-1.3 {
+  db eval {
+    DELETE FROM log;
+    UPDATE t1 SET rowid=rowid+1;
+    SELECT * FROM log
+  }
+} {r3.new 101 200 300 400 r3.old 100 200 300 400 r4.new 101 200 300 400 r4.old 100 200 300 400}
+do_test triggerD-1.4 {
+  db eval {
+    DELETE FROM log;
+    DELETE FROM t1;
+    SELECT * FROM log
+  }
+} {r5 101 200 300 400 r6 101 200 300 400}
 
 # # Triggers on tables where the table does not have ordinary columns named
 # # rowid, oid, and _rowid_.
@@ -86,7 +86,7 @@ ifcapable {!trigger} {
 # do_test triggerD-2.1 {
 #   db eval {
 #     DROP TABLE t1;
-#     CREATE TABLE t1(w,x,y,z);
+#     CREATE TABLE t1(w PRIMARY KEY,x,y,z);
 #     CREATE TRIGGER r1 BEFORE INSERT ON t1 BEGIN
 #       INSERT INTO log VALUES('r1', new.rowid, new.oid, new._rowid_, new.x);
 #     END;
@@ -131,6 +131,8 @@ ifcapable {!trigger} {
 #   }
 # } {r5 1 1 1 201 r6 1 1 1 201}
 
+# MUST_WORK_TEST
+
 
 # ###########################################################################
 # #
@@ -149,7 +151,7 @@ ifcapable {!trigger} {
 # #   INSERT INTO main.t1 VALUES(3);
 # #   INSERT INTO temp.t1 VALUES(4);
 # #   SELECT * FROM t2;
-# # 
+# #
 # # The r1 trigger fires when the value 4 is inserted into the temp.t1
 # # table, rather than when value 3 is inserted into main.t1.
 # #
@@ -180,7 +182,7 @@ ifcapable {!trigger} {
 
 
 # #############################################################################
-# # 
+# #
 # # Ticket [d6ddba6706353915ceedc56b4e3e72ecb4d77ba4]
 # #
 # # The following syntax really should not be allowed:
@@ -189,7 +191,7 @@ ifcapable {!trigger} {
 # #
 # # But a long-standing bug does allow it.  And the "xyz.tab" slips into
 # # the sqlite_master table.  We cannot fix the bug simply by disallowing
-# # "xyz.tab" since that could break legacy applications.  We have to 
+# # "xyz.tab" since that could break legacy applications.  We have to
 # # fix the system so that the "xyz." on "xyz.tab" is ignored.
 # # Verify that this is the case.
 # #
@@ -218,4 +220,4 @@ ifcapable {!trigger} {
 # } {123 234}
 # db2 close
 
-finish_test
+# finish_test

@@ -13,7 +13,7 @@
 # This file implements regression tests for SQLite library. Specifically,
 # it tests issues relating to firing an INSTEAD OF trigger on a VIEW
 # when one tries to UPDATE or DELETE from the view.  Does the WHERE
-# clause of the UPDATE or DELETE statement get passed down correctly 
+# clause of the UPDATE or DELETE statement get passed down correctly
 # into the query that manifests the view?
 #
 # Ticket #2938
@@ -21,46 +21,50 @@
 
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
-ifcapable !trigger||!compound {
-  finish_test
-  return
-}
 
-# # Create two table containing some sample data
-# #
-# do_test triggerA-1.1 {
-#   db eval {
-#     CREATE TABLE t1(x INTEGER PRIMARY KEY, y TEXT UNIQUE);
-#     CREATE TABLE t2(a INTEGER PRIMARY KEY, b INTEGER UNIQUE, c TEXT);
-#   }
-#   set i 1
-#   foreach word {one two three four five six seven eight nine ten} {
-#     set j [expr {$i*100 + [string length $word]}]
-#     db eval {
-#        INSERT INTO t1 VALUES($i,$word);
-#        INSERT INTO t2 VALUES(20-$i,$j,$word);
-#     }
-#     incr i
-#   }
-#   db eval {
-#     SELECT count(*) FROM t1 UNION ALL SELECT count(*) FROM t2;
-#   }
-# } {10 10}
+# ifcapable !trigger||!compound {
+#   finish_test
+#   return
+# }
 
-# # Create views of various forms against one or both of the two tables.
-# #
-# do_test triggerA-1.2 {
-#   db eval {
-#      CREATE VIEW v1 AS SELECT y, x FROM t1;
-#      SELECT * FROM v1 ORDER BY 1;
-#   }
-# } {eight 8 five 5 four 4 nine 9 one 1 seven 7 six 6 ten 10 three 3 two 2}
-# do_test triggerA-1.3 {
-#   db eval {
-#      CREATE VIEW v2 AS SELECT x, y FROM t1 WHERE y GLOB '*e*';
-#      SELECT * FROM v2 ORDER BY 1;
-#   }
-# } {1 one 3 three 5 five 7 seven 8 eight 9 nine 10 ten}
+# Create two table containing some sample data
+#
+do_test triggerA-1.1 {
+  db eval {
+    CREATE TABLE t1(x INTEGER PRIMARY KEY, y TEXT UNIQUE);
+    CREATE TABLE t2(a INTEGER PRIMARY KEY, b INTEGER UNIQUE, c TEXT);
+  }
+  set i 1
+  foreach word {one two three four five six seven eight nine ten} {
+    set j [expr {$i*100 + [string length $word]}]
+    db eval {
+       INSERT INTO t1 VALUES($i,$word);
+       INSERT INTO t2 VALUES(20-$i,$j,$word);
+    }
+    incr i
+  }
+  db eval {
+    SELECT count(*) FROM t1 UNION ALL SELECT count(*) FROM t2;
+  }
+} {10 10}
+
+# Create views of various forms against one or both of the two tables.
+#
+do_test triggerA-1.2 {
+  db eval {
+     CREATE VIEW v1 AS SELECT y, x FROM t1;
+     SELECT * FROM v1 ORDER BY 1;
+  }
+} {eight 8 five 5 four 4 nine 9 one 1 seven 7 six 6 ten 10 three 3 two 2}
+do_test triggerA-1.3 {
+  db eval {
+     CREATE VIEW v2 AS SELECT x, y FROM t1 WHERE y GLOB '*e*';
+     SELECT * FROM v2 ORDER BY 1;
+  }
+} {1 one 3 three 5 five 7 seven 8 eight 9 nine 10 ten}
+
+# MUST_WORK_TEST
+
 # do_test triggerA-1.4 {
 #   db eval {
 #      CREATE VIEW v3 AS
@@ -76,12 +80,14 @@ ifcapable !trigger||!compound {
 #      SELECT * FROM v4 ORDER BY 1;
 #   }
 # } {1 10 2 3 4 5 6 7 8 9 five four three}
-# do_test triggerA-1.6 {
-#   db eval {
-#      CREATE VIEW v5 AS SELECT x, b FROM t1, t2 WHERE y=c;
-#      SELECT * FROM v5 ORDER BY x DESC;
-#   }
-# } {10 1003 9 904 8 805 7 705 6 603 5 504 4 404 3 305 2 203 1 103}
+do_test triggerA-1.6 {
+  db eval {
+     CREATE VIEW v5 AS SELECT x, b FROM t1, t2 WHERE y=c;
+     SELECT * FROM v5 ORDER BY x DESC;
+  }
+} {10 1003 9 904 8 805 7 705 6 603 5 504 4 404 3 305 2 203 1 103}
+
+# MUST_WORK_TEST
 
 # # Create INSTEAD OF triggers on the views.  Run UPDATE and DELETE statements
 # # using those triggers.  Verify correct operation.
@@ -225,7 +231,7 @@ ifcapable !trigger||!compound {
 #   forcedelete test.db test.db-journal
 #   forcecopy test.db-triggerA test.db
 #   sqlite3 db test.db
-#   sqlite3_extended_result_codes db 1  
+#   sqlite3_extended_result_codes db 1
 #   db eval {SELECT * FROM v5; -- warm up the cache}
 # } -sqlbody {
 #    DELETE FROM v5 WHERE x=5;
@@ -236,4 +242,4 @@ ifcapable !trigger||!compound {
 # #
 # forcedelete test.db-triggerA
 
-finish_test
+# finish_test

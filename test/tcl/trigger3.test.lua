@@ -20,22 +20,23 @@ ifcapable {!trigger} {
   return
 }
 
-# # The tests in this file were written before SQLite supported recursive }
-# # trigger invocation, and some tests depend on that to pass. So disable
-# # recursive triggers for this file.
-# catchsql { pragma recursive_triggers = off } 
+# The tests in this file were written before SQLite supported recursive }
+# trigger invocation, and some tests depend on that to pass. So disable
+# recursive triggers for this file.
+catchsql { pragma recursive_triggers = off }
 
-# # Test that we can cause ROLLBACK, FAIL and ABORT correctly
-# #
+# MUST_WORK_TEST
+# Test that we can cause ROLLBACK, FAIL and ABORT correctly
+#
 # catchsql { CREATE TABLE tbl(a, b ,c) }
 # execsql {
-#     CREATE TRIGGER before_tbl_insert BEFORE INSERT ON tbl BEGIN SELECT CASE 
+#     CREATE TRIGGER before_tbl_insert BEFORE INSERT ON tbl BEGIN SELECT CASE
 #         WHEN (new.a = 4) THEN RAISE(IGNORE) END;
 #     END;
 
-#     CREATE TRIGGER after_tbl_insert AFTER INSERT ON tbl BEGIN SELECT CASE 
-#         WHEN (new.a = 1) THEN RAISE(ABORT,    'Trigger abort') 
-#         WHEN (new.a = 2) THEN RAISE(FAIL,     'Trigger fail') 
+#     CREATE TRIGGER after_tbl_insert AFTER INSERT ON tbl BEGIN SELECT CASE
+#         WHEN (new.a = 1) THEN RAISE(ABORT,    'Trigger abort')
+#         WHEN (new.a = 2) THEN RAISE(FAIL,     'Trigger fail')
 #         WHEN (new.a = 3) THEN RAISE(ROLLBACK, 'Trigger rollback') END;
 #     END;
 # }
@@ -168,7 +169,7 @@ ifcapable {!trigger} {
 # execsql {
 #     CREATE TRIGGER tbl_view_insert INSTEAD OF INSERT ON tbl_view BEGIN
 #         SELECT CASE WHEN (new.a = 1) THEN RAISE(ROLLBACK, 'View rollback')
-#                     WHEN (new.a = 2) THEN RAISE(IGNORE) 
+#                     WHEN (new.a = 2) THEN RAISE(IGNORE)
 #                     WHEN (new.a = 3) THEN RAISE(ABORT, 'View abort') END;
 #     END;
 # }
@@ -195,8 +196,8 @@ ifcapable {!trigger} {
 
 # integrity_check trigger3-8.1
 
-# catchsql { DROP TABLE tbl; } 
-# catchsql { DROP TABLE tbl2; } 
+# catchsql { DROP TABLE tbl; }
+# catchsql { DROP TABLE tbl2; }
 # catchsql { DROP VIEW tbl_view; }
 
-finish_test
+# finish_test

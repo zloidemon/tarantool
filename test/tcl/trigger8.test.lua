@@ -24,32 +24,34 @@ ifcapable {!trigger} {
   return
 }
 
-# # Set variable $nStatement to the number of statements to include in the
-# # body of the trigger. On a workstation with virtually unlimited memory, 
-# # use 10000. But on symbian, which allows each application at most a 32MB
-# # heap, use 1000.
-# #
-# set nStatement 10000
-# if {$tcl_platform(platform) == "symbian"} {
-#   set nStatement 1000
-# }
+# Set variable $nStatement to the number of statements to include in the
+# body of the trigger. On a workstation with virtually unlimited memory,
+# use 10000. But on symbian, which allows each application at most a 32MB
+# heap, use 1000.
+#
+set nStatement 10000
+if {$tcl_platform(platform) == "symbian"} {
+  set nStatement 1000
+}
 
-# set nStatement 5
-# do_test trigger8-1.1 {
-#   execsql {
-#     CREATE TABLE t1(x);
-#     CREATE TABLE t2(y);
-#   }
-#   set sql "CREATE TRIGGER r${nStatement} AFTER INSERT ON t1 BEGIN\n"
-#   for {set i 0} {$i<$nStatement} {incr i} {
-#     append sql "  INSERT INTO t2 VALUES($i);\n"
-#   }
-#   append sql "END;"
-#   execsql $sql
-#   execsql {
-#     INSERT INTO t1 VALUES(5);
-#     SELECT count(*) FROM t2;
-#   }
-# } $nStatement
+set nStatement 5
+do_test trigger8-1.1 {
+  execsql {
+    CREATE TABLE t1(x PRIMARY KEY);
+    CREATE TABLE t2(y PRIMARY KEY);
+  }
+  set sql "CREATE TRIGGER r${nStatement} AFTER INSERT ON t1 BEGIN\n"
+  for {set i 0} {$i<$nStatement} {incr i} {
+    append sql "  INSERT INTO t2 VALUES($i);\n"
+  }
+  append sql "END;"
+  execsql $sql
+  execsql {
+    INSERT INTO t1 VALUES(5);
+    SELECT COUNT(*) FROM t2;
+  }
+} $nStatement
 
-finish_test
+# MUST_WORK_TEST
+
+# finish_test

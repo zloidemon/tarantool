@@ -490,19 +490,20 @@ local function upgrade_to_1_7_0()
     _space:insert{_trigger.id, ADMIN, '_trigger', 'memtx', 0, MAP, {}}
     -- primary key: node id
     log.info("create index primary on _trigger")
-    _index:insert{_trigger.id, 0, 'primary', 'tree', {unique = true}, {{0, 'num'}}}
+    _index:insert{_trigger.id, 0, 'primary', 'tree', {unique = true}, {{0, 'num'}, {1, 'num'}}}
+    _index:insert{_trigger.id, 1, 'name', 'tree', {unique = true}, {{3, 'str'}}}
 
     local space_def = box.space._space:get(box.space._trigger.id)
     if space_def[7] == nil or next(space_def[7]) == nil then
         local format = {}
         format[1] = {name='id', type='num'}
-        format[2] = {name = 'iid', type = 'num'}
+        format[2] = {name = 'tid', type = 'num'}
         format[3] = {name='owner', type='num'}
         format[4] = {name='name', type='str'}
         format[5] = {name='table', type='str'}
         format[6] = {name='sql', type='str'}
-        format[7] = {name='setuid', type='num'}
-        format[8] = {name = 'opts', type = 'array'}
+        format[7] = {name='setuid', type='bool'}
+        format[8] = {name = 'opts', type = 'map'}
         log.info("alter space _trigger set format")
         box.space._trigger:format(format)
     end

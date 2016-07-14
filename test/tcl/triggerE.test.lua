@@ -26,54 +26,54 @@ ifcapable {!trigger} {
 }
 set testprefix triggerE
 
-# do_execsql_test 1.0 {
-#   CREATE TABLE t1(a, b);
-#   CREATE TABLE t2(c, d);
-#   CREATE TABLE t3(e, f);
+do_execsql_test 1.0 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  CREATE TABLE t2(c  PRIMARY KEY, d);
+  CREATE TABLE t3(e  PRIMARY KEY, f);
+}
+
+# forcedelete test.db2
+# do_execsql_test 1.1 {
+#   ATTACH 'test.db2' AS aux;
+#   CREATE TABLE aux.t4(x);
+#   INSERT INTO aux.t4 VALUES(5);
+#
+#   CREATE TRIGGER tr1 AFTER INSERT ON t1 WHEN new.a IN (SELECT x FROM aux.t4)
+#   BEGIN
+#     SELECT 1;
+#   END;
 # }
+# do_execsql_test 1.2 { INSERT INTO t1 VALUES(1,1); }
+# do_execsql_test 1.3 { INSERT INTO t1 VALUES(5,5); }
 
-# # forcedelete test.db2
-# # do_execsql_test 1.1 {
-# #   ATTACH 'test.db2' AS aux;
-# #   CREATE TABLE aux.t4(x);
-# #   INSERT INTO aux.t4 VALUES(5);
-# # 
-# #   CREATE TRIGGER tr1 AFTER INSERT ON t1 WHEN new.a IN (SELECT x FROM aux.t4)
-# #   BEGIN
-# #     SELECT 1;
-# #   END;
-# # } 
-# # do_execsql_test 1.2 { INSERT INTO t1 VALUES(1,1); }
-# # do_execsql_test 1.3 { INSERT INTO t1 VALUES(5,5); }
+#-------------------------------------------------------------------------
+# Attempt to create various triggers that use bound variables.
+#
+set errmsg "trigger cannot use variables"
+foreach {tn defn} {
+  1 { AFTER INSERT ON t1 WHEN new.a = ? BEGIN SELECT 1; END; }
+  2 { BEFORE DELETE ON t1 BEGIN SELECT ?; END; }
+  3 { BEFORE DELETE ON t1 BEGIN SELECT * FROM (SELECT * FROM (SELECT ?)); END; }
+  5 { BEFORE DELETE ON t1 BEGIN SELECT * FROM t2 GROUP BY ?; END; }
+  6 { BEFORE DELETE ON t1 BEGIN SELECT * FROM t2 LIMIT ?; END; }
+  7 { BEFORE DELETE ON t1 BEGIN SELECT * FROM t2 ORDER BY ?; END; }
+  8 { BEFORE UPDATE ON t1 BEGIN UPDATE t2 SET c = ?; END; }
+  9 { BEFORE UPDATE ON t1 BEGIN UPDATE t2 SET c = 1 WHERE d = ?; END; }
+} {
+  catchsql {drop trigger tr1}
+  do_catchsql_test 1.1.$tn "CREATE TRIGGER tr1 $defn" [list 1 $errmsg]
+  do_catchsql_test 1.2.$tn "CREATE TEMP TRIGGER tr1 $defn" [list 1 $errmsg]
+}
 
-# #-------------------------------------------------------------------------
-# # Attempt to create various triggers that use bound variables.
-# #
-# set errmsg "trigger cannot use variables"
-# foreach {tn defn} {
-#   1 { AFTER INSERT ON t1 WHEN new.a = ? BEGIN SELECT 1; END; }
-#   2 { BEFORE DELETE ON t1 BEGIN SELECT ?; END; }
-#   3 { BEFORE DELETE ON t1 BEGIN SELECT * FROM (SELECT * FROM (SELECT ?)); END; }
-#   5 { BEFORE DELETE ON t1 BEGIN SELECT * FROM t2 GROUP BY ?; END; }
-#   6 { BEFORE DELETE ON t1 BEGIN SELECT * FROM t2 LIMIT ?; END; }
-#   7 { BEFORE DELETE ON t1 BEGIN SELECT * FROM t2 ORDER BY ?; END; }
-#   8 { BEFORE UPDATE ON t1 BEGIN UPDATE t2 SET c = ?; END; }
-#   9 { BEFORE UPDATE ON t1 BEGIN UPDATE t2 SET c = 1 WHERE d = ?; END; }
-# } {
-#   catchsql {drop trigger tr1}
-#   do_catchsql_test 1.1.$tn "CREATE TRIGGER tr1 $defn" [list 1 $errmsg]
-#   do_catchsql_test 1.2.$tn "CREATE TEMP TRIGGER tr1 $defn" [list 1 $errmsg]
-# }
-
-# #-------------------------------------------------------------------------
-# # Test that variable references within trigger definitions loaded from 
-# # the sqlite_master table are automatically converted to NULL.
-# #
+#-------------------------------------------------------------------------
+# Test that variable references within trigger definitions loaded from
+# the sqlite_master table are automatically converted to NULL.
+#
 # do_execsql_test 2.1 {
 #   PRAGMA writable_schema = 1;
 #   INSERT INTO sqlite_master VALUES('trigger', 'tr1', 't1', 0,
-#     'CREATE TRIGGER tr1 AFTER INSERT ON t1 BEGIN 
-#         INSERT INTO t2 VALUES(?1, ?2); 
+#     'CREATE TRIGGER tr1 AFTER INSERT ON t1 BEGIN
+#         INSERT INTO t2 VALUES(?1, ?2);
 #      END'
 #   );
 
@@ -109,6 +109,6 @@ set testprefix triggerE
 #   SELECT * FROM t2;
 # } {1 2 x y z z}
 
-finish_test
+# finish_test
 
 

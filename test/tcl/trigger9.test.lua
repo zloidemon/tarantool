@@ -20,11 +20,11 @@
 # trigger9-1.* -   Test that if there are no references to OLD.* cols, or a
 #                  reference to only OLD.rowid, the data is not loaded.
 #
-# trigger9-2.* -   Test that for NEW.* records populated by UPDATE 
-#                  statements, unused fields are populated with NULL values. 
+# trigger9-2.* -   Test that for NEW.* records populated by UPDATE
+#                  statements, unused fields are populated with NULL values.
 #
 # trigger9-3.* -   Test that the temporary tables used for OLD.* references
-#                  in "INSTEAD OF" triggers have NULL values in unused 
+#                  in "INSTEAD OF" triggers have NULL values in unused
 #                  fields.
 #
 
@@ -40,14 +40,16 @@ proc has_rowdata {sql} {
   expr {[lsearch [execsql "explain $sql"] RowData]>=0}
 }
 
+# MUST_WORK_TEST
+
 # do_test trigger9-1.1 {
 #   execsql {
 #     PRAGMA page_size = 1024;
-#     CREATE TABLE t1(x, y, z);
+#     CREATE TABLE t1(x PRIMARY KEY, y, z);
 #     INSERT INTO t1 VALUES('1', randstr(10000,10000), '2');
 #     INSERT INTO t1 VALUES('2', randstr(10000,10000), '4');
 #     INSERT INTO t1 VALUES('3', randstr(10000,10000), '6');
-#     CREATE TABLE t2(x);
+#     CREATE TABLE t2(x PRIMARY KEY);
 #   }
 # } {}
 
@@ -55,7 +57,7 @@ proc has_rowdata {sql} {
 #   execsql {
 #     BEGIN;
 #       CREATE TRIGGER trig1 BEFORE DELETE ON t1 BEGIN
-#         INSERT INTO t2 VALUES(old.rowid);
+#         INSERT INTO t2 VALUES(old.x);
 #       END;
 #       DELETE FROM t1;
 #       SELECT * FROM t2;
@@ -211,7 +213,7 @@ proc has_rowdata {sql} {
 #     execsql {
 #       BEGIN;
 #         INSERT INTO t3 VALUES(1, 'zero');
-#         CREATE VIEW v1 AS 
+#         CREATE VIEW v1 AS
 #           SELECT sum(a) AS a, max(b) AS b FROM t3 GROUP BY t3.a HAVING b>'two';
 #         CREATE TRIGGER trig1 INSTEAD OF UPDATE ON v1 BEGIN
 #           INSERT INTO t2 VALUES(old.a);
@@ -223,36 +225,36 @@ proc has_rowdata {sql} {
 #   } {2}
 # }
 
-# reset_db
-# do_execsql_test 4.1 {
-#   CREATE TABLE t1(a, b);
-#   CREATE TABLE log(x);
-#   INSERT INTO t1 VALUES(1, 2);
-#   INSERT INTO t1 VALUES(3, 4);
-#   CREATE VIEW v1 AS SELECT a, b FROM t1;
+#reset_db
+do_execsql_test 4.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  CREATE TABLE log(x PRIMARY KEY);
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+  CREATE VIEW v1 AS SELECT a, b FROM t1;
 
-#   CREATE TRIGGER tr1 INSTEAD OF DELETE ON v1 BEGIN
-#     INSERT INTO log VALUES('delete');
-#   END;
+  CREATE TRIGGER tr1 INSTEAD OF DELETE ON v1 BEGIN
+    INSERT INTO log VALUES('delete');
+  END;
 
-#   CREATE TRIGGER tr2 INSTEAD OF UPDATE ON v1 BEGIN
-#     INSERT INTO log VALUES('update');
-#   END;
+  CREATE TRIGGER tr2 INSTEAD OF UPDATE ON v1 BEGIN
+    INSERT INTO log VALUES('update');
+  END;
 
-#   CREATE TRIGGER tr3 INSTEAD OF INSERT ON v1 BEGIN
-#     INSERT INTO log VALUES('insert');
-#   END;
-# }
+  CREATE TRIGGER tr3 INSTEAD OF INSERT ON v1 BEGIN
+    INSERT INTO log VALUES('insert');
+  END;
+}
 
 # do_execsql_test 4.2 {
-#   DELETE FROM v1 WHERE rowid=1;
+#   DELETE FROM v1 WHERE a=1;
 # } {}
 
 # do_execsql_test 4.3 {
-#   UPDATE v1 SET a=b WHERE rowid=2;
+#   UPDATE v1 SET a=b WHERE a=2;
 # } {}
 
 
 
 
-finish_test
+# finish_test

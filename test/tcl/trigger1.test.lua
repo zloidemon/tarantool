@@ -36,67 +36,67 @@ ifcapable !trigger||!compound {
   return
 }
 
-# do_test trigger1-1.1.1 {
-#    catchsql {
-#      CREATE TRIGGER trig UPDATE ON no_such_table BEGIN
-#        SELECT * from sqlite_master;
-#      END;
-#    } 
-# } {1 {no such table: main.no_such_table}}
+do_test trigger1-1.1.1 {
+   catchsql {
+     CREATE TRIGGER trig UPDATE ON no_such_table BEGIN
+       SELECT * from sqlite_master;
+     END;
+   }
+} {1 {no such table: main.no_such_table}}
 
-# ifcapable tempdb {
-#   do_test trigger1-1.1.2 {
-#      catchsql {
-#        CREATE TEMP TRIGGER trig UPDATE ON no_such_table BEGIN
-#          SELECT * from sqlite_master;
-#        END;
-#      } 
-#   } {1 {no such table: no_such_table}}
-# }
+ifcapable tempdb {
+  do_test trigger1-1.1.2 {
+     catchsql {
+       CREATE TEMP TRIGGER trig UPDATE ON no_such_table BEGIN
+         SELECT * from sqlite_master;
+       END;
+     }
+  } {1 {no such table: no_such_table}}
+}
 
-# execsql {
-#     CREATE TABLE t1(a);
-# }
-# do_test trigger1-1.1.3 {
-#   catchsql {
-#      CREATE TRIGGER trig UPDATE ON t1 FOR EACH STATEMENT BEGIN
-#         SELECT * FROM sqlite_master;
-#      END;
-#   }
-# } {1 {near "STATEMENT": syntax error}}
-# execsql {
-#         CREATE TRIGGER tr1 INSERT ON t1 BEGIN
-#           INSERT INTO t1 values(1);
-#          END;
-# }
-# do_test trigger1-1.2.0 {
-#     catchsql {
-#         CREATE TRIGGER IF NOT EXISTS tr1 DELETE ON t1 BEGIN
-#             SELECT * FROM sqlite_master;
-#          END
-#      }
-# } {0 {}}
-# do_test trigger1-1.2.1 {
-#     catchsql {
-#         CREATE TRIGGER tr1 DELETE ON t1 BEGIN
-#             SELECT * FROM sqlite_master;
-#          END
-#      }
-# } {1 {trigger tr1 already exists}}
-# do_test trigger1-1.2.2 {
-#     catchsql {
-#         CREATE TRIGGER "tr1" DELETE ON t1 BEGIN
-#             SELECT * FROM sqlite_master;
-#          END
-#      }
-# } {1 {trigger "tr1" already exists}}
-# do_test trigger1-1.2.3 {
-#     catchsql {
-#         CREATE TRIGGER [tr1] DELETE ON t1 BEGIN
-#             SELECT * FROM sqlite_master;
-#          END
-#      }
-# } {1 {trigger [tr1] already exists}}
+execsql {
+    CREATE TABLE t1(a int PRIMARY KEY);
+}
+do_test trigger1-1.1.3 {
+  catchsql {
+     CREATE TRIGGER trig UPDATE ON t1 FOR EACH STATEMENT BEGIN
+        SELECT * FROM sqlite_master;
+     END;
+  }
+} {1 {near "STATEMENT": syntax error}}
+execsql {
+        CREATE TRIGGER tr1 INSERT ON t1 BEGIN
+          INSERT INTO t1 values(1);
+         END;
+}
+do_test trigger1-1.2.0 {
+    catchsql {
+        CREATE TRIGGER IF NOT EXISTS tr1 DELETE ON t1 BEGIN
+            SELECT * FROM sqlite_master;
+         END
+     }
+} {0 {}}
+do_test trigger1-1.2.1 {
+    catchsql {
+        CREATE TRIGGER tr1 DELETE ON t1 BEGIN
+            SELECT * FROM sqlite_master;
+         END
+     }
+} {1 {trigger tr1 already exists}}
+do_test trigger1-1.2.2 {
+    catchsql {
+        CREATE TRIGGER "tr1" DELETE ON t1 BEGIN
+            SELECT * FROM sqlite_master;
+         END
+     }
+} {1 {trigger "tr1" already exists}}
+do_test trigger1-1.2.3 {
+    catchsql {
+        CREATE TRIGGER [tr1] DELETE ON t1 BEGIN
+            SELECT * FROM sqlite_master;
+         END
+     }
+} {1 {trigger [tr1] already exists}}
 
 # do_test trigger1-1.3 {
 #     catchsql {
@@ -127,36 +127,38 @@ ifcapable !trigger||!compound {
 #     }
 # } {}
 
-# do_test trigger1-1.6.1 {
-#     catchsql {
-#         DROP TRIGGER IF EXISTS biggles;
-#     }
-# } {0 {}}
 
-# do_test trigger1-1.6.2 {
-#     catchsql {
-#         DROP TRIGGER biggles;
-#     }
-# } {1 {no such trigger: biggles}}
+do_test trigger1-1.6.1 {
+    catchsql {
+        DROP TRIGGER IF EXISTS biggles;
+    }
+} {0 {}}
 
-# do_test trigger1-1.7 {
-#     catchsql {
-#         DROP TABLE t1;
-#         DROP TRIGGER tr1;
-#     }
-# } {1 {no such trigger: tr1}}
+do_test trigger1-1.6.2 {
+    catchsql {
+        DROP TRIGGER biggles;
+    }
+} {1 {no such trigger: biggles}}
 
+do_test trigger1-1.7 {
+    catchsql {
+        DROP TABLE t1;
+        DROP TRIGGER tr1;
+    }
+} {1 {no such trigger: tr1}}
+
+# MUST_WORK_TEST
 # ifcapable tempdb {
 #   execsql {
-#     CREATE TEMP TABLE temp_table(a);
+#     CREATE TEMP TABLE temp_table(a int PRIMARY KEY);
 #   }
 #   do_test trigger1-1.8 {
 #     execsql {
 #           CREATE TRIGGER temp_trig UPDATE ON temp_table BEGIN
-#               SELECT * from sqlite_master;
+#               SELECT * from _space;
 #           END;
-#           SELECT count(*) FROM sqlite_master WHERE name = 'temp_trig';
-#     } 
+#           SELECT count(*) FROM _trigger WHERE name = 'temp_trig';
+#     }
 #   } {0}
 # }
 
@@ -168,98 +170,102 @@ ifcapable !trigger||!compound {
 #   }
 # } {1 {cannot create trigger on system table}}
 
-# # Check to make sure that a DELETE statement within the body of
-# # a trigger does not mess up the DELETE that caused the trigger to
-# # run in the first place.
-# #
-# do_test trigger1-1.10 {
-#   execsql {
-#     create table t1(a,b);
-#     insert into t1 values(1,'a');
-#     insert into t1 values(2,'b');
-#     insert into t1 values(3,'c');
-#     insert into t1 values(4,'d');
-#     create trigger r1 after delete on t1 for each row begin
-#       delete from t1 WHERE a=old.a+2;
-#     end;
-#     delete from t1 where a=1 OR a=3;
-#     select * from t1;
-#     drop table t1;
-#   }
-# } {2 b 4 d}
+# Check to make sure that a DELETE statement within the body of
+# a trigger does not mess up the DELETE that caused the trigger to
+# run in the first place.
+#
+do_test trigger1-1.10 {
+  execsql {
+    create table t1(a int PRIMARY KEY,b);
+    insert into t1 values(1,'a');
+    insert into t1 values(2,'b');
+    insert into t1 values(3,'c');
+    insert into t1 values(4,'d');
+    create trigger r1 after delete on t1 for each row begin
+      delete from t1 WHERE a=old.a+2;
+    end;
+    delete from t1 where a=1 OR a=3;
+    select * from t1;
+    drop table t1;
+  }
+} {2 b 4 d}
 
-# do_test trigger1-1.11 {
-#   execsql {
-#     create table t1(a,b);
-#     insert into t1 values(1,'a');
-#     insert into t1 values(2,'b');
-#     insert into t1 values(3,'c');
-#     insert into t1 values(4,'d');
-#     create trigger r1 after update on t1 for each row begin
-#       delete from t1 WHERE a=old.a+2;
-#     end;
-#     update t1 set b='x-' || b where a=1 OR a=3;
-#     select * from t1;
-#     drop table t1;
-#   }
-# } {1 x-a 2 b 4 d}
+do_test trigger1-1.11 {
+  execsql {
+    create table t1(a int PRIMARY KEY,b);
+    create table tt1(a int PRIMARY KEY);
+    insert into t1 values(1,'a');
+    insert into t1 values(2,'b');
+    insert into t1 values(3,'c');
+    insert into t1 values(4,'d');
+    create trigger r11 after update on t1 for each row begin
+      delete from t1 WHERE a=old.a+2;
+      insert into tt1 values(1);
+    end;
+    update t1 set b='x-' || b where a=1 OR a=3;
+    select * from t1;
+    drop table t1;
+  }
+} {1 x-a 2 b 4 d}
 
-# # Ensure that we cannot create INSTEAD OF triggers on tables
-# do_test trigger1-1.12 {
-#   catchsql {
-#     create table t1(a,b);
-#     create trigger t1t instead of update on t1 for each row begin
-#       delete from t1 WHERE a=old.a+2;
-#     end;
-#   }
-# } {1 {cannot create INSTEAD OF trigger on table: t1}}
+# Ensure that we cannot create INSTEAD OF triggers on tables
+do_test trigger1-1.12 {
+  catchsql {
+    create table t1(a int PRIMARY KEY,b);
+    create trigger t1t instead of update on t1 for each row begin
+      delete from t1 WHERE a=old.a+2;
+    end;
+  }
+} {1 {cannot create INSTEAD OF trigger on table: t1}}
 
-# ifcapable view {
-# # Ensure that we cannot create BEFORE triggers on views
-# do_test trigger1-1.13 {
-#   catchsql {
-#     create view v1 as select * from t1;
-#     create trigger v1t before update on v1 for each row begin
-#       delete from t1 WHERE a=old.a+2;
-#     end;
-#   }
-# } {1 {cannot create BEFORE trigger on view: v1}}
-# # Ensure that we cannot create AFTER triggers on views
-# do_test trigger1-1.14 {
-#   catchsql {
-#     drop view v1;
-#     create view v1 as select * from t1;
-#     create trigger v1t AFTER update on v1 for each row begin
-#       delete from t1 WHERE a=old.a+2;
-#     end;
-#   }
-# } {1 {cannot create AFTER trigger on view: v1}}
-# } ;# ifcapable view
+ifcapable view {
+# Ensure that we cannot create BEFORE triggers on views
+do_test trigger1-1.13 {
+  catchsql {
+    create view v1 as select * from t1;
+    create trigger v1t before update on v1 for each row begin
+      delete from t1 WHERE a=old.a+2;
+    end;
+  }
+} {1 {cannot create BEFORE trigger on view: v1}}
+# Ensure that we cannot create AFTER triggers on views
+do_test trigger1-1.14 {
+  catchsql {
+    drop view v1;
+    create view v1 as select * from t1;
+    create trigger v1t AFTER update on v1 for each row begin
+      delete from t1 WHERE a=old.a+2;
+    end;
+  }
+} {1 {cannot create AFTER trigger on view: v1}}
+} ;# ifcapable view
 
-# # Check for memory leaks in the trigger parser
-# #
-# do_test trigger1-2.1 {
-#   catchsql {
-#     CREATE TRIGGER r1 AFTER INSERT ON t1 BEGIN
-#       SELECT * FROM;  -- Syntax error
-#     END;
-#   }
-# } {1 {near ";": syntax error}}
-# do_test trigger1-2.2 {
-#   catchsql {
-#     CREATE TRIGGER r1 AFTER INSERT ON t1 BEGIN
-#       SELECT * FROM t1;
-#       SELECT * FROM;  -- Syntax error
-#     END;
-#   }
-# } {1 {near ";": syntax error}}
+# Check for memory leaks in the trigger parser
+#
+do_test trigger1-2.1 {
+  catchsql {
+    CREATE TRIGGER r1 AFTER INSERT ON t1 BEGIN
+      SELECT * FROM;  -- Syntax error
+    END;
+  }
+} {1 {near ";": syntax error}}
+do_test trigger1-2.2 {
+  catchsql {
+    CREATE TRIGGER r1 AFTER INSERT ON t1 BEGIN
+      SELECT * FROM t1;
+      SELECT * FROM;  -- Syntax error
+    END;
+  }
+} {1 {near ";": syntax error}}
 
-# # Create a trigger that refers to a table that might not exist.
-# #
+# MUST_WORK_TEST
+
+# Create a trigger that refers to a table that might not exist.
+#
 # ifcapable tempdb {
 #   do_test trigger1-3.1 {
 #     execsql {
-#       CREATE TEMP TABLE t2(x,y);
+#       CREATE TEMP TABLE t2(x int PRIMARY KEY,y);
 #     }
 #     catchsql {
 #       CREATE TRIGGER r1 AFTER INSERT ON t1 BEGIN
@@ -273,18 +279,18 @@ ifcapable !trigger||!compound {
 #       SELECT * FROM t2;
 #     }
 #   } {1 {no such table: main.t2}}
-#   do_test trigger1-3.3 {
-#     db close
-#     set rc [catch {sqlite3 db test.db} err]
-#     if {$rc} {lappend rc $err}
-#     set rc
-#   } {0}
-#   do_test trigger1-3.4 {
-#     catchsql {
-#       INSERT INTO t1 VALUES(1,2);
-#       SELECT * FROM t2;
-#     }
-#   } {1 {no such table: main.t2}}
+# do_test trigger1-3.3 {
+#   db close
+#   set rc [catch {sqlite3 db test.db} err]
+#   if {$rc} {lappend rc $err}
+#   set rc
+# } {0}
+# do_test trigger1-3.4 {
+#   catchsql {
+#     INSERT INTO t1 VALUES(1,2);
+#     SELECT * FROM t2;
+#   }
+# } {1 {no such table: main.t2}}
 #   do_test trigger1-3.5 {
 #     catchsql {
 #       CREATE TEMP TABLE t2(x,y);
@@ -344,7 +350,7 @@ ifcapable !trigger||!compound {
 #   do_test trigger1-3.8 {
 #     execsql {
 #       INSERT INTO t1 VALUES(3,4);
-#       SELECT * FROM t1; 
+#       SELECT * FROM t1;
 #       SELECT * FROM t2;
 #     }
 #   } {1 2 3 4 3 4}
@@ -400,35 +406,41 @@ ifcapable !trigger||!compound {
 #   }
 # }
 
+execsql {
+    CREATE TABLE t2(x int PRIMARY KEY,y);
+    DROP TABLE t1;
+    INSERT INTO t2 VALUES(3, 4);
+    INSERT INTO t2 VALUES(7, 8);
+  }
+
 
 # integrity_check trigger1-5.1
 
-# # Create a trigger with the same name as a table.  Make sure the
-# # trigger works.  Then drop the trigger.  Make sure the table is
-# # still there.
-# #
-# set view_v1 {}
-# ifcapable view {
-#   set view_v1 {view v1}
-# }
+# Create a trigger with the same name as a table.  Make sure the
+# trigger works.  Then drop the trigger.  Make sure the table is
+# still there.
+#
+set view_v1 {}
+ifcapable view {
+  set view_v1 {view v1}
+}
 # do_test trigger1-6.1 {
 #   execsql {SELECT type, name FROM sqlite_master}
 # } [concat $view_v1 {table t2}]
-# do_test trigger1-6.2 {
-#   execsql {
-#     CREATE TRIGGER t2 BEFORE DELETE ON t2 BEGIN
-#       SELECT RAISE(ABORT,'deletes are not permitted');
-#     END;
-#     SELECT type, name FROM sqlite_master;
-#   }
-# } [concat $view_v1 {table t2 trigger t2}]
-# do_test trigger1-6.3 {
-#   catchsql {DELETE FROM t2}
-# } {1 {deletes are not permitted}}
+do_test trigger1-6.2 {
+  execsql {
+    CREATE TRIGGER t2 BEFORE DELETE ON t2 BEGIN
+      SELECT RAISE(ABORT,'deletes are not permitted');
+    END;
+  }
+} []
+do_test trigger1-6.3 {
+  catchsql {DELETE FROM t2}
+} {1 {deletes are not permitted}}
 # verify_ex_errcode trigger1-6.3b SQLITE_CONSTRAINT_TRIGGER
-# do_test trigger1-6.4 {
-#   execsql {SELECT * FROM t2}
-# } {3 4 7 8}
+do_test trigger1-6.4 {
+  execsql {SELECT * FROM t2}
+} {3 4 7 8}
 # do_test trigger1-6.5 {
 #   db close
 #   sqlite3 db test.db
@@ -449,47 +461,49 @@ ifcapable !trigger||!compound {
 #   execsql {SELECT * FROM t2}
 # } {3 4 7 8}
 
+execsql {DROP TRIGGER IF EXISTS t2}
+
 # integrity_check trigger1-7.1
 
-# # Check to make sure the name of a trigger can be quoted so that keywords
-# # can be used as trigger names.  Ticket #468
-# #
-# do_test trigger1-8.1 {
-#   execsql {
-#     CREATE TRIGGER 'trigger' AFTER INSERT ON t2 BEGIN SELECT 1; END;
-#     SELECT name FROM sqlite_master WHERE type='trigger';
-#   }
-# } {trigger}
-# do_test trigger1-8.2 {
-#   execsql {
-#     DROP TRIGGER 'trigger';
-#     SELECT name FROM sqlite_master WHERE type='trigger';
-#   }
-# } {}
-# do_test trigger1-8.3 {
-#   execsql {
-#     CREATE TRIGGER "trigger" AFTER INSERT ON t2 BEGIN SELECT 1; END;
-#     SELECT name FROM sqlite_master WHERE type='trigger';
-#   }
-# } {trigger}
-# do_test trigger1-8.4 {
-#   execsql {
-#     DROP TRIGGER "trigger";
-#     SELECT name FROM sqlite_master WHERE type='trigger';
-#   }
-# } {}
-# do_test trigger1-8.5 {
-#   execsql {
-#     CREATE TRIGGER [trigger] AFTER INSERT ON t2 BEGIN SELECT 1; END;
-#     SELECT name FROM sqlite_master WHERE type='trigger';
-#   }
-# } {trigger}
-# do_test trigger1-8.6 {
-#   execsql {
-#     DROP TRIGGER [trigger];
-#     SELECT name FROM sqlite_master WHERE type='trigger';
-#   }
-# } {}
+# Check to make sure the name of a trigger can be quoted so that keywords
+# can be used as trigger names.  Ticket #468
+#
+do_test trigger1-8.1 {
+  execsql {
+    CREATE TRIGGER 'trigger' AFTER INSERT ON t2 BEGIN SELECT 1; END;
+    SELECT name FROM _trigger WHERE name='trigger';
+  }
+} {trigger}
+do_test trigger1-8.2 {
+  execsql {
+    DROP TRIGGER 'trigger';
+    SELECT name FROM _trigger WHERE name='trigger';
+  }
+} {}
+do_test trigger1-8.3 {
+  execsql {
+    CREATE TRIGGER "trigger" AFTER INSERT ON t2 BEGIN SELECT 1; END;
+    SELECT name FROM _trigger WHERE name='trigger';
+  }
+} {trigger}
+do_test trigger1-8.4 {
+  execsql {
+    DROP TRIGGER "trigger";
+    SELECT name FROM _trigger WHERE name='trigger';
+  }
+} {}
+do_test trigger1-8.5 {
+  execsql {
+    CREATE TRIGGER [trigger] AFTER INSERT ON t2 BEGIN SELECT 1; END;
+    SELECT name FROM _trigger WHERE name='trigger';
+  }
+} {trigger}
+do_test trigger1-8.6 {
+  execsql {
+    DROP TRIGGER [trigger];
+    SELECT name FROM _trigger;
+  }
+} {}
 
 # ifcapable conflict {
 #   # Make sure REPLACE works inside of triggers.
@@ -497,10 +511,11 @@ ifcapable !trigger||!compound {
 #   # There are two versions of trigger1-9.1 and trigger1-9.2. One that uses
 #   # compound SELECT statements, and another that does not.
 #   ifcapable compound {
+# MUST_WORK_TEST
 #     do_test trigger1-9.1 {
 #       execsql {
-#         CREATE TABLE t3(a,b);
-#         CREATE TABLE t4(x UNIQUE, b);
+#         CREATE TABLE t3(a,b int PRIMARY KEY);
+#         CREATE TABLE t4(x int PRIMARY KEY, b);
 #         CREATE TRIGGER r34 AFTER INSERT ON t3 BEGIN
 #           REPLACE INTO t4 VALUES(new.a,new.b);
 #         END;
@@ -508,17 +523,19 @@ ifcapable !trigger||!compound {
 #         SELECT * FROM t3 UNION ALL SELECT 99, 99 UNION ALL SELECT * FROM t4;
 #       }
 #     } {1 2 99 99 1 2}
+# MUST_WORK_TEST
 #     do_test trigger1-9.2 {
 #       execsql {
 #         INSERT INTO t3 VALUES(1,3);
-#         SELECT * FROM t3 UNION ALL SELECT 99, 99 UNION ALL SELECT * FROM t4;
 #       }
+#     #   SELECT * FROM t3 UNION ALL SELECT 99, 99 UNION ALL SELECT * FROM t4;
+
 #     } {1 2 1 3 99 99 1 3}
 #   } else {
 #     do_test trigger1-9.1 {
 #       execsql {
-#         CREATE TABLE t3(a,b);
-#         CREATE TABLE t4(x UNIQUE, b);
+#         CREATE TABLE t3(a, b int PRIMARY KEY);
+#         CREATE TABLE t4(x int PRIMARY KEY, b);
 #         CREATE TRIGGER r34 AFTER INSERT ON t3 BEGIN
 #           REPLACE INTO t4 VALUES(new.a,new.b);
 #         END;
@@ -533,6 +550,7 @@ ifcapable !trigger||!compound {
 #       }
 #     } {1 2 1 3 99 99 1 3}
 #   }
+
 #   execsql {
 #     DROP TABLE t3;
 #     DROP TABLE t4;
@@ -546,7 +564,7 @@ ifcapable !trigger||!compound {
 # #
 # # Also verify that references within trigger programs are resolved at
 # # statement compile time, not trigger installation time. This means, for
-# # example, that you can drop and re-create tables referenced by triggers. 
+# # example, that you can drop and re-create tables referenced by triggers.
 # ifcapable tempdb&&attach {
 #   do_test trigger1-10.0 {
 #     forcedelete test2.db
@@ -565,13 +583,13 @@ ifcapable !trigger||!compound {
 #   } {}
 #   do_test trigger1-10.2 {
 #     execsql {
-#       CREATE TEMP TRIGGER trig1 AFTER INSERT ON main.t4 BEGIN 
+#       CREATE TEMP TRIGGER trig1 AFTER INSERT ON main.t4 BEGIN
 #         INSERT INTO insert_log VALUES('main', new.a, new.b, new.c);
 #       END;
-#       CREATE TEMP TRIGGER trig2 AFTER INSERT ON temp.t4 BEGIN 
+#       CREATE TEMP TRIGGER trig2 AFTER INSERT ON temp.t4 BEGIN
 #         INSERT INTO insert_log VALUES('temp', new.a, new.b, new.c);
 #       END;
-#       CREATE TEMP TRIGGER trig3 AFTER INSERT ON aux.t4 BEGIN 
+#       CREATE TEMP TRIGGER trig3 AFTER INSERT ON aux.t4 BEGIN
 #         INSERT INTO insert_log VALUES('aux', new.a, new.b, new.c);
 #       END;
 #     }
@@ -638,9 +656,11 @@ ifcapable !trigger||!compound {
 #   } {main 21 22 23 temp 24 25 26 aux 27 28 29}
 # }
 
-# do_test trigger1-11.1 {
-#   catchsql {SELECT raise(abort,'message');}
-# } {1 {RAISE() may only be used within a trigger-program}}
+do_test trigger1-11.1 {
+  catchsql {SELECT raise(abort,'message');}
+} {1 {RAISE() may only be used within a trigger-program}}
+
+# MUST_WORK_TEST
 
 # do_test trigger1-15.1 {
 #   execsql {
@@ -654,65 +674,72 @@ ifcapable !trigger||!compound {
 #   catchsql { INSERT INTO tA VALUES('abc', 2, 3) }
 # } {1 {datatype mismatch}}
 
-# # Ticket #3947:  Do not allow qualified table names on INSERT, UPDATE, and
-# # DELETE statements within triggers.  Actually, this has never been allowed
-# # by the grammar.  But the error message is confusing: one simply gets a
-# # "syntax error".  That has now been changed to give a full error message.
-# #
-# do_test trigger1-16.1 {
-#   db eval {
-#     CREATE TABLE t16(a,b,c);
-#     CREATE INDEX t16a ON t16(a);
-#     CREATE INDEX t16b ON t16(b);
-#   }
-#   catchsql {
-#     CREATE TRIGGER main.t16err1 AFTER INSERT ON tA BEGIN
-#       INSERT INTO main.t16 VALUES(1,2,3);
-#     END;
-#   }
-# } {1 {qualified table names are not allowed on INSERT, UPDATE, and DELETE statements within triggers}}
-# do_test trigger1-16.2 {
-#   catchsql {
-#     CREATE TRIGGER main.t16err2 AFTER INSERT ON tA BEGIN
-#       UPDATE main.t16 SET rowid=rowid+1;
-#     END;
-#   }
-# } {1 {qualified table names are not allowed on INSERT, UPDATE, and DELETE statements within triggers}}
-# do_test trigger1-16.3 {
-#   catchsql {
-#     CREATE TRIGGER main.t16err3 AFTER INSERT ON tA BEGIN
-#       DELETE FROM main.t16;
-#     END;
-#   }
-# } {1 {qualified table names are not allowed on INSERT, UPDATE, and DELETE statements within triggers}}
-# do_test trigger1-16.4 {
-#   catchsql {
-#     CREATE TRIGGER main.t16err4 AFTER INSERT ON tA BEGIN
-#       UPDATE t16 NOT INDEXED SET rowid=rowid+1;
-#     END;
-#   }
-# } {1 {the NOT INDEXED clause is not allowed on UPDATE or DELETE statements within triggers}}
-# do_test trigger1-16.5 {
-#   catchsql {
-#     CREATE TRIGGER main.t16err5 AFTER INSERT ON tA BEGIN
-#       UPDATE t16 INDEXED BY t16a SET rowid=rowid+1 WHERE a=1;
-#     END;
-#   }
-# } {1 {the INDEXED BY clause is not allowed on UPDATE or DELETE statements within triggers}}
-# do_test trigger1-16.6 {
-#   catchsql {
-#     CREATE TRIGGER main.t16err6 AFTER INSERT ON tA BEGIN
-#       DELETE FROM t16 NOT INDEXED WHERE a=123;
-#     END;
-#   }
-# } {1 {the NOT INDEXED clause is not allowed on UPDATE or DELETE statements within triggers}}
-# do_test trigger1-16.7 {
-#   catchsql {
-#     CREATE TRIGGER main.t16err7 AFTER INSERT ON tA BEGIN
-#       DELETE FROM t16 INDEXED BY t16a WHERE a=123;
-#     END;
-#   }
-# } {1 {the INDEXED BY clause is not allowed on UPDATE or DELETE statements within triggers}}
+execsql {
+  CREATE TABLE tA(a INTEGER PRIMARY KEY, b, c);
+  CREATE TRIGGER tA_trigger BEFORE UPDATE ON tA BEGIN SELECT 1; END;
+  INSERT INTO tA VALUES(1, 2, 3);
+}
+
+# Ticket #3947:  Do not allow qualified table names on INSERT, UPDATE, and
+# DELETE statements within triggers.  Actually, this has never been allowed
+# by the grammar.  But the error message is confusing: one simply gets a
+# "syntax error".  That has now been changed to give a full error message.
+#
+do_test trigger1-16.1 {
+  db eval {
+    CREATE TABLE t16(a int PRIMARY KEY,b,c);
+    CREATE INDEX t16b ON t16(b);
+  }
+  catchsql {
+    CREATE TRIGGER main.t16err1 AFTER INSERT ON tA BEGIN
+      INSERT INTO main.t16 VALUES(1,2,3);
+    END;
+  }
+} {1 {qualified table names are not allowed on INSERT, UPDATE, and DELETE statements within triggers}}
+do_test trigger1-16.2 {
+  catchsql {
+    CREATE TRIGGER main.t16err2 AFTER INSERT ON tA BEGIN
+      UPDATE main.t16 SET rowid=rowid+1;
+    END;
+  }
+} {1 {qualified table names are not allowed on INSERT, UPDATE, and DELETE statements within triggers}}
+do_test trigger1-16.3 {
+  catchsql {
+    CREATE TRIGGER main.t16err3 AFTER INSERT ON tA BEGIN
+      DELETE FROM main.t16;
+    END;
+  }
+} {1 {qualified table names are not allowed on INSERT, UPDATE, and DELETE statements within triggers}}
+do_test trigger1-16.4 {
+  catchsql {
+    CREATE TRIGGER main.t16err4 AFTER INSERT ON tA BEGIN
+      UPDATE t16 NOT INDEXED SET rowid=rowid+1;
+    END;
+  }
+} {1 {the NOT INDEXED clause is not allowed on UPDATE or DELETE statements within triggers}}
+do_test trigger1-16.5 {
+  catchsql {
+    CREATE TRIGGER main.t16err5 AFTER INSERT ON tA BEGIN
+      UPDATE t16 INDEXED BY t16a SET rowid=rowid+1 WHERE a=1;
+    END;
+  }
+} {1 {the INDEXED BY clause is not allowed on UPDATE or DELETE statements within triggers}}
+do_test trigger1-16.6 {
+  catchsql {
+    CREATE TRIGGER main.t16err6 AFTER INSERT ON tA BEGIN
+      DELETE FROM t16 NOT INDEXED WHERE a=123;
+    END;
+  }
+} {1 {the NOT INDEXED clause is not allowed on UPDATE or DELETE statements within triggers}}
+do_test trigger1-16.7 {
+  catchsql {
+    CREATE TRIGGER main.t16err7 AFTER INSERT ON tA BEGIN
+      DELETE FROM t16 INDEXED BY t16a WHERE a=123;
+    END;
+  }
+} {1 {the INDEXED BY clause is not allowed on UPDATE or DELETE statements within triggers}}
+
+# MUST_WORK_TEST
 
 # #-------------------------------------------------------------------------
 # # Test that bug [34cd55d68e0e6e7c] has been fixed.
@@ -730,4 +757,6 @@ ifcapable !trigger||!compound {
 #   PRAGMA integrity_check;
 # } {ok}
 
-finish_test
+# MUST_WORK_TEST
+
+#finish_test
