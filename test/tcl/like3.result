@@ -1,0 +1,47 @@
+like3-1.1... Ok
+like3-1.2... Ok
+like3-2.0... Ok
+like3-2.1... Ok
+like3-2.2...
+Expected: [4 abc]
+     Got: []
+like3-2.3...
+Expected: [4 abc]
+     Got: []
+like3-2.4...
+Expected: [4 abc]
+     Got: []
+like3-2.5...
+Expected: [4 abc]
+     Got: []
+like3-3.0...
+Error: unknown error
+like3-3.1...
+Expected: [X'616265' X'616264' X'616263' 'abe' 'abd' 'abc']
+     Got: ['abe' 'abd' 'abc']
+like3-3.1ck...
+Expected: [X'616265' X'616264' X'616263' 'abe' 'abd' 'abc']
+     Got: ['abe' 'abd' 'abc']
+like3-3.2...
+Expected: ['abc' 'abd' 'abe' X'616263' X'616264' X'616265']
+     Got: ['abc' 'abd' 'abe']
+like3-3.2ck...
+Expected: ['abc' 'abd' 'abe' X'616263' X'616264' X'616265']
+     Got: ['abc' 'abd' 'abe']
+like3-4.0...
+Expected: ['abc' 'abd' 'abe' X'616263' X'616264' X'616265']
+     Got: ['abc' 'abd' 'abe']
+like3-4.1...
+Expected: [X'616265' X'616264' X'616263' 'abe' 'abd' 'abc']
+     Got: ['abe' 'abd' 'abc']
+like3-4.1ck...
+Expected: [X'616265' X'616264' X'616263' 'abe' 'abd' 'abc']
+     Got: ['abe' 'abd' 'abc']
+like3-4.2...
+Expected: ['abc' 'abd' 'abe' X'616263' X'616264' X'616265']
+     Got: ['abc' 'abd' 'abe']
+like3-4.2ck...
+Expected: ['abc' 'abd' 'abe' X'616263' X'616264' X'616265']
+     Got: ['abc' 'abd' 'abe']
+14 errors out of 19 tests
+Failures on these tests: like3-2.2 like3-2.3 like3-2.4 like3-2.5 like3-3.0 like3-3.1 like3-3.1ck like3-3.2 like3-3.2ck like3-4.0 like3-4.1 like3-4.1ck like3-4.2 like3-4.2ck

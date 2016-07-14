@@ -1,0 +1,67 @@
+tkt3718-1.1... Ok
+tkt3718-1.2... Ok
+tkt3718-1.3... Ok
+tkt3718-1.4... Ok
+tkt3718-2.1...
+Expected: [1 2 3 4 5]
+     Got: [1 2 3 4 5 7 9]
+tkt3718-2.2...
+Expected: [1 2 3 4 5 6 7 8 9 10]
+     Got: [1 2 3 4 5 6 7 8 9 10 11 12]
+tkt3718-2.3... Ok
+tkt3718-3.1... Ok
+tkt3718-3.2...
+Expected: [6 7 8 9 10 16 17 18 19 20]
+     Got: [2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20]
+tkt3718-3.3...
+Expected: [1 2 3 4 5 6 7 8 9 10 16 17 18 19 20]
+     Got: [1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 18 19 20]
+tkt3718-3.4...
+Expected: [6 7 8 9 10 16 17 18 19 20]
+     Got: [2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 18 19 20]
+tkt3718-4.1... Ok
+tkt3718-4.1.extra... Ok
+tkt3718-4.2...
+Expected: [5 10 15 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.2.extra...
+Expected: [1]
+     Got: [0]
+tkt3718-4.3...
+Expected: [5 10 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.3.extra...
+Expected: [1]
+     Got: [0]
+tkt3718-4.4...
+Expected: [5 10 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.4.extra...
+Expected: [1]
+     Got: [0]
+tkt3718-4.5...
+Expected: [10 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.5.extra...
+Expected: [1]
+     Got: [0]
+tkt3718-4.6...
+Expected: [10 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.6.extra...
+Expected: [1]
+     Got: [0]
+tkt3718-4.7...
+Expected: [10 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.7.extra...
+Expected: [1]
+     Got: [0]
+tkt3718-4.8...
+Expected: [10 20 30]
+     Got: [5 10 15 20 25 30]
+tkt3718-4.8.extra...
+Expected: [1]
+     Got: [0]
+19 errors out of 28 tests
+Failures on these tests: tkt3718-2.1 tkt3718-2.2 tkt3718-3.2 tkt3718-3.3 tkt3718-3.4 tkt3718-4.2 tkt3718-4.2.extra tkt3718-4.3 tkt3718-4.3.extra tkt3718-4.4 tkt3718-4.4.extra tkt3718-4.5 tkt3718-4.5.extra tkt3718-4.6 tkt3718-4.6.extra tkt3718-4.7 tkt3718-4.7.extra tkt3718-4.8 tkt3718-4.8.extra

@@ -3,5 +3,9 @@ if [ -z $1 ]; then
     echo Test name must be specified
     exit 1
 fi
+cp ../third_party/sqlite/test/$1.test tcl/$1.test.lua
 chmod +x tcl/$1.test.lua
-
+echo -n  "#" > tmp_test_file
+echo -n ! >> tmp_test_file
+echo -e "/usr/bin/env ./tcltestrunner.lua\n" >> tmp_test_file
+cat tcl/$1.test.lua >> tmp_test_file && cat tmp_test_file > tcl/$1.test.lua && rm tmp_test_file && echo -n " $1.test.lua" >> tcl/suite.ini

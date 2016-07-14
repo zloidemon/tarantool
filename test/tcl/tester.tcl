@@ -1798,27 +1798,33 @@ proc memdebug_log_sql {{filename mallocs.sql}} {
   close $fd
 }
 
-# Drop all tables in database [db]
+# # Drop all tables in database [db]
+# proc drop_all_tables {{db db}} {
+#   ifcapable trigger&&foreignkey {
+#     set pk [$db one "PRAGMA foreign_keys"]
+#     $db eval "PRAGMA foreign_keys = OFF"
+#   }
+#   foreach {idx name file} [db eval {PRAGMA database_list}] {
+#     if {$idx==1} {
+#       set master sqlite_temp_master
+#     } else {
+#       set master $name.sqlite_master
+#     }
+#     foreach {t type} [$db eval "
+#       SELECT name, type FROM $master
+#       WHERE type IN('table', 'view') AND name NOT LIKE 'sqliteX_%' ESCAPE 'X'
+#     "] {
+#       $db eval "DROP $type \"$t\""
+#     }
+#   }
+#   ifcapable trigger&&foreignkey {
+#     $db eval "PRAGMA foreign_keys = $pk"
+#   }
+# }
+
 proc drop_all_tables {{db db}} {
-  ifcapable trigger&&foreignkey {
-    set pk [$db one "PRAGMA foreign_keys"]
-    $db eval "PRAGMA foreign_keys = OFF"
-  }
-  foreach {idx name file} [db eval {PRAGMA database_list}] {
-    if {$idx==1} {
-      set master sqlite_temp_master
-    } else {
-      set master $name.sqlite_master
-    }
-    foreach {t type} [$db eval "
-      SELECT name, type FROM $master
-      WHERE type IN('table', 'view') AND name NOT LIKE 'sqliteX_%' ESCAPE 'X'
-    "] {
-      $db eval "DROP $type \"$t\""
-    }
-  }
-  ifcapable trigger&&foreignkey {
-    $db eval "PRAGMA foreign_keys = $pk"
+  foreach {name} [$db eval "select name from _space WHERE id > 500"] {
+    $db eval "DROP TABLE $name"
   }
 }
 

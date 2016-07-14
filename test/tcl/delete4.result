@@ -1,0 +1,20 @@
+delete4-1.1... Ok
+delete4-1.2... Ok
+delete4-1.3... Ok
+delete4-2.1... Ok
+delete4-2.2... Ok
+delete4-2.3... Ok
+delete4-3.1... Ok
+delete4-3.1... Ok
+delete4-3.2... Ok
+delete4-3.3...
+Expected: [1 3 5 7]
+     Got: [1 3 5 6 7 8]
+delete4-4.1... Ok
+delete4-4.2... Ok
+delete4-4.11...
+Error: table t4 already exists
+delete4-4.12...
+Error: table t4 already exists
+3 errors out of 15 tests
+Failures on these tests: delete4-3.3 delete4-4.11 delete4-4.12

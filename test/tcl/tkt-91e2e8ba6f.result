@@ -1,0 +1,10 @@
+tkt-91e2e8ba6f-1.1... Ok
+tkt-91e2e8ba6f-1.2... Ok
+tkt-91e2e8ba6f-1.3... Ok
+tkt-91e2e8ba6f-1.4... Ok
+tkt-91e2e8ba6f-1.5... Ok
+tkt-91e2e8ba6f-1.6... Ok
+tkt-91e2e8ba6f-1.7...
+Error: no query solution
+1 errors out of 8 tests
+Failures on these tests: tkt-91e2e8ba6f-1.7

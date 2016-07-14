@@ -1,0 +1,134 @@
+bind-1.1... Ok
+bind-1.1.1... Ok
+bind-1.1.2... Ok
+bind-1.1.3... Ok
+bind-1.1.4... Ok
+bind-1.2... Ok
+bind-1.4... Ok
+bind-1.6...
+Expected: [SQLITE_DONE]
+     Got: [SQLITE_ERROR]
+bind-1.10... Ok
+bind-1.11... Ok
+bind-1.99...
+Expected: [SQLITE_OK]
+     Got: [SQLITE_UNKNOWN(255)]
+bind-2.1... Ok
+bind-2.1.1... Ok
+bind-2.1.2... Ok
+bind-2.1.3... Ok
+bind-2.1.4... Ok
+bind-2.1.5... Ok
+bind-2.1.6... Ok
+bind-2.1.7... Ok
+bind-2.1.8... Ok
+bind-2.4...
+Expected: [integer integer integer integer integer integer]
+     Got: []
+bind-2.5... Ok
+bind-3.2...
+Expected: [integer integer integer]
+     Got: []
+bind-3.3... Ok
+bind-4.2...
+Expected: [real real real]
+     Got: []
+bind-4.3... Ok
+bind-4.5...
+Expected: [null real real]
+     Got: []
+bind-4.6... Ok
+bind-5.2...
+Expected: [null null null]
+     Got: []
+bind-5.3... Ok
+bind-6.2...
+Expected: [text text text]
+     Got: []
+bind-6.3... Ok
+bind-6.4... Ok
+bind-6.5... Ok
+bind-6.6... Ok
+bind-6.7... Ok
+bind-7.2...
+Expected: [text text text]
+     Got: []
+bind-7.3... Ok
+bind-7.4... Ok
+bind-7.5... Ok
+bind-7.99... Ok
+bind-8.1... Ok
+bind-8.2... Ok
+bind-8.3... Ok
+bind-8.4... Ok
+bind-8.5... Ok
+bind-8.6... Ok
+bind-8.7... Ok
+bind-8.8... Ok
+bind-8.9... Ok
+bind-8.10... Ok
+bind-8.11... Ok
+bind-8.12... Ok
+bind-8.13... Ok
+bind-8.14... Ok
+bind-8.15... Ok
+bind-8.99... Ok
+bind-9.1... Ok
+bind-9.2... Ok
+bind-9.3.1... Ok
+bind-9.3.2... Ok
+bind-9.4... Ok
+bind-9.5... Ok
+bind-9.6... Ok
+bind-9.7... Ok
+bind-10.1... Ok
+bind-10.2... Ok
+bind-10.3... Ok
+bind-10.4... Ok
+bind-10.5... Ok
+bind-10.6... Ok
+bind-10.7... Ok
+bind-10.7.1... Ok
+bind-10.7.2... Ok
+bind-10.7.3... Ok
+bind-10.8...
+Expected: [SQLITE_DONE]
+     Got: [SQLITE_ERROR]
+bind-10.8.1... Ok
+bind-10.9...
+Expected: [SQLITE_OK]
+     Got: [SQLITE_UNKNOWN(255)]
+bind-10.10...
+Expected: [1 999 1000 1001 {} {} 1 2 1 3 2 1]
+     Got: [1 999 1000 1001 {} {}]
+bind-10.11... Ok
+bind-10.11.1... Ok
+bind-10.12... Ok
+bind-10.13... Ok
+bind-10.14... Ok
+bind-10.15... Ok
+bind-10.16... Ok
+bind-10.17... Ok
+bind-10.18... Ok
+bind-10.19... Ok
+bind-10.20... Ok
+bind-12.1... Ok
+bind-12.2... Ok
+bind-13.1... Ok
+bind-13.2... Ok
+bind-13.3... Ok
+bind-13.4... Ok
+bind-14.1... Ok
+bind-14.2... Ok
+bind-14.3... Ok
+bind-14.4... Ok
+bind-15.1...
+Error: Index must be created with table
+bind-15.2...
+Error: no such table: t4
+bind-15.3...
+Error: no such table: t4
+bind-15.4...
+Error: no such table: t4
+16 errors out of 105 tests
+Failures on these tests: bind-1.6 bind-1.99 bind-2.4 bind-3.2 bind-4.2 bind-4.5 bind-5.2 bind-6.2 bind-7.2 bind-10.8 bind-10.9 bind-10.10 bind-15.1 bind-15.2 bind-15.3 bind-15.4

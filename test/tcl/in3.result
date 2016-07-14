@@ -1,0 +1,38 @@
+in3-1.1... Ok
+in3-1.3...
+Expected: [0 1 3 5]
+     Got: [1 1 3 5]
+in3-1.5... Ok
+in3-1.7... Ok
+in3-1.8... Ok
+in3-1.9... Ok
+in3-1.10...
+Expected: [0 1 3 5]
+     Got: [1 1 3 5]
+in3-1.11... Ok
+in3-1.12... Ok
+in3-1.13... Ok
+in3-1.14... Ok
+in3-1.15...
+Expected: [0 1 3 5]
+     Got: [1 1 3 5]
+in3-3.1... Ok
+in3-3.2... Ok
+in3-3.3... Ok
+in3-3.4... Ok
+in3-3.5... Ok
+in3-3.6... Ok
+in3-3.7... Ok
+in3-4.1... Ok
+in3-4.2... Ok
+in3-4.3... Ok
+in3-4.4... Ok
+in3-4.5...
+Expected: [0 none numeric real text]
+     Got: [1 none numeric real text]
+in3-4.6...
+Error: no such index: t3_i2
+in3-5.1... Ok
+in3-5.2... Ok
+5 errors out of 28 tests
+Failures on these tests: in3-1.3 in3-1.10 in3-1.15 in3-4.5 in3-4.6

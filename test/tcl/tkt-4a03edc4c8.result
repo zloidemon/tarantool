@@ -1,0 +1,6 @@
+tkt-4a03ed-1.1...
+Expected: [1 {UNIQUE constraint failed: t1.b}]
+     Got: [1 {unknown error}]
+tkt-4a03ed-1.3... Ok
+1 errors out of 3 tests
+Failures on these tests: tkt-4a03ed-1.1

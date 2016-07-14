@@ -46,8 +46,6 @@ do_execsql_test 1.2 {
   CREATE INDEX i1 ON t1(x);
 }
 
-# MUST_WORK_TEST
-
 # do_execsql_test 1.3 {
 #   PRAGMA integrity_check 
 # } {ok}
@@ -64,7 +62,6 @@ ifcapable memorymanage {
     PRAGMA cache_size = 10;
     CREATE INDEX i2 ON t1(x);
   }
-  # MUST_WORK_TEST
   # do_execsql_test 1.5 {
   #   PRAGMA integrity_check 
   # } {ok}

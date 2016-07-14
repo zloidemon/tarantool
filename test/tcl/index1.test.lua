@@ -176,8 +176,6 @@ do_test index-4.13 {
   #execsql {SELECT name FROM sqlite_master WHERE type!='meta' ORDER BY name}
 } {}
 
-# MUST_WORK_TEST
-
 # integrity_check index-4.14
 
 # # Do not allow indices to be added to sqlite_master
@@ -235,8 +233,6 @@ do_test index-6.4 {
   }
 } {}
 
-# MUST_WORK_TEST
-
 # integrity_check index-6.5
 
 
@@ -259,8 +255,6 @@ do_test index-7.4 {
   execsql {DROP table test1}
   execsql {SELECT name FROM _space WHERE name='test1'}
 } {}
-
-# MUST_WORK_TEST
 
 # integrity_check index-7.5
 
@@ -285,8 +279,6 @@ do_test index-9.2 {
   execsql {CREATE INDEX idx1 ON tab1(a)}
   execsql {SELECT name FROM _index WHERE name='idx1'; SELECT name FROM _space WHERE name='tab1'}
 } {idx1 tab1}
-
-# MUST_WORK_TEST
 
 # integrity_check index-9.3
 
@@ -364,8 +356,6 @@ do_test index-10.8 {
   }
 } {0}
 
-# MUST_WORK_TEST
-
 # integrity_check index-10.9
 
 # Automatically create an index when we specify a primary key.
@@ -385,8 +375,6 @@ do_test index-11.1 {
   set sqlite_search_count 0
   concat [execsql {SELECT c FROM t3 WHERE b==10}] $sqlite_search_count
 } {0.1 2}
-
-# MUST_WORK_TEST
 
 # integrity_check index-11.2
 
@@ -444,8 +432,6 @@ do_test index-12.7 {
   }
 } {0 0 abc 1 0 0}
 
-# MUST_WORK_TEST
-
 # integrity_check index-12.8
 
 # Make sure we cannot drop an automatically created index.
@@ -481,8 +467,6 @@ do_test index-13.1 {
 #     SELECT * FROM t5;
 #   }
 # } {1 2.0 3 a b c}
-
-# MUST_WORK_TEST
 
 # integrity_check index-13.5
 
@@ -551,8 +535,6 @@ do_test index-14.11 {
   }
 } {5}
 
-# MUST_WORK_TEST
-
 # integrity_check index-14.12
 
 do_test index-15.1 {
@@ -586,8 +568,6 @@ do_test index-15.1 {
 #     SELECT b FROM t1 WHERE typeof(a) IN ('integer','real') ORDER BY b;
 #   }
 # } {1 2 3 5 6 8 10 11 12 13 14 15}
-
-# MUST_WORK_TEST
 
 # integrity_check index-15.4
 

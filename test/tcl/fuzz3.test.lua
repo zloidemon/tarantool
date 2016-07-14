@@ -110,23 +110,23 @@ proc purge_pcache {} {
 
 # This block creates a database to work with. 
 #
-do_test fuzz3-1 {
-  execsql {
-    CREATE TABLE t1(id int primary key, a, b, c);
-    CREATE TABLE t2(id int primary key, d, e, f);
-    CREATE INDEX i1 ON t1(a, b, c);
-    CREATE INDEX i2 ON t2(d, e, f);
-  }
-  for {set i 0} {$i < 50} {incr i} {
-    execsql "INSERT INTO t1 VALUES($i, [rvalue], [rvalue], [rvalue])"
-    execsql "INSERT INTO t2 VALUES($i, [rvalue], [rvalue], [rvalue])"
-  }
-} {}
+# do_test fuzz3-1 {
+#   execsql {
+#     CREATE TABLE t1(id int primary key, a, b, c);
+#     CREATE TABLE t2(id int primary key, d, e, f);
+#     CREATE INDEX i1 ON t1(a, b, c);
+#     CREATE INDEX i2 ON t2(d, e, f);
+#   }
+#   for {set i 0} {$i < 50} {incr i} {
+#     execsql "INSERT INTO t1 VALUES($i, [rvalue], [rvalue], [rvalue])"
+#     execsql "INSERT INTO t2 VALUES($i, [rvalue], [rvalue], [rvalue])"
+#   }
+# } {}
 
-set ::cksum [db_checksum]
-do_test fuzz3-2 {
-  db_checksum
-} $::cksum
+# set ::cksum [db_checksum]
+# do_test fuzz3-2 {
+#   db_checksum
+# } $::cksum
 
 # for {set ii 0} {$ii < 5000} {incr ii} {
 #   purge_pcache

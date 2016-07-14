@@ -1,0 +1,40 @@
+misc3-1.1... Ok
+misc3-1.2... Ok
+misc3-2.1... Ok
+misc3-2.2... Ok
+misc3-2.3... Ok
+misc3-2.4... Ok
+misc3-2.5... Ok
+misc3-2.6... Ok
+misc3-2.7... Ok
+misc3-2.8... Ok
+misc3-2.9... Ok
+misc3-3.2... Ok
+misc3-3.3... Ok
+misc3-3.4... Ok
+misc3-3.5... Ok
+misc3-3.6... Ok
+misc3-3.7... Ok
+misc3-3.8... Ok
+misc3-3.9... Ok
+misc3-3.10... Ok
+misc3-3.11... Ok
+misc3-3.12... Ok
+misc3-3.13... Ok
+misc3-3.14... Ok
+misc3-4.1... Ok
+misc3-4.2... Ok
+misc3-4.3... Ok
+misc3-5.1... Ok
+misc3-5.2... Ok
+misc3-6.1... Ok
+misc3-6.2... Ok
+misc3-6.3... Ok
+misc3-6.10... Ok
+misc3-6.11-utf8...
+Expected: [1 1 1 1]
+     Got: [1 1 0 1]
+misc-8.1... Ok
+misc-8.2... Ok
+1 errors out of 37 tests
+Failures on these tests: misc3-6.11-utf8

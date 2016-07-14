@@ -1,0 +1,89 @@
+unique-1.1... Ok
+unique-1.1b... Ok
+unique-1.2... Ok
+unique-1.3...
+Expected: [1 {UNIQUE constraint failed: t1.a}]
+     Got: [1 {unknown error}]
+unique-1.3b...
+Expected: [SQLITE_CONSTRAINT_PRIMARYKEY]
+     Got: [SQLITE_UNKNOWN(-1)]
+unique-1.4... Ok
+unique-1.5...
+Expected: [1 {UNIQUE constraint failed: t1.b}]
+     Got: [0 {}]
+unique-1.5b...
+Expected: [SQLITE_CONSTRAINT_UNIQUE]
+     Got: [SQLITE_OK]
+unique-1.6...
+Expected: [1 2 3]
+     Got: [1 2 3 3 2 4]
+unique-1.7...
+Expected: [0 {}]
+     Got: [1 {unknown error}]
+unique-1.8...
+Expected: [1 2 3 3 4 5]
+     Got: [1 2 3 3 2 4]
+unique-2.0...
+Error: 3 values for 2 columns
+unique-2.1... Ok
+unique-2.2...
+Expected: [0 {1 2 3 4}]
+     Got: [0 {}]
+unique-2.3...
+Expected: [1 {UNIQUE constraint failed: t2.a}]
+     Got: [0 {}]
+unique-2.3b...
+Expected: [SQLITE_CONSTRAINT_UNIQUE]
+     Got: [SQLITE_OK]
+unique-2.4...
+Expected: [0 {1 2 3 4}]
+     Got: [0 {1 5}]
+unique-2.5...
+Expected: [0 {1 2 3 4}]
+     Got: [1 {no such index: i2}]
+unique-2.6...
+Expected: [0 {}]
+     Got: [1 {unknown error}]
+unique-2.7...
+Expected: [0 {1 2 1 5 3 4}]
+     Got: [0 {1 5}]
+unique-2.8...
+Expected: [1 {UNIQUE constraint failed: t2.a}]
+     Got: [0 {}]
+unique-2.8b...
+Expected: [SQLITE_CONSTRAINT_UNIQUE]
+     Got: [SQLITE_OK]
+unique-2.9... Ok
+unique-3.1... Ok
+unique-3.2... Ok
+unique-3.3... Ok
+unique-3.4...
+Expected: [1 {UNIQUE constraint failed: t3.a, t3.c, t3.d}]
+     Got: [0 {1 2 3 4 1 2 3 5 1 4 3 5}]
+unique-3.4b...
+Expected: [SQLITE_CONSTRAINT_UNIQUE]
+     Got: [SQLITE_OK]
+unique-4.1... Ok
+unique-4.2... Ok
+unique-4.3... Ok
+unique-4.4... Ok
+unique-4.5... Ok
+unique-4.6... Ok
+unique-4.7... Ok
+unique-4.8... Ok
+unique-4.9... Ok
+unique-4.10...
+Expected: [1 {UNIQUE constraint failed: t4.b}]
+     Got: [0 {}]
+unique-4.10b...
+Expected: [SQLITE_CONSTRAINT_UNIQUE]
+     Got: [SQLITE_OK]
+unique-5.1... Ok
+unique-5.2...
+Expected: [1 {UNIQUE constraint failed: t5.first_column_with_long_name, t5.second_column_with_long_name, t5.third_column_with_long_name, t5.fourth_column_with_long_name, t5.fifth_column_with_long_name, t5.sixth_column_with_long_name}]
+     Got: [0 {}]
+unique-5.2b...
+Expected: [SQLITE_CONSTRAINT_UNIQUE]
+     Got: [SQLITE_OK]
+23 errors out of 43 tests
+Failures on these tests: unique-1.3 unique-1.3b unique-1.5 unique-1.5b unique-1.6 unique-1.7 unique-1.8 unique-2.0 unique-2.2 unique-2.3 unique-2.3b unique-2.4 unique-2.5 unique-2.6 unique-2.7 unique-2.8 unique-2.8b unique-3.4 unique-3.4b unique-4.10 unique-4.10b unique-5.2 unique-5.2b

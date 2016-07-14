@@ -1,0 +1,59 @@
+types-1.1.0... Ok
+types-1.1.1... Ok
+types-1.1.2... Ok
+types-1.1.3... Ok
+types-1.1.4... Ok
+types-1.1.5... Ok
+types-1.1.6... Ok
+types-1.1.7... Ok
+types-1.1.8... Ok
+types-1.1.9... Ok
+types-1.1.10... Ok
+types-1.1.11...
+Expected: [blob blob blob blob]
+     Got: [text text text text]
+types-1.2.1... Ok
+types-1.2.2... Ok
+types-1.2.3... Ok
+types-1.2.4... Ok
+types-1.2.5... Ok
+types-1.2.6... Ok
+types-1.2.7... Ok
+types-1.2.8... Ok
+types-1.2.9... Ok
+types-1.2.10... Ok
+types-1.2.11...
+Expected: [blob blob blob blob]
+     Got: [text text text text]
+types-1.3.1... Ok
+types-1.3.2... Ok
+types-1.3.3... Ok
+types-1.3.4... Ok
+types-1.3.5... Ok
+types-1.3.6... Ok
+types-1.3.7... Ok
+types-1.3.8... Ok
+types-1.3.9... Ok
+types-1.3.10... Ok
+types-1.3.11...
+Expected: [blob blob blob blob]
+     Got: [text text text text]
+types-2.1.1... Ok
+types-2.1.2... Ok
+types-2.1.3... Ok
+types-2.1.4... Ok
+types-2.1.5... Ok
+types-2.1.6... Ok
+types-2.1.7... Ok
+types-2.1.8... Ok
+types-2.2.1... Ok
+types-2.2.2... Ok
+types-2.3.1... Ok
+types-2.3.2... Ok
+types-2.4.1... Ok
+types-2.4.2... Ok
+types-2.5.1... Ok
+types-2.5.2... Ok
+types-2.5.3... Ok
+3 errors out of 52 tests
+Failures on these tests: types-1.1.11 types-1.2.11 types-1.3.11

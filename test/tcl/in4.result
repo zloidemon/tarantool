@@ -1,0 +1,70 @@
+in4-1.1... Ok
+in4-1.2... Ok
+in4-1.3... Ok
+in4-1.6... Ok
+in4-2.1... Ok
+in4-2.2... Ok
+in4-2.3... Ok
+in4-2.4... Ok
+in4-2.5... Ok
+in4-2.6... Ok
+in4-2.7... Ok
+in4-2.8... Ok
+in4-3.1... Ok
+in4-3.2... Ok
+in4-3.3... Ok
+in4-3.4... Ok
+in4-3.5... Ok
+in4-3.6... Ok
+in4-3.7... Ok
+in4-3.8... Ok
+in4-3.9... Ok
+in4-3.10... Ok
+in4-3.11... Ok
+in4-3.12... Ok
+in4-3.21... Ok
+in4-3.22... Ok
+in4-3.23... Ok
+in4-3.24... Ok
+in4-3.25... Ok
+in4-3.26... Ok
+in4-3.31... Ok
+in4-3.32... Ok
+in4-3.33... Ok
+in4-3.34... Ok
+in4-3.41... Ok
+in4-3.42... Ok
+in4-3.43... Ok
+in4-3.44... Ok
+in4-3.45... Ok
+in4-3.46... Ok
+in4-3.47... Ok
+in4-3.48... Ok
+in4-4.1... Ok
+in4-4.2...
+Expected: [1 3]
+     Got: [3]
+in4-4.3...
+Expected: [1 3]
+     Got: [3]
+in4-4.4... Ok
+in4-4.5... Ok
+in4-4.6... Ok
+in4-4.11... Ok
+in4-4.12... Ok
+in4-4.13... Ok
+in4-4.14... Ok
+in4-4.15... Ok
+in4-4.16... Ok
+in4-4.17... Ok
+in4-4.18... Ok
+in4-4.19... Ok
+in4-5.1...
+Expected: [1 3 4]
+     Got: [1 3]
+in4-6.1... Ok
+in4-6.1-eqp... Ok
+in4-6.2... Ok
+in4-6.2-eqp... Ok
+3 errors out of 63 tests
+Failures on these tests: in4-4.2 in4-4.3 in4-5.1

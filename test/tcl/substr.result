@@ -1,0 +1,105 @@
+substr-1.1.1... Ok
+substr-1.1.2... Ok
+substr-1.2.1... Ok
+substr-1.2.2... Ok
+substr-1.3.1... Ok
+substr-1.3.2... Ok
+substr-1.4.1... Ok
+substr-1.4.2... Ok
+substr-1.5.1... Ok
+substr-1.5.2... Ok
+substr-1.6.1... Ok
+substr-1.6.2... Ok
+substr-1.7.1... Ok
+substr-1.7.2... Ok
+substr-1.8.1... Ok
+substr-1.8.2... Ok
+substr-1.9.1... Ok
+substr-1.9.2... Ok
+substr-1.10.1... Ok
+substr-1.10.2... Ok
+substr-1.11.1... Ok
+substr-1.11.2... Ok
+substr-1.12.1... Ok
+substr-1.12.2... Ok
+substr-1.13.1... Ok
+substr-1.13.2... Ok
+substr-1.14.1... Ok
+substr-1.14.2... Ok
+substr-1.15.1... Ok
+substr-1.15.2... Ok
+substr-1.16.1... Ok
+substr-1.16.2... Ok
+substr-1.17.1... Ok
+substr-1.17.2... Ok
+substr-1.18.1... Ok
+substr-1.18.2... Ok
+substr-1.90... Ok
+substr-1.91... Ok
+substr-1.92... Ok
+substr-1.93... Ok
+substr-1.94... Ok
+substr-2.1.1... Ok
+substr-2.1.2... Ok
+substr-2.2.1... Ok
+substr-2.2.2... Ok
+substr-2.3.1... Ok
+substr-2.3.2... Ok
+substr-2.4.1... Ok
+substr-2.4.2... Ok
+substr-2.5.1... Ok
+substr-2.5.2... Ok
+substr-2.6.1... Ok
+substr-2.6.2... Ok
+substr-3.1.1... Ok
+substr-3.1.2... Ok
+substr-3.2.1... Ok
+substr-3.2.2... Ok
+substr-3.3.1... Ok
+substr-3.3.2... Ok
+substr-3.4.1... Ok
+substr-3.4.2... Ok
+substr-3.5.1... Ok
+substr-3.5.2... Ok
+substr-3.6.1... Ok
+substr-3.6.2... Ok
+substr-3.7.1... Ok
+substr-3.7.2... Ok
+substr-3.8.1... Ok
+substr-3.8.2... Ok
+substr-3.9.1... Ok
+substr-3.9.2... Ok
+substr-3.10.1... Ok
+substr-3.10.2... Ok
+substr-3.11.1... Ok
+substr-3.11.2... Ok
+substr-3.12.1... Ok
+substr-3.12.2... Ok
+substr-4.1.1... Ok
+substr-4.1.2... Ok
+substr-4.2.1...
+Expected: [E1]
+     Got: [E188B4]
+substr-4.2.2... Ok
+substr-4.3.1...
+Expected: [61E1]
+     Got: [61E188B4]
+substr-4.3.2... Ok
+substr-4.4.1...
+Expected: [96]
+     Got: [E39196]
+substr-4.4.2... Ok
+substr-4.5.1...
+Expected: [63E39196]
+     Got: [62E28D8563E39196]
+substr-4.5.2... Ok
+substr-4.6.1...
+Expected: [61E188B462E28D8563E391]
+     Got: [61E188B462E28D8563]
+substr-4.6.2... Ok
+substr-5.1.1... Ok
+substr-5.1.2... Ok
+substr-5.2.1... Ok
+substr-5.2.2... Ok
+5 errors out of 94 tests
+Failures on these tests: substr-4.2.1 substr-4.3.1 substr-4.4.1 substr-4.5.1 substr-4.6.1

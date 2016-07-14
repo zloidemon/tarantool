@@ -1,0 +1,21 @@
+autoindex1-100... Ok
+autoindex1-101...
+Expected: [63]
+     Got: [7]
+autoindex1-102... Ok
+autoindex1-110... Ok
+autoindex1-111... Ok
+autoindex1-112...
+Expected: [7]
+     Got: [0]
+autoindex1-113...
+Expected: [SQLITE_WARNING_AUTOINDEX {automatic index on t2(c)}]
+     Got: []
+autoindex1-200... Ok
+autoindex1-201...
+Expected: [35]
+     Got: [7]
+autoindex1-202... Ok
+autoindex1-400... Ok
+4 errors out of 12 tests
+Failures on these tests: autoindex1-101 autoindex1-112 autoindex1-113 autoindex1-201

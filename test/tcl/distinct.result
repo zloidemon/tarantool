@@ -1,0 +1,88 @@
+distinct-1.0... Ok
+distinct-1.1.1... Ok
+distinct-1.1.2...
+Expected: [1]
+     Got: [0]
+distinct-1.2.1... Ok
+distinct-1.2.2...
+Expected: [1]
+     Got: [0]
+distinct-1.5...
+Expected: [1]
+     Got: [0]
+distinct-1.6...
+Expected: [1]
+     Got: [0]
+distinct-1.7...
+Expected: [1]
+     Got: [0]
+distinct-1.8.1... Ok
+distinct-1.8.2...
+Expected: [1]
+     Got: [0]
+distinct-1.8... Ok
+distinct-1.9... Ok
+distinct-1.10... Ok
+distinct-1.11... Ok
+distinct-1.12.1... Ok
+distinct-1.12.2... Ok
+distinct-1.13.1... Ok
+distinct-1.13.2... Ok
+distinct-1.14.1... Ok
+distinct-1.14.2...
+Expected: [1]
+     Got: [0]
+distinct-1.15... Ok
+distinct-1.16.1... Ok
+distinct-1.16.2...
+Expected: [1]
+     Got: [0]
+distinct-1.17... Ok
+distinct-1.18...
+Expected: [1]
+     Got: [0]
+distinct-1.19...
+Expected: [1]
+     Got: [0]
+distinct-1.20...
+Expected: [1]
+     Got: [0]
+distinct-1.21... Ok
+distinct-1.22... Ok
+distinct-1.23... Ok
+distinct-2.0...
+Error: unknown error
+distinct-2.1.1... Ok
+distinct-2.1.2... Ok
+distinct-2.2.1... Ok
+distinct-2.2.2... Ok
+distinct-2.3.1... Ok
+distinct-2.3.2...
+Expected: [hash]
+     Got: []
+distinct-2.4.1... Ok
+distinct-2.4.2...
+Expected: [btree]
+     Got: []
+distinct-2.5.1... Ok
+distinct-2.5.2... Ok
+distinct-2.6.1... Ok
+distinct-2.6.2... Ok
+distinct-2.7.1... Ok
+distinct-2.7.2... Ok
+distinct-2.8.1...
+Expected: [b]
+     Got: [B]
+distinct-2.8.2...
+Expected: []
+     Got: [hash]
+distinct-2.9.1...
+Expected: [b]
+     Got: [B]
+distinct-2.9.2...
+Expected: []
+     Got: [btree hash]
+distinct-2.A...
+Error: database disk image is malformed
+19 errors out of 51 tests
+Failures on these tests: distinct-1.1.2 distinct-1.2.2 distinct-1.5 distinct-1.6 distinct-1.7 distinct-1.8.2 distinct-1.14.2 distinct-1.16.2 distinct-1.18 distinct-1.19 distinct-1.20 distinct-2.0 distinct-2.3.2 distinct-2.4.2 distinct-2.8.1 distinct-2.8.2 distinct-2.9.1 distinct-2.9.2 distinct-2.A

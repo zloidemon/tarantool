@@ -1,0 +1,34 @@
+coveridxscan-1.1... Ok
+coveridxscan-1.2...
+Expected: [5 3 4 2 3 1]
+     Got: [3 1 4 2 5 3]
+coveridxscan-1.3...
+Expected: [2 4 8]
+     Got: [2 8 4]
+coveridxscan-2.1...
+Expected: [5 4 3]
+     Got: [3 4 5]
+coveridxscan-2.2...
+Expected: [5 3 4 2 3 1]
+     Got: [3 1 4 2 5 3]
+coveridxscan-2.3...
+Expected: [4 8 2]
+     Got: [2 8 4]
+coveridxscan-3.1...
+Expected: [5 4 3]
+     Got: [3 4 5]
+coveridxscan-3.2...
+Expected: [5 3 4 2 3 1]
+     Got: [3 1 4 2 5 3]
+coveridxscan-3.3...
+Expected: [4 8 2]
+     Got: [2 8 4]
+coveridxscan-4.1... Ok
+coveridxscan-4.2...
+Expected: [5 3 4 2 3 1]
+     Got: [3 1 4 2 5 3]
+coveridxscan-4.3...
+Expected: [2 4 8]
+     Got: [2 8 4]
+10 errors out of 13 tests
+Failures on these tests: coveridxscan-1.2 coveridxscan-1.3 coveridxscan-2.1 coveridxscan-2.2 coveridxscan-2.3 coveridxscan-3.1 coveridxscan-3.2 coveridxscan-3.3 coveridxscan-4.2 coveridxscan-4.3

@@ -1,0 +1,29 @@
+transitive1-100...
+Expected: [def def def]
+     Got: []
+transitive1-110...
+Expected: [def def def ghi ghi GHI]
+     Got: [def def def]
+transitive1-120...
+Expected: [abc abc Abc def def def]
+     Got: []
+transitive1-200... Ok
+transitive1-210... Ok
+transitive1-220... Ok
+transitive1-300... Ok
+transitive1-301... Ok
+transitive1-302... Ok
+transitive1-310... Ok
+transitive1-311... Ok
+transitive1-312... Ok
+transitive1-320... Ok
+transitive1-331... Ok
+transitive1-332... Ok
+transitive1-400... Ok
+transitive1-401... Ok
+transitive1-402... Ok
+transitive1-403... Ok
+transitive1-410...
+Error: no query solution
+4 errors out of 21 tests
+Failures on these tests: transitive1-100 transitive1-110 transitive1-120 transitive1-410
