@@ -267,12 +267,6 @@ local function load_default_file(default_file)
     d.logger     = d.logger      or "/var/log/tarantool"
     d.sophia_dir = d.sophia_dir  or "/var/lib/tarantool"
 
-    d.pid_file   = fio.pathjoin(d.pid_file,   instance_name .. '.pid')
-    d.wal_dir    = fio.pathjoin(d.wal_dir,    instance_name)
-    d.snap_dir   = fio.pathjoin(d.snap_dir,   instance_name)
-    d.sophia_dir = fio.pathjoin(d.sophia_dir, instance_name)
-    d.logger     = fio.pathjoin(d.logger,     instance_name .. '.log')
-
     default_cfg = d
 
     if not usermode then
@@ -323,7 +317,7 @@ local function find_instance_name(arg0, arg2)
         os.exit(1)
     end
     if not istat:is_link() then
-        usage()
+        return nil
     end
     return fio.basename(arg0, '.lua')
 end
@@ -558,10 +552,11 @@ end
 local function status()
     local pid_file = default_cfg.pid_file
     local console_sock = uri.parse(console_sock).service
+    local instance = instance_name or 'tarantool'
 
     if fio.stat(pid_file) == nil then
         if errno() == errno.ENOENT then
-            log.info('%s is stopped (pid file does not exist)', instance_name)
+            log.info('%s is stopped (pid file does not exist)', instance)
             return 1
         end
         log.error("Can't access pidfile %s: %s", pid_file, errno.strerror())
@@ -584,7 +579,7 @@ local function status()
     end
 
     s:close()
-    log.info('%s is running (pid: %s)', instance_name, default_cfg.pid_file)
+    log.info('%s is running (pid: %s)', instance, default_cfg.pid_file)
     return 0
 end
 
@@ -643,7 +638,7 @@ remote_commands = {
     connect   = exit_wrapper(connect)
 }
 
-if #arg <2 then
+if #arg <1 then
     usage()
 end
 
@@ -652,23 +647,53 @@ default_file = find_default_file()
 if local_commands[arg[1]] ~= nil then
     -- Check if the requested action is among supported ones, and return it in this
     -- case. Otherwise print help and exit.
-    local cmd_function = local_commands[arg[1]]
+    cmd = arg[1]
+    local cmd_function = local_commands[cmd]
 
     instance_name = find_instance_name(arg[0], arg[2])
     load_default_file(default_file)
 
-    -- Pass the rest of command line arguments to the instance
-    shift_argv(arg, 0, 2)
+    if instance_name == nil then
+        instances = fio.glob(fio.pathjoin(instance_dir, '*.lua'))
+        if #instances == 0 then
+            instance_name = nil
+        elseif #instances == 1 then
+            instance_name = fio.basename(instances[1], '.lua')
+        else
+            usage()
+        end
+    end
 
-    instance_path = fio.pathjoin(instance_dir, instance_name .. '.lua')
+    if instance_name == nil then
+        default_cfg.pid_file   = fio.pathjoin(default_cfg.pid_file,   'tarantool.pid')
+        default_cfg.logger     = fio.pathjoin(default_cfg.logger,     'tarantool.log')
+        console_sock = 'tarantool.control'
 
-    if not fio.stat(instance_path) then
-        log.error('Instance %s is not found in %s', instance_name, instance_dir)
-        os.exit(-1)
+        permitted_commands = {status = true, enter = true}
+        if not permitted_commands[cmd] then
+            log.error("'%s %s' can't be used without instance name", arg[0], cmd)
+            os.exit(-1)
+        end
+    else
+        default_cfg.pid_file   = fio.pathjoin(default_cfg.pid_file,   instance_name .. '.pid')
+        default_cfg.wal_dir    = fio.pathjoin(default_cfg.wal_dir,    instance_name)
+        default_cfg.snap_dir   = fio.pathjoin(default_cfg.snap_dir,   instance_name)
+        default_cfg.sophia_dir = fio.pathjoin(default_cfg.sophia_dir, instance_name)
+        default_cfg.logger     = fio.pathjoin(default_cfg.logger,     instance_name .. '.log')
+        console_sock = instance_name .. '.control'
+
+        -- Pass the rest of command line arguments to the instance
+        shift_argv(arg, 0, 2)
+
+        instance_path = fio.pathjoin(instance_dir, instance_name .. '.lua')
+
+        if not fio.stat(instance_path) then
+            log.error('Instance %s is not found in %s', instance_name, instance_dir)
+            os.exit(-1)
+        end
     end
 
     -- create a path to the control socket (admin console)
-    console_sock = instance_name .. '.control'
     console_sock = fio.pathjoin(fio.dirname(default_cfg.pid_file), console_sock)
     console_sock = 'unix/:' .. console_sock
 
