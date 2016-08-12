@@ -216,6 +216,16 @@ typedef int
 int
 vy_index_send(struct vy_index *index, vy_send_row_f sendrow, void *ctx);
 
+/**
+ * Unit tests
+ */
+
+int
+vy_run_iterator_unit_test();
+
+int
+vy_mem_iterator_unit_test();
+
 #ifdef __cplusplus
 }
 #endif

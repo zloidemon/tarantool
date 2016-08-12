@@ -54,6 +54,7 @@
 #include "clock.h"
 #include "title.h"
 #include "exception.h"
+#include <box/vinyl.h>
 
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -154,4 +155,6 @@ void *ffi_symbols[] = {
 	(void *) exception_get_int,
 	(void *) tnt_EVP_CIPHER_key_length,
 	(void *) tnt_EVP_CIPHER_iv_length,
+	(void *) vy_run_iterator_unit_test,
+	(void *) vy_mem_iterator_unit_test,
 };

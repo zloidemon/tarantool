@@ -9587,3 +9587,1277 @@ vy_tmp_mem_iterator_open(struct vy_iter *virt_iterator, struct vy_mem *mem,
 
 /* }}} Temporary wrap of new mem iterator to old API */
 
+/* {{{ Unit test of vy_run_iterator */
+
+int
+vy_run_iterator_unit_test()
+{
+	struct vy_debug_record {
+		int x;
+		int y;
+		int lsn;
+		int next; /* next record with the same x, y */
+	};
+
+	int res = 0;
+
+	/* Generate */
+
+	/* x and y are odd numbers 1..19, lsn is 1,3,5 */
+	/* records are sorted by x ASC, y ASC, lsn DESC */
+	struct vy_debug_record record[300];
+	int record_count = 0;
+	for (int k = 0; k < 100; k++) {
+		int x = (k / 10) * 2 + 1;
+		int y = (k % 10) * 2 + 1;
+		int lsn_count = 0;
+		int lsns[3];
+		if (rand() & 1)
+			lsns[lsn_count++] = 5;
+		if (rand() & 1)
+			lsns[lsn_count++] = 3;
+		if (rand() & 1)
+			lsns[lsn_count++] = 1;
+		for (int l = 0; l < lsn_count; l++) {
+			record[record_count].x = x;
+			record[record_count].y = y;
+			record[record_count].lsn = lsns[l];
+			record[record_count].next = -1;
+			if (l != 0)
+				record[record_count - 1].next = record_count;
+			record_count++;
+		}
+	}
+#if 0
+	/* Optional output of all records */
+	printf("records:\n");
+	for (int k = 0; k < record_count; k++) {
+		printf("%3d(%2d %2d %d) ",
+		       k, record[k].x, record[k].y, record[k].lsn);
+	}
+	printf("\n");
+#endif
+
+	/* Fill local structures for itr check */
+
+	/* visible values (index in record[]) for different visibility lsns */
+	/* vis[0] is empty, vis[1][..] is identical to vis[2][..] etc */
+	int vis[7][100];
+	int vis_count[7] = {0, 0, 0, 0, 0, 0, 0};
+	for (int lsn = 0; lsn < 7; lsn++) {
+		int prev_x = -1;
+		int prev_y = -1;
+		for (int k = 0; k < record_count; k++) {
+			if (record[k].lsn > lsn)
+				continue;
+			if (prev_x == record[k].x && prev_y == record[k].y)
+				continue;
+			prev_x = record[k].x;
+			prev_y = record[k].y;
+			vis[lsn][vis_count[lsn]] = k;
+			vis_count[lsn]++;
+		}
+	}
+	assert(vis_count[0] == 0);
+	/* visible values for different lsns in reverse order */
+	int vis_rev[7][100];
+	for (int lsn = 0; lsn < 7; lsn++) {
+		for (int k = 0; k < vis_count[lsn]; k++) {
+			vis_rev[lsn][k] = vis[lsn][vis_count[lsn] - k - 1];
+		}
+	}
+#if 0
+	/* optional output of vis and vis_rev */
+	for (int lsn = 0; lsn < 7; lsn++) {
+		if (!(lsn & 1))
+			continue; /* skip repeating output */
+		printf("Direct lsn<=%d, total %d\n", lsn, vis_count[lsn]);
+		for (int k = 0; k < vis_count[lsn]; k++)
+			printf("%3d(%2d %2d %d) ", vis[lsn][k],
+			       record[vis[lsn][k]].x, record[vis[lsn][k]].y,
+			       record[vis[lsn][k]].lsn);
+		printf("\n");
+	}
+	for (int lsn = 0; lsn < 7; lsn++) {
+		if (!(lsn & 1))
+			continue; /* skip repeating output */
+		printf("Reverse lsn<=%d, total %d\n", lsn, vis_count[lsn]);
+		for (int k = 0; k < vis_count[lsn]; k++)
+			printf("%3d(%2d %2d %d) ", vis_rev[lsn][k],
+			       record[vis_rev[lsn][k]].x, record[vis_rev[lsn][k]].y,
+			       record[vis_rev[lsn][k]].lsn);
+		printf("\n");
+	}
+#endif
+
+	/* offsets in vis[] of greater of equal values for given lsn, x, y */
+	int shortcut[7][21][21];
+	for (int lsn = 0; lsn < 7; lsn++) {
+		int prev_x = 0;
+		int prev_y = -1;
+		for (int k = 0; k < vis_count[lsn]; k++) {
+			int x = record[vis[lsn][k]].x;
+			int y = record[vis[lsn][k]].y;
+			while (prev_x != x || prev_y != y) {
+				if (++prev_y >= 21) {
+					prev_y = 0;
+					++prev_x;
+				}
+				shortcut[lsn][prev_x][prev_y] = k;
+			}
+		}
+		while (prev_x != 20 || prev_y != 20) {
+			if (++prev_y >= 21) {
+				prev_y = 0;
+				++prev_x;
+			}
+			shortcut[lsn][prev_x][prev_y] = vis_count[lsn];
+		}
+	}
+	/* offsets in rev_vis[] of les of equal values for given lsn, x, y */
+	int shortcut_rev[7][21][21];
+	for (int lsn = 0; lsn < 7; lsn++) {
+		int prev_x = 20;
+		int prev_y = 21;
+		for (int k = 0; k < vis_count[lsn]; k++) {
+			int x = record[vis_rev[lsn][k]].x;
+			int y = record[vis_rev[lsn][k]].y;
+			while (prev_x != x || prev_y != y) {
+				if (--prev_y < 0) {
+					prev_y = 20;
+					--prev_x;
+				}
+				shortcut_rev[lsn][prev_x][prev_y] = k;
+			}
+		}
+		while (prev_x != 0 || prev_y != 0) {
+			if (--prev_y < 0) {
+				prev_y = 20;
+				--prev_x;
+			}
+			shortcut_rev[lsn][prev_x][prev_y] = vis_count[lsn];
+		}
+	}
+
+	/* Make a run */
+	char tmpname[16] = "vy_run.XXXXXX";
+	int fd = mkstemp(tmpname);
+	assert(fd >= 0);
+	struct vy_file file;
+	file.fd = fd;
+	strcpy(file.path, tmpname);
+
+	struct vy_env env = {0};
+	struct vy_stat stat;
+	env.stat = &stat;
+
+	char key_def_buf[sizeof(struct key_def) + 2 * sizeof(struct key_part)] = {0};
+	struct key_def *key_def = (struct key_def *)key_def_buf;
+	key_def->part_count = 2;
+	key_def->parts[0].fieldno = 0;
+	key_def->parts[0].type = FIELD_TYPE_UNSIGNED;
+	key_def->parts[1].fieldno = 1;
+	key_def->parts[1].type = FIELD_TYPE_UNSIGNED;
+	tuple_compare_create(key_def);
+
+	struct vy_index index;
+	memset(&index, 0, sizeof(index));
+	index.key_def = key_def;
+	index.env = &env;
+
+	struct vy_run run;
+	memset(&run, 0, sizeof(run));
+	pthread_mutex_init(&run.cache_lock, NULL);
+	run.index.header.offset = 0;
+	run.index.header.count = 0;
+	vy_buf_init(&run.index.minmax);
+	vy_buf_init(&run.index.pages);
+
+	char tuple_data[64];
+	uint32_t *offsets = (uint32_t *)tuple_data;
+	char *mp = (char *)(offsets + 3);
+	char *val1_pos = mp_encode_array(mp, 3);
+	char *val2_pos = val1_pos + 1;
+	char *val3_pos = val2_pos + 1;
+	offsets[0] = val1_pos - tuple_data;
+	offsets[1] = val2_pos - tuple_data;
+	offsets[2] = UINT32_MAX;
+	char min_tuple[64];
+	uint32_t min_tuple_size;
+	int min_tuple_lsn;
+	char max_tuple[64];
+	uint32_t max_tuple_size;
+	int max_tuple_lsn;
+	int min_lsn, max_lsn;
+
+	int cur_page_size = 0;
+	int cur_page_lim = 1 + rand() % 5;
+	if (cur_page_lim > record_count)
+		cur_page_lim = record_count;
+
+	char tuple_page_buf[1024];
+	char *tuple_page_buf_pos = tuple_page_buf;
+
+	char file_buf[16 * 1024];
+	char *file_buf_pos = file_buf;
+
+	struct sdv tupleinfo[5];
+
+	for (int k = 0; k < record_count; k++) {
+		int x = record[k].x;
+		int y = record[k].y;
+		*val1_pos = x;
+		*val2_pos = y;
+		char *tuple_data_end = mp_encode_uint(val3_pos, k);
+		uint32_t tuple_data_size = tuple_data_end - tuple_data;
+
+		if (cur_page_size == 0) {
+			min_tuple_size = tuple_data_size;
+			memcpy(min_tuple, tuple_data, tuple_data_size);
+			min_tuple_lsn = record[k].lsn;
+			min_lsn = record[k].lsn;
+			max_lsn = record[k].lsn;
+		}
+		max_tuple_size = tuple_data_size;
+		memcpy(max_tuple, tuple_data, tuple_data_size);
+		max_tuple_lsn = record[k].lsn;
+		if (min_lsn > record[k].lsn)
+			min_lsn = record[k].lsn;
+		if (max_lsn < record[k].lsn)
+			max_lsn = record[k].lsn;
+
+		tupleinfo[cur_page_size].lsn = record[k].lsn;
+		tupleinfo[cur_page_size].size = tuple_data_size;
+		tupleinfo[cur_page_size].offset = tuple_page_buf_pos - tuple_page_buf;
+		tupleinfo[cur_page_size].flags = 0;
+		cur_page_size++;
+
+		memcpy(tuple_page_buf_pos, tuple_data, tuple_data_size);
+		tuple_page_buf_pos += tuple_data_size;
+
+		if (cur_page_size == cur_page_lim) {
+			struct sdpageheader header = {0};
+			header.count = cur_page_size;
+			header.lsnmin = min_lsn;
+			header.lsnmax = max_lsn;
+			header.size = cur_page_size * sizeof(tupleinfo[0]) +
+				      (tuple_page_buf_pos - tuple_page_buf);
+			header.sizeorigin = header.size;
+
+			char *begin_of_page = file_buf_pos;
+
+			memcpy(file_buf_pos, &header, sizeof(header));
+			file_buf_pos += sizeof(header);
+
+			memcpy(file_buf_pos, tupleinfo, cur_page_size * sizeof(tupleinfo[0]));
+			file_buf_pos += cur_page_size * sizeof(tupleinfo[0]);
+
+			memcpy(file_buf_pos, tuple_page_buf, tuple_page_buf_pos - tuple_page_buf);
+			file_buf_pos += tuple_page_buf_pos - tuple_page_buf;
+
+			tuple_page_buf_pos = tuple_page_buf;
+
+			if (vy_buf_ensure(&run.index.pages, sizeof(struct vy_page_info)))
+				goto err;
+			struct vy_page_info *page_info = (struct vy_page_info *)run.index.pages.p;
+			vy_buf_advance(&run.index.pages, sizeof(struct vy_page_info));
+			run.index.header.count++;
+
+			page_info->min_lsn = min_lsn;
+			page_info->max_lsn = max_lsn;
+			page_info->size = header.size + sizeof(struct sdpageheader);
+			page_info->unpacked_size = header.sizeorigin + sizeof(struct sdpageheader);
+			page_info->offset = begin_of_page - file_buf;
+			page_info->min_key_lsn = min_tuple_lsn;
+			page_info->max_key_lsn = max_tuple_lsn;
+
+			struct vy_buf *minmax_buf = &run.index.minmax;
+			if (vy_buf_ensure(minmax_buf, min_tuple_size))
+				goto err;
+			page_info->min_key_offset = vy_buf_used(minmax_buf);
+			memcpy(minmax_buf->p, min_tuple, min_tuple_size);
+			vy_buf_advance(minmax_buf, min_tuple_size);
+			if (vy_buf_ensure(minmax_buf, max_tuple_size))
+				goto err;
+			page_info->max_key_offset = vy_buf_used(minmax_buf);
+			memcpy(minmax_buf->p, max_tuple, max_tuple_size);
+			vy_buf_advance(minmax_buf, max_tuple_size);
+
+			cur_page_size = 0;
+			cur_page_lim = 1 + rand() % 5;
+			if (cur_page_lim >= record_count - k)
+				cur_page_lim = record_count - k - 1;
+
+		}
+	}
+	assert(file_buf_pos <= file_buf + sizeof(file_buf));
+	int rc = write(fd, file_buf, file_buf_pos - file_buf);
+	assert(rc == file_buf_pos - file_buf); (void)rc;
+
+#if 0
+	/* Optional output of pages */
+	for (uint32_t i = 0; i < run.index.header.count; i++) {
+		printf("------page %d---------\n", (int)i);
+		struct vy_page_info *page_info = vy_page_index_get_page(&run.index, i);
+		printf("min lsn %d max lsn %d min key lsn %d max key lsn %d\n",
+			(int)page_info->min_lsn, (int)page_info->max_lsn,
+			(int)page_info->min_key_lsn, (int)page_info->max_key_lsn);
+		char *min = vy_page_index_min_key(&run.index, page_info);
+		const char *data_ptr = min + 15;
+		int the_val = mp_decode_uint(&data_ptr);
+		printf("min key %d %d %d\n", (int)min[13], (int)min[14], the_val);
+
+		char *max = vy_page_index_max_key(&run.index, page_info);
+		data_ptr = max + 15;
+		the_val = mp_decode_uint(&data_ptr);
+		printf("max key %d %d %d\n", (int)max[13], (int)max[14], the_val);
+
+		struct sdpage *page = vy_run_load_page(&run, i, &file, NULL);
+		for (uint32_t j = 0; j < page->h->count; j++) {
+			struct sdv *info = sd_pagev(page, j);
+			char *key = sd_pagepointer(page, info);
+			const char *data_ptr = key + 15;
+			int the_val = mp_decode_uint(&data_ptr);
+			printf("--- %d %d %d lns %d\n",  (int)key[13], (int)key[14], the_val, (int)info->lsn);
+		}
+		vy_run_unload_page(&run, i);
+		printf("\n");
+	}
+#endif
+
+	/* Test of full-key queries*/
+	enum vy_order orders[5] = {VINYL_GE, VINYL_GT, VINYL_EQ, VINYL_LE, VINYL_LT};
+	for (int k = 0; k < 21 * 21 * 5 * 7 * 2; k++) {
+		int x = k / 21 % 21;
+		int y = k % 21;
+		enum vy_order order = orders[k / 21 / 21 % 5];
+		int lsn = k / 21 / 21 / 5 % 7;
+		bool check_next_lsn = k / 21 / 21 / 5 / 7;
+
+		int next_x = x, next_y;
+		if (order == VINYL_LE || order == VINYL_LT) {
+			next_y = y - 1;
+			if (next_y < 0) {
+				next_y = 20;
+				next_x--;
+			}
+		} else {
+			next_y = y + 1;
+			if (next_y >= 21) {
+				next_y = 0;
+				next_x++;
+			}
+		}
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_EQ) {
+			reference = &vis[lsn][shortcut[lsn][x][y]];
+			if (next_x == 21)
+				reference_end = &vis[lsn][vis_count[lsn]];
+			else
+				reference_end = &vis[lsn][shortcut[lsn][next_x][next_y]];
+		} else if (order == VINYL_GE) {
+			reference = &vis[lsn][shortcut[lsn][x][y]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GT) {
+			if (next_x == 21)
+				reference = &vis[lsn][vis_count[lsn]];
+			else
+				reference = &vis[lsn][shortcut[lsn][next_x][next_y]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LE) {
+			reference = &vis_rev[lsn][shortcut_rev[lsn][x][y]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LT) {
+			if (next_x == -1)
+				reference = &vis_rev[lsn][vis_count[lsn]];
+			else
+				reference = &vis_rev[lsn][shortcut_rev[lsn][next_x][next_y]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_run_iterator itr;
+		*val1_pos = x; /* set key in msgpack querry */
+		*val2_pos = y; /* set key in msgpack querry */
+		vy_run_iterator_open(&itr, &index, &run, &file, NULL, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_run_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 1;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 2;
+				break;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_run_iterator_next_lsn(&itr) == 0) {
+					int rc = vy_run_iterator_get(&itr, &t);
+					if (rc == 0) {
+						mp = t->data + 15;
+						next_val = mp_decode_uint(&mp);
+					}
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_run_iterator_next_key(&itr);
+			bool more = rc == 0;
+			t = NULL;
+			vy_run_iterator_get(&itr, &t);
+			if (more && t == NULL)
+				res |= 4;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_run_iterator_next_lsn(&itr) != 1 ||
+			    vy_run_iterator_get(&itr, &t) != 1)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 8;
+		}
+		vy_run_iterator_close(&itr);
+	}
+
+	/* Test of partial-key queries*/
+	offsets[1] = VY_TUPLE_KEY_MISSING;
+	for (int k = 0; k < 21 * 5 * 7 * 2; k++) {
+		int x = k % 21;
+		enum vy_order order = orders[k / 21 % 5];
+		int lsn = k / 21 / 5 % 7;
+		bool check_next_lsn = k / 21 / 5 / 7;
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_EQ) {
+			reference = &vis[lsn][shortcut[lsn][x][0]];
+			if (x == 20)
+				reference_end = &vis[lsn][vis_count[lsn]];
+			else
+				reference_end = &vis[lsn][shortcut[lsn][x + 1][0]];
+		} else if (order == VINYL_GE) {
+			reference = &vis[lsn][shortcut[lsn][x][0]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GT) {
+			if (x == 20)
+				reference = &vis[lsn][vis_count[lsn]];
+			else
+				reference = &vis[lsn][shortcut[lsn][x + 1][0]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LE) {
+			if (x == 20)
+				reference = &vis_rev[lsn][0];
+			else
+				reference = &vis_rev[lsn][shortcut_rev[lsn][x + 1][0]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LT) {
+			reference = &vis_rev[lsn][shortcut_rev[lsn][x][0]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_run_iterator itr;
+		*val1_pos = x; /* set key in msgpack querry */
+		vy_run_iterator_open(&itr, &index, &run, &file, NULL, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_run_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 16;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 32;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_run_iterator_next_lsn(&itr) == 0) {
+					int rc = vy_run_iterator_get(&itr, &t);
+					if (rc == 0) {
+						mp = t->data + 15;
+						next_val = mp_decode_uint(&mp);
+					}
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_run_iterator_next_key(&itr);
+			bool more = rc == 0;
+			t = NULL;
+			vy_run_iterator_get(&itr, &t);
+			if (more && t == NULL)
+				res |= 64;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_run_iterator_next_lsn(&itr) != 1 ||
+			    vy_run_iterator_get(&itr, &t) != 1)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 128;
+		}
+		vy_run_iterator_close(&itr);
+	}
+
+	/* Test of equal-to-all key queries*/
+	offsets[0] = VY_TUPLE_KEY_MISSING;
+	offsets[1] = VY_TUPLE_KEY_MISSING;
+	for (int k = 0; k < 5 * 7 * 2; k++) {
+		enum vy_order order = orders[k % 5];
+		int lsn = k / 5 % 7;
+		bool check_next_lsn = k / 5 / 7;
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_EQ) {
+			reference = &vis[lsn][0];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GE) {
+			reference = &vis[lsn][0];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GT) {
+			reference = &vis[lsn][vis_count[lsn]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LE) {
+			reference = &vis_rev[lsn][0];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LT) {
+			reference = &vis_rev[lsn][vis_count[lsn]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_run_iterator itr;
+		vy_run_iterator_open(&itr, &index, &run, &file, NULL, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_run_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 256;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 512;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_run_iterator_next_lsn(&itr) == 0) {
+					int rc = vy_run_iterator_get(&itr, &t);
+					if (rc == 0) {
+						mp = t->data + 15;
+						next_val = mp_decode_uint(&mp);
+					}
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_run_iterator_next_key(&itr);
+			bool more = rc == 0;
+			t = NULL;
+			vy_run_iterator_get(&itr, &t);
+			if (more && t == NULL)
+				res |= 1024;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_run_iterator_next_lsn(&itr) != 1 ||
+			    vy_run_iterator_get(&itr, &t) != 1)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 2048;
+		}
+		vy_run_iterator_close(&itr);
+	}
+
+	/* Test of NULL key queries*/
+	offsets[0] = VY_TUPLE_KEY_MISSING;
+	offsets[1] = VY_TUPLE_KEY_MISSING;
+	for (int k = 0; k < 5 * 7 *  2; k++) {
+		enum vy_order order = orders[k % 5];
+		int lsn = k / 5 % 7;
+		bool check_next_lsn = k / 5 / 7;
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_LE || order == VINYL_LT) {
+			reference = &vis_rev[lsn][0];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else {
+			reference = &vis[lsn][0];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_run_iterator itr;
+		vy_run_iterator_open(&itr, &index, &run, &file, NULL, order, NULL, lsn);
+		struct vy_tuple *t;
+		int rc = vy_run_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 4096;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 65536;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_run_iterator_next_lsn(&itr) == 0) {
+					int rc = vy_run_iterator_get(&itr, &t);
+					if (rc == 0) {
+						mp = t->data + 15;
+						next_val = mp_decode_uint(&mp);
+					}
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_run_iterator_next_key(&itr);
+			bool more = rc == 0;
+			t = NULL;
+			vy_run_iterator_get(&itr, &t);
+			if (more && t == NULL)
+				res |= 16384;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_run_iterator_next_lsn(&itr) != 1 ||
+			    vy_run_iterator_get(&itr, &t) != 1)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 32768;
+		}
+		vy_run_iterator_close(&itr);
+	}
+
+
+	offsets[0] = val1_pos - tuple_data;
+	offsets[1] = val2_pos - tuple_data;
+	run.index.header.count = 1;
+	((struct sdpageheader *)file_buf)->count = 0;
+	lseek(fd, 0, SEEK_SET);
+	rc = write(fd, file_buf, file_buf_pos - file_buf);
+	assert(rc == file_buf_pos - file_buf); (void)rc;
+	for (int k = 0; k < 5; k++) {
+		enum vy_order order = orders[k % 5];
+		int lsn = 1;
+		struct vy_run_iterator itr;
+		vy_run_iterator_open(&itr, &index, &run, &file, NULL, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_run_iterator_get(&itr, &t);
+		if (rc != 1)
+			res |= 131072;
+		vy_run_iterator_close(&itr);
+		vy_run_iterator_open(&itr, &index, &run, &file, NULL, order, NULL, lsn);
+		rc = vy_run_iterator_get(&itr, &t);
+		if (rc != 1)
+			res |= 131072;
+		vy_run_iterator_close(&itr);
+	}
+
+	err:
+	if (run.page_cache != NULL) {
+		for (uint32_t i = 0; i < run.index.header.count; i++) {
+			if (run.page_cache->refs) {
+				res |= 1024 * 1024 * 1024;
+				free(run.page_cache->h);
+			}
+		}
+		free(run.page_cache);
+	}
+
+	vy_buf_free(&run.index.minmax);
+	vy_buf_free(&run.index.pages);
+	pthread_mutex_destroy(&run.cache_lock);
+	close(fd);
+	remove(tmpname);
+
+	return res;
+}
+
+/* }}} Unit test of vy_run_iterator */
+
+
+/* {{{ Unit test of vy_mem_iterator */
+
+int
+vy_mem_iterator_unit_test()
+{
+	struct vy_debug_record {
+		int x;
+		int y;
+		int lsn;
+		int next; /* next record with the same x, y */
+	};
+	int res = 0;
+
+	/* Generate */
+
+	/* x and y are odd numbers 1..19, lsn is 1,3,5 */
+	/* records are sorted by x ASC, y ASC, lsn DESC */
+	struct vy_debug_record record[300];
+	int record_count = 0;
+	for (int k = 0; k < 100; k++) {
+		int x = (k / 10) * 2 + 1;
+		int y = (k % 10) * 2 + 1;
+		int lsn_count = 0;
+		int lsns[3];
+		if (rand() & 1)
+			lsns[lsn_count++] = 5;
+		if (rand() & 1)
+			lsns[lsn_count++] = 3;
+		if (rand() & 1)
+			lsns[lsn_count++] = 1;
+		for (int l = 0; l < lsn_count; l++) {
+			record[record_count].x = x;
+			record[record_count].y = y;
+			record[record_count].lsn = lsns[l];
+			record[record_count].next = -1;
+			if (l != 0)
+				record[record_count - 1].next = record_count;
+			record_count++;
+		}
+	}
+#if 0
+	/* Optional output of all records */
+	printf("records:\n");
+	for (int k = 0; k < record_count; k++) {
+		printf("%3d(%2d %2d %d) ",
+		       k, record[k].x, record[k].y, record[k].lsn);
+	}
+	printf("\n");
+#endif
+
+	/* Fill local structures for itr check */
+
+	/* visible values (index in record[]) for different visibility lsns */
+	/* vis[0] is empty, vis[1][..] is identical to vis[2][..] etc */
+	int vis[7][100];
+	int vis_count[7] = {0, 0, 0, 0, 0, 0, 0};
+	for (int lsn = 0; lsn < 7; lsn++) {
+		int prev_x = -1;
+		int prev_y = -1;
+		for (int k = 0; k < record_count; k++) {
+			if (record[k].lsn > lsn)
+				continue;
+			if (prev_x == record[k].x && prev_y == record[k].y)
+				continue;
+			prev_x = record[k].x;
+			prev_y = record[k].y;
+			vis[lsn][vis_count[lsn]] = k;
+			vis_count[lsn]++;
+		}
+	}
+	assert(vis_count[0] == 0);
+	/* visible values for different lsns in reverse order */
+	int vis_rev[7][100];
+	for (int lsn = 0; lsn < 7; lsn++) {
+		for (int k = 0; k < vis_count[lsn]; k++) {
+			vis_rev[lsn][k] = vis[lsn][vis_count[lsn] - k - 1];
+		}
+	}
+#if 0
+	/* optional output of vis and vis_rev */
+	for (int lsn = 0; lsn < 7; lsn++) {
+		if (!(lsn & 1))
+			continue; /* skip repeating output */
+		printf("Direct lsn<=%d, total %d\n", lsn, vis_count[lsn]);
+		for (int k = 0; k < vis_count[lsn]; k++)
+			printf("%3d(%2d %2d %d) ", vis[lsn][k],
+			       record[vis[lsn][k]].x, record[vis[lsn][k]].y,
+			       record[vis[lsn][k]].lsn);
+		printf("\n");
+	}
+	for (int lsn = 0; lsn < 7; lsn++) {
+		if (!(lsn & 1))
+			continue; /* skip repeating output */
+		printf("Reverse lsn<=%d, total %d\n", lsn, vis_count[lsn]);
+		for (int k = 0; k < vis_count[lsn]; k++)
+			printf("%3d(%2d %2d %d) ", vis_rev[lsn][k],
+			       record[vis_rev[lsn][k]].x, record[vis_rev[lsn][k]].y,
+			       record[vis_rev[lsn][k]].lsn);
+		printf("\n");
+	}
+#endif
+
+	/* offsets in vis[] of greater of equal values for given lsn, x, y */
+	int shortcut[7][21][21];
+	for (int lsn = 0; lsn < 7; lsn++) {
+		int prev_x = 0;
+		int prev_y = -1;
+		for (int k = 0; k < vis_count[lsn]; k++) {
+			int x = record[vis[lsn][k]].x;
+			int y = record[vis[lsn][k]].y;
+			while (prev_x != x || prev_y != y) {
+				if (++prev_y >= 21) {
+					prev_y = 0;
+					++prev_x;
+				}
+				shortcut[lsn][prev_x][prev_y] = k;
+			}
+		}
+		while (prev_x != 20 || prev_y != 20) {
+			if (++prev_y >= 21) {
+				prev_y = 0;
+				++prev_x;
+			}
+			shortcut[lsn][prev_x][prev_y] = vis_count[lsn];
+		}
+	}
+	/* offsets in rev_vis[] of les of equal values for given lsn, x, y */
+	int shortcut_rev[7][21][21];
+	for (int lsn = 0; lsn < 7; lsn++) {
+		int prev_x = 20;
+		int prev_y = 21;
+		for (int k = 0; k < vis_count[lsn]; k++) {
+			int x = record[vis_rev[lsn][k]].x;
+			int y = record[vis_rev[lsn][k]].y;
+			while (prev_x != x || prev_y != y) {
+				if (--prev_y < 0) {
+					prev_y = 20;
+					--prev_x;
+				}
+				shortcut_rev[lsn][prev_x][prev_y] = k;
+			}
+		}
+		while (prev_x != 0 || prev_y != 0) {
+			if (--prev_y < 0) {
+				prev_y = 20;
+				--prev_x;
+			}
+			shortcut_rev[lsn][prev_x][prev_y] = vis_count[lsn];
+		}
+	}
+
+	/* Make a mem */
+	char key_def_buf[sizeof(struct key_def) + 2 * sizeof(struct key_part)] = {0};
+	struct key_def *key_def = (struct key_def *)key_def_buf;
+	key_def->part_count = 2;
+	key_def->parts[0].fieldno = 0;
+	key_def->parts[0].type = FIELD_TYPE_UNSIGNED;
+	key_def->parts[1].fieldno = 1;
+	key_def->parts[1].type = FIELD_TYPE_UNSIGNED;
+	tuple_compare_create(key_def);
+
+	struct vy_env env = {0};
+	struct vy_stat stat;
+	env.stat = &stat;
+
+	struct vy_index index;
+	memset(&index, 0, sizeof(index));
+	index.key_def = key_def;
+	index.key_map_size = 2;
+	uint32_t key_map[2] = {0, 1};
+	index.key_map = key_map;
+	index.env = &env;
+
+	char tuple_data[64];
+	uint32_t *offsets = (uint32_t *)tuple_data;
+	char *mp = (char *)(offsets + 3);
+	char *val1_pos = mp_encode_array(mp, 3);
+	char *val2_pos = val1_pos + 1;
+	char *val3_pos = val2_pos + 1;
+	offsets[0] = val1_pos - tuple_data;
+	offsets[1] = val2_pos - tuple_data;
+	offsets[2] = UINT32_MAX;
+
+	struct vy_mem mem;
+	vy_mem_init(&mem, key_def);
+	for (int k = 0; k < record_count; k++) {
+		*val1_pos = record[k].x;
+		*val2_pos = record[k].y;
+		char *tuple_data_end = mp_encode_uint(val3_pos, k);
+		struct vy_tuple *t = vy_tuple_from_data(&index, mp, tuple_data_end);
+		t->lsn = record[k].lsn;
+		struct svref ref;
+		ref.flags = 0;
+		ref.v = t;
+		vy_mem_set(&mem, ref);
+	}
+
+	/* Test of full-key queries*/
+	enum vy_order orders[5] = {VINYL_GE, VINYL_GT, VINYL_EQ, VINYL_LE, VINYL_LT};
+	for (int k = 0; k < 21 * 21 * 5 * 7 * 2; k++) {
+		int x = k / 21 % 21;
+		int y = k % 21;
+		enum vy_order order = orders[k / 21 / 21 % 5];
+		int lsn = k / 21 / 21 / 5 % 7;
+		bool check_next_lsn = k / 21 / 21 / 5 / 7;
+
+		int next_x = x, next_y;
+		if (order == VINYL_LE || order == VINYL_LT) {
+			next_y = y - 1;
+			if (next_y < 0) {
+				next_y = 20;
+				next_x--;
+			}
+		} else {
+			next_y = y + 1;
+			if (next_y >= 21) {
+				next_y = 0;
+				next_x++;
+			}
+		}
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_EQ) {
+			reference = &vis[lsn][shortcut[lsn][x][y]];
+			if (next_x == 21)
+				reference_end = &vis[lsn][vis_count[lsn]];
+			else
+				reference_end = &vis[lsn][shortcut[lsn][next_x][next_y]];
+		} else if (order == VINYL_GE) {
+			reference = &vis[lsn][shortcut[lsn][x][y]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GT) {
+			if (next_x == 21)
+				reference = &vis[lsn][vis_count[lsn]];
+			else
+				reference = &vis[lsn][shortcut[lsn][next_x][next_y]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LE) {
+			reference = &vis_rev[lsn][shortcut_rev[lsn][x][y]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LT) {
+			if (next_x == -1)
+				reference = &vis_rev[lsn][vis_count[lsn]];
+			else
+				reference = &vis_rev[lsn][shortcut_rev[lsn][next_x][next_y]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_mem_iterator itr;
+		*val1_pos = x; /* set key in msgpack querry */
+		*val2_pos = y; /* set key in msgpack querry */
+		vy_mem_iterator_open(&itr, &mem, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_mem_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 1;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 2;
+				break;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_mem_iterator_next_lsn(&itr) == 0) {
+					vy_mem_iterator_get(&itr, &t);
+					mp = t->data + 15;
+					next_val = mp_decode_uint(&mp);
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_mem_iterator_next_key(&itr);
+			int rc2 = vy_mem_iterator_get(&itr, &t);
+			if (rc != rc2)
+				res |= 4;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_mem_iterator_next_lsn(&itr) == 0 || vy_mem_iterator_get(&itr, &t) == 0)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 8;
+		}
+		vy_mem_iterator_close(&itr);
+	}
+
+	/* Test of partial-key queries*/
+	offsets[1] = VY_TUPLE_KEY_MISSING;
+	for (int k = 0; k < 21 * 5 * 7 * 2; k++) {
+		int x = k % 21;
+		enum vy_order order = orders[k / 21 % 5];
+		int lsn = k / 21 / 5 % 7;
+		bool check_next_lsn = k / 21 / 5 / 7;
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_EQ) {
+			reference = &vis[lsn][shortcut[lsn][x][0]];
+			if (x == 20)
+				reference_end = &vis[lsn][vis_count[lsn]];
+			else
+				reference_end = &vis[lsn][shortcut[lsn][x + 1][0]];
+		} else if (order == VINYL_GE) {
+			reference = &vis[lsn][shortcut[lsn][x][0]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GT) {
+			if (x == 20)
+				reference = &vis[lsn][vis_count[lsn]];
+			else
+				reference = &vis[lsn][shortcut[lsn][x + 1][0]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LE) {
+			if (x == 20)
+				reference = &vis_rev[lsn][0];
+			else
+				reference = &vis_rev[lsn][shortcut_rev[lsn][x + 1][0]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LT) {
+			reference = &vis_rev[lsn][shortcut_rev[lsn][x][0]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_mem_iterator itr;
+		*val1_pos = x; /* set key in msgpack querry */
+		vy_mem_iterator_open(&itr, &mem, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_mem_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 16;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 32;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_mem_iterator_next_lsn(&itr) == 0) {
+					vy_mem_iterator_get(&itr, &t);
+					mp = t->data + 15;
+					next_val = mp_decode_uint(&mp);
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_mem_iterator_next_key(&itr);
+			int rc2 = vy_mem_iterator_get(&itr, &t);
+			if (rc != rc2)
+				res |= 64;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_mem_iterator_next_lsn(&itr) == 0 || vy_mem_iterator_get(&itr, &t) == 0)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 128;
+		}
+		vy_mem_iterator_close(&itr);
+	}
+
+	/* Test of equal-to-all key queries*/
+	offsets[0] = VY_TUPLE_KEY_MISSING;
+	offsets[1] = VY_TUPLE_KEY_MISSING;
+	for (int k = 0; k < 5 * 7 * 2; k++) {
+		enum vy_order order = orders[k % 5];
+		int lsn = k / 5 % 7;
+		bool check_next_lsn = k / 5 / 7;
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_EQ) {
+			reference = &vis[lsn][0];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GE) {
+			reference = &vis[lsn][0];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_GT) {
+			reference = &vis[lsn][vis_count[lsn]];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LE) {
+			reference = &vis_rev[lsn][0];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else if (order == VINYL_LT) {
+			reference = &vis_rev[lsn][vis_count[lsn]];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_mem_iterator itr;
+		vy_mem_iterator_open(&itr, &mem, order, tuple_data, lsn);
+		struct vy_tuple *t;
+		int rc = vy_mem_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 256;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 512;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_mem_iterator_next_lsn(&itr) == 0) {
+					vy_mem_iterator_get(&itr, &t);
+					mp = t->data + 15;
+					next_val = mp_decode_uint(&mp);
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_mem_iterator_next_key(&itr);
+			int rc2 = vy_mem_iterator_get(&itr, &t);
+			if (rc != rc2)
+				res |= 1024;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_mem_iterator_next_lsn(&itr) == 0 || vy_mem_iterator_get(&itr, &t) == 0)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 2048;
+		}
+		vy_mem_iterator_close(&itr);
+	}
+
+	/* Test of NULL key queries*/
+	offsets[0] = VY_TUPLE_KEY_MISSING;
+	offsets[1] = VY_TUPLE_KEY_MISSING;
+	for (int k = 0; k < 5 * 7 *  2; k++) {
+		enum vy_order order = orders[k % 5];
+		int lsn = k / 5 % 7;
+		bool check_next_lsn = k / 5 / 7;
+
+		int *reference = NULL;
+		int *reference_end = NULL;
+		if (order == VINYL_LE || order == VINYL_LT) {
+			reference = &vis_rev[lsn][0];
+			reference_end = &vis_rev[lsn][vis_count[lsn]];
+		} else {
+			reference = &vis[lsn][0];
+			reference_end = &vis[lsn][vis_count[lsn]];
+		}
+		int *r = reference;
+		struct vy_mem_iterator itr;
+		vy_mem_iterator_open(&itr, &mem, order, NULL, lsn);
+		struct vy_tuple *t;
+		int rc = vy_mem_iterator_get(&itr, &t);
+		while (rc == 0) {
+			if (r == reference_end) {
+				res |= 4096;
+				break;
+			}
+			const char *mp = t->data + 15;
+			int val = mp_decode_uint(&mp);
+			if (val != *r) {
+				res |= 2048;
+			}
+			if (check_next_lsn) {
+				int next_val = -1;
+				if (vy_mem_iterator_next_lsn(&itr) == 0) {
+					vy_mem_iterator_get(&itr, &t);
+					mp = t->data + 15;
+					next_val = mp_decode_uint(&mp);
+				}
+				if (next_val != record[val].next)
+					res |= 65536;
+			}
+			rc = vy_mem_iterator_next_key(&itr);
+			int rc2 = vy_mem_iterator_get(&itr, &t);
+			if (rc != rc2)
+				res |= 16384;
+			++r;
+		}
+		if (check_next_lsn) {
+			if (vy_mem_iterator_next_lsn(&itr) == 0 || vy_mem_iterator_get(&itr, &t) == 0)
+				res |= 65536;
+		}
+		if (r != reference_end) {
+			res |= 32768;
+		}
+		vy_mem_iterator_close(&itr);
+	}
+
+	vy_mem_free(&mem);
+
+	/* Test of restoration after index change */
+	offsets[0] = val1_pos - tuple_data;
+	offsets[1] = val2_pos - tuple_data;
+	vy_mem_init(&mem, key_def);
+	const int test_count =
+		BPS_TREE_BLOCK_SIZE / sizeof(bps_tree_elem_t) * 2 / 3;
+	for (int k = 0; k < test_count; k++) {
+		*val1_pos = 0;
+		char *tuple_data_end = mp_encode_uint(val2_pos, k * 2);
+		tuple_data_end = mp_encode_uint(tuple_data_end, k * 2);
+		struct vy_tuple *t = vy_tuple_from_data(&index, mp, tuple_data_end);
+		t->lsn = 1;
+		struct svref ref;
+		ref.flags = 0;
+		ref.v = t;
+		vy_mem_set(&mem, ref);
+	}
+	assert(mem.tree.depth == 1);
+	struct vy_mem_iterator itrs_ge[test_count];
+	struct vy_mem_iterator itrs_le[test_count];
+	for (int k = 0; k < test_count; k++) {
+		*val1_pos = 0;
+		mp_encode_uint(val2_pos, k * 2);
+		vy_mem_iterator_open(&itrs_ge[k], &mem, VINYL_GE, tuple_data, 1);
+		vy_mem_iterator_open(&itrs_le[k], &mem, VINYL_LE, tuple_data, 1);
+		struct vy_tuple *t1 = NULL, *t2 = NULL;
+		vy_mem_iterator_get(&itrs_ge[k], &t1);
+		vy_mem_iterator_get(&itrs_le[k], &t2);
+		assert(t1 == t2);
+	}
+	for (int k = 0; k < test_count; k++) {
+		*val1_pos = 0;
+		char *tuple_data_end = mp_encode_uint(val2_pos, k * 2 + 1);
+		tuple_data_end = mp_encode_uint(tuple_data_end, k * 2 + 1);
+		struct vy_tuple *t = vy_tuple_from_data(&index, mp, tuple_data_end);
+		t->lsn = 1;
+		struct svref ref;
+		ref.flags = 0;
+		ref.v = t;
+		vy_mem_set(&mem, ref);
+	}
+	assert(mem.tree.depth == 2);
+	for (int k = 0; k < test_count; k++) {
+		int last_val;
+		struct vy_tuple *t;
+		last_val = 2 * k;
+		while (vy_mem_iterator_next_key(&itrs_ge[k]) == 0) {
+			vy_mem_iterator_get(&itrs_ge[k], &t);
+			const char *p = t->data + 14;
+			int curr_val = mp_decode_uint(&p);
+			if (curr_val != last_val + 1)
+				res |= 0x100000;
+			last_val = curr_val;
+		}
+		if (last_val != 2 * test_count - 1)
+			res |= 0x200000;
+		last_val = 2 * k;
+		while (vy_mem_iterator_next_key(&itrs_le[k]) == 0) {
+			vy_mem_iterator_get(&itrs_le[k], &t);
+			const char *p = t->data + 14;
+			int curr_val = mp_decode_uint(&p);
+			if (curr_val != last_val - 1)
+				res |= 0x400000;
+			last_val = curr_val;
+		}
+		if (last_val != 0)
+			res |= 0x800000;
+	}
+
+	vy_mem_free(&mem);
+
+	return res;
+}
+
+/* }}} Unit test of vy_mem_iterator */
