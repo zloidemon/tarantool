@@ -108,7 +108,7 @@ fiber_call(struct fiber *callee)
 	update_last_stack_frame(caller);
 
 	callee->csw++;
-	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
+	cord->coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
 }
 
 void
@@ -284,7 +284,7 @@ fiber_yield(void)
 	update_last_stack_frame(caller);
 
 	callee->csw++;
-	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
+	cord->coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
 }
 
 struct fiber_watcher_data {
@@ -628,6 +628,7 @@ cord_init(const char *name)
 	struct cord *cord = cord();
 
 	cord->id = pthread_self();
+	cord->coro_transfer = coro_transfer;
 	cord->on_exit = NULL;
 	slab_cache_create(&cord->slabc, &runtime);
 	mempool_create(&cord->fiber_pool, &cord->slabc,

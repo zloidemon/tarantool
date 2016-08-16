@@ -332,6 +332,7 @@ struct cord {
 	struct slab_cache slabc;
 	/** The "main" fiber of this cord, the scheduler. */
 	struct fiber sched;
+	void (*coro_transfer)(struct coro_context *, struct coro_context *);
 	char name[FIBER_NAME_MAX];
 };
 

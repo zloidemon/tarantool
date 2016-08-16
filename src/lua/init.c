@@ -59,6 +59,11 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
+/* LuaJIT internals for lua_coro_transfer */
+#include <lj_obj.h>
+#include <lj_jit.h>
+#include <lj_dispatch.h>
+
 /**
  * The single Lua state of the transaction processor (tx) thread.
  */
@@ -309,6 +314,26 @@ luaopen_tarantool(lua_State *L)
 	return 1;
 }
 
+static void
+lua_coro_transfer(struct coro_context *from, struct coro_context *to)
+{
+	/*
+	 * Fiber switching in a C function called via FFI is NOT
+	 * allowed, unless the call is never ever JIT-compiled.
+	 * If the policy is violated, the resulting crashes are
+	 * extremely hard to debug.
+	 * The code below, adopted from lj_ccallback.c, checks that
+	 * (A) JIT-compiler isn't currently recording a trace;
+	 * (B) we weren't invoked by a JIT-compiled code.
+	 */
+	if ((L2J(tarantool_L)->state & LJ_TRACE_ACTIVE) ||
+	    tvref(G(tarantool_L)->jit_base)) {
+		say_crit("panic: fiber switching in JIT-compiled Lua code");
+		abort();
+	}
+	coro_transfer(from, to);
+}
+
 void
 tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 {
@@ -397,6 +422,7 @@ tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 	/* clear possible left-overs of init */
 	lua_settop(L, 0);
 	tarantool_L = L;
+	cord()->coro_transfer = lua_coro_transfer;
 }
 
 char *history = NULL;
