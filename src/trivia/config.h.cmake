@@ -240,6 +240,8 @@
 #define DEFAULT_CFG_FILENAME "tarantool.cfg"
 #define DEFAULT_CFG SYSCONF_DIR "/" DEFAULT_CFG_FILENAME
 
+#cmakedefine ENABLE_ASAN 1
+
 /*
  * vim: syntax=c
  */

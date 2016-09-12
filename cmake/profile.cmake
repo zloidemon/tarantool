@@ -41,3 +41,17 @@ if (ENABLE_VALGRIND)
              "ENABLE_VALGRIND option is set but valgrind/valgrind.h is not found")
         endif()
 endif()
+
+option(ENABLE_ASAN "Enable AddressSanitizer, a fast memory error detector based on compiler instrumentation" OFF)
+if (ENABLE_ASAN)
+    add_compile_flags("C;CXX" -fsanitize=address -mllvm -asan-stack=0)
+    # Apparently, C/CXX flags are passed to the linker as well.
+    # Normally, that would be ok (irt -fsanitize=address).
+    # However, we want a more recent sanitizer runtime than the one that
+    # ships with a compiler (the most recent ASAN knows about fibers!)
+    # hence we have to undo -fsanitize=address and link with the ASAN
+    # library explicitly.
+    set(ldflags_asan "-fno-sanitize=address ${CMAKE_BINARY_DIR}/libclang_rt.asan_osx_dynamic.dylib")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${ldflags_asan}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${ldflags_asan}")
+endif()

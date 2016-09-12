@@ -42,6 +42,24 @@
 
 static int (*fiber_invoke)(fiber_func f, va_list ap);
 
+#if ENABLE_ASAN
+void __sanitizer_start_switch_fiber(void **fake_stack_save,
+                                    const void *bottom,
+                                    size_t size);
+void __sanitizer_finish_switch_fiber(void *fake_stack_save);
+
+#define ASAN_START_SWITCH_FIBER(var_name, will_switch_back, bottom, size) \
+	void *var_name = NULL; \
+	__sanitizer_start_switch_fiber((will_switch_back) ? &var_name : NULL, \
+                                       (bottom), (size))
+#define ASAN_FINISH_SWITCH_FIBER(var_name) \
+	__sanitizer_finish_switch_fiber(var_name);
+
+#else
+#define ASAN_START_SWITCH_FIBER(var_name, will_switch_back, bottom, size)
+#define ASAN_FINISH_SWITCH_FIBER(var_name)
+#endif
+
 /*
  * Defines a handler to be executed on exit from cord's thread func,
  * accessible via cord()->on_exit (normally NULL). It is used to
@@ -105,7 +123,11 @@ fiber_call_impl(struct fiber *callee)
 	update_last_stack_frame(caller);
 
 	callee->csw++;
+	ASAN_START_SWITCH_FIBER(asan_state, 1,
+				callee->coro.stack,
+				callee->coro.stack_size);
 	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
+	ASAN_FINISH_SWITCH_FIBER(asan_state);
 }
 
 void
@@ -290,7 +312,12 @@ fiber_yield(void)
 	update_last_stack_frame(caller);
 
 	callee->csw++;
+	ASAN_START_SWITCH_FIBER(asan_state,
+				(caller->flags & FIBER_IS_DEAD) == 0,
+				callee->coro.stack,
+				callee->coro.stack_size);
 	coro_transfer(&caller->coro.ctx, &callee->coro.ctx);
+	ASAN_FINISH_SWITCH_FIBER(asan_state);
 }
 
 struct fiber_watcher_data {
@@ -470,6 +497,7 @@ fiber_recycle(struct fiber *fiber)
 static void
 fiber_loop(void *data __attribute__((unused)))
 {
+	ASAN_FINISH_SWITCH_FIBER(NULL);
 	for (;;) {
 		struct fiber *fiber = fiber();
 
@@ -760,6 +788,10 @@ cord_create(struct cord *cord, const char *name)
 
 	ev_idle_init(&cord->idle_event, fiber_schedule_idle);
 	cord_set_name(name);
+
+	/* Record stack extents */
+	cord->sched.coro.stack_size = pthread_get_stacksize_np(cord->id);
+	cord->sched.coro.stack = pthread_get_stackaddr_np(cord->id);
 }
 
 void
