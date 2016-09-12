@@ -1838,7 +1838,6 @@ struct vy_index {
 	uint64_t read_disk;
 	uint64_t read_cache;
 	uint64_t size;
-	pthread_mutex_t ref_lock;
 	uint32_t refs;
 	/** A schematic name for profiler output. */
 	char       *name;
@@ -1850,7 +1849,7 @@ struct vy_index {
 	struct tuple_format *tuple_format;
 	uint32_t key_map_size; /* size of key_map map */
 	uint32_t *key_map; /* field_id -> part_id map */
-	/** Member of env->db or scheduler->shutdown. */
+	/** Member of env->indexes list. */
 	struct rlist link;
 
 	/* {{{ Scheduler members */
@@ -4275,7 +4274,6 @@ struct vy_scheduler {
 	int            rr;
 	int            count;
 	struct vy_index **indexes;
-	struct rlist   shutdown;
 	struct vy_env    *env;
 
 	struct cord *worker_pool;
@@ -4344,7 +4342,6 @@ vy_scheduler_new(struct vy_env *env)
 	scheduler->count = 0;
 	scheduler->rr = 0;
 	scheduler->env = env;
-	rlist_create(&scheduler->shutdown);
 	tt_pthread_cond_init(&scheduler->worker_cond, NULL);
 	scheduler->loop = loop();
 	ev_async_init(&scheduler->scheduler_async, vy_scheduler_async_cb);
@@ -4361,11 +4358,6 @@ vy_scheduler_delete(struct vy_scheduler *scheduler)
 		vy_scheduler_stop(scheduler);
 
 	mempool_destroy(&scheduler->task_pool);
-
-	struct vy_index *index, *next;
-	rlist_foreach_entry_safe(index, &scheduler->shutdown, link, next) {
-		vy_index_delete(index);
-	}
 	free(scheduler->indexes);
 	tt_pthread_cond_destroy(&scheduler->worker_cond);
 	TRASH(&scheduler->scheduler_async);
@@ -4408,8 +4400,6 @@ vy_scheduler_del_index(struct vy_scheduler *scheduler, struct vy_index *index)
 	if (unlikely(scheduler->rr >= scheduler->count))
 		scheduler->rr = 0;
 	vy_index_unref(index);
-	/* add index to `shutdown` list */
-	rlist_add(&scheduler->shutdown, &index->link);
 	return 0;
 }
 
@@ -4522,20 +4512,6 @@ vy_scheduler_peek_compact(struct vy_scheduler *scheduler,
 	return 0; /* nothing to do */
 }
 
-static inline int
-vy_scheduler_peek_shutdown(struct vy_scheduler *scheduler,
-			   struct vy_index *index, struct vy_task **ptask)
-{
-	if (index->refs > 0) {
-		*ptask = NULL;
-		return 0; /* index still has tasks */
-	}
-	*ptask = vy_task_drop_new(&scheduler->task_pool, index);
-	if (*ptask == NULL)
-		return -1;
-	return 0; /* new task */
-}
-
 static int
 vy_schedule_index(struct vy_scheduler *scheduler, struct srzone *zone,
 		  int64_t vlsn, struct vy_index *index, struct vy_task **ptask)
@@ -4589,34 +4565,47 @@ static int
 vy_schedule(struct vy_scheduler *scheduler, struct srzone *zone, int64_t vlsn,
 	    struct vy_task **ptask)
 {
-	/* Schedule all pending shutdowns. */
-	struct vy_index *index, *n;
-	rlist_foreach_entry_safe(index, &scheduler->shutdown, link, n) {
-		*ptask = NULL;
-		int rc = vy_scheduler_peek_shutdown(scheduler, index, ptask);
-		if (rc < 0)
-			return rc;
-		if (*ptask == NULL)
-			continue;
-		/* Remove from scheduler->shutdown list */
-		rlist_del(&index->link);
-		return 0;
-	}
-
 	/* peek an index */
 	*ptask = NULL;
 	if (scheduler->count == 0)
 		return 0;
 	assert(scheduler->rr < scheduler->count);
-	index = scheduler->indexes[scheduler->rr];
+	struct vy_index *index = scheduler->indexes[scheduler->rr];
 	scheduler->rr = (scheduler->rr + 1) % scheduler->count;
 
 	int rc = vy_schedule_index(scheduler, zone, vlsn, index, ptask);
 	return rc;
 }
 
+static void
+__vy_queue_task(struct vy_scheduler *scheduler, struct vy_task *task)
+{
+	bool was_empty = stailq_empty(&scheduler->input_queue);
+	stailq_add_tail_entry(&scheduler->input_queue, task, link);
+	if (was_empty) /* Notify workers */
+		tt_pthread_cond_signal(&scheduler->worker_cond);
+}
+
+static void
+vy_queue_task(struct vy_scheduler *scheduler, struct vy_task *task)
+{
+	tt_pthread_mutex_lock(&scheduler->mutex);
+	__vy_queue_task(scheduler, task);
+	tt_pthread_mutex_unlock(&scheduler->mutex);
+}
+
 static int
-vy_worker_f(va_list va);
+vy_queue_drop_task(struct vy_scheduler *scheduler, struct vy_index *index)
+{
+	struct vy_task *task;
+
+	task = vy_task_drop_new(&scheduler->task_pool, index);
+	if (!task)
+		return -1;
+
+	vy_queue_task(scheduler, task);
+	return 0;
+}
 
 static int
 vy_scheduler_f(va_list va)
@@ -4649,12 +4638,7 @@ vy_scheduler_f(va_list va)
 			      &output_queue);
 
 		if (task != NULL) {
-			/* Queue task */
-			bool was_empty = stailq_empty(&scheduler->input_queue);
-			stailq_add_tail_entry(&scheduler->input_queue, task,
-					      link);
-			if (was_empty)                  /* Notify workers */
-				tt_pthread_cond_signal(&scheduler->worker_cond);
+			__vy_queue_task(scheduler, task);
 			warning_said = false;
 		}
 
@@ -5584,20 +5568,19 @@ vy_index_open(struct vy_index *index)
 static void
 vy_index_ref(struct vy_index *index)
 {
-	tt_pthread_mutex_lock(&index->ref_lock);
 	index->refs++;
-	tt_pthread_mutex_unlock(&index->ref_lock);
 }
 
 static void
 vy_index_unref(struct vy_index *index)
 {
-	/* reduce reference counter */
-	tt_pthread_mutex_lock(&index->ref_lock);
 	assert(index->refs > 0);
-	--index->refs;
-	tt_pthread_mutex_unlock(&index->ref_lock);
-	/* index will be deleted by scheduler if ref == 0 */
+	if (--index->refs == 0) {
+		struct vy_scheduler *scheduler = index->env->scheduler;
+		if (scheduler->is_worker_pool_running &&
+		    vy_queue_drop_task(scheduler, index))
+			vy_error("%s", "Failed to queue index drop task");
+	}
 }
 
 int
@@ -5668,7 +5651,6 @@ vy_index_new(struct vy_env *e, struct key_def *key_def,
 	index->read_disk = 0;
 	index->read_cache = 0;
 	index->range_count = 0;
-	tt_pthread_mutex_init(&index->ref_lock, NULL);
 	index->refs = 0; /* referenced by scheduler */
 	read_set_new(&index->read_set);
 	rlist_add(&e->indexes, &index->link);
@@ -5693,7 +5675,6 @@ vy_index_delete(struct vy_index *index)
 	read_set_iter(&index->read_set, NULL, read_set_delete_cb, NULL);
 	vy_range_tree_iter(&index->tree, NULL, vy_range_tree_free_cb, index);
 	vy_planner_destroy(&index->p);
-	tt_pthread_mutex_destroy(&index->ref_lock);
 	free(index->name);
 	free(index->path);
 	free(index->key_map);
