@@ -1968,23 +1968,7 @@ vy_read_file(int fd, void *buf, uint32_t size)
 {
 	ssize_t pos = 0;
 	while (pos < size) {
-		ssize_t readen = read(fd, buf + pos, size - pos);
-		if (readen < 0)
-			return -1;
-		if (!readen)
-			break;
-		pos += readen;
-	}
-	return pos;
-}
-
-static ssize_t
-vy_pread_file(int fd, void *buf, uint32_t size, off_t offset)
-{
-	ssize_t pos = 0;
-	while (pos < size) {
-		ssize_t readen = pread(fd, buf + pos,
-				       size - pos, offset + pos);
+		ssize_t readen = coeio_read(fd, buf + pos, size - pos);
 		if (readen < 0)
 			return -1;
 		if (!readen)
@@ -2032,12 +2016,7 @@ vy_run_load_page(struct vy_run *run, uint32_t pos,
 		return NULL;
 	}
 
-#if 0
-	int rc = coeio_pread(file->fd, data, page_info->size, page_info->offset);
-#else
 	int rc = vy_pread_file(fd, data, page_info->size,
-				  page_info->offset);
-#endif
 
 	if (rc < 0) {
 		free(data);
@@ -3188,7 +3167,7 @@ vy_index_open_ex(struct vy_index *index)
 
 	int64_t range_id;
 	int size;
-	while ((size = read(fd, &range_id, sizeof(range_id))) ==
+	while ((size = coeio_read(fd, &range_id, sizeof(range_id))) ==
 		sizeof(range_id)) {
 		struct vy_range *range = vy_range_new(index);
 		if (!range) {
