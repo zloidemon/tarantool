@@ -5279,6 +5279,7 @@ vy_cursor_new(struct vy_tx *tx, struct vy_index *index, const char *key,
 	c->index = index;
 	c->n_reads = 0;
 	c->order = order;
+	vy_index_ref(index);
 	if (tx == NULL) {
 		tx = &c->tx_autocommit;
 		vy_tx_begin(e->xm, tx, VINYL_TX_RO);
@@ -5308,6 +5309,7 @@ vy_cursor_delete(struct vy_cursor *c)
 	}
 	if (c->key)
 		vy_tuple_unref(c->key);
+	vy_index_unref(c->index);
 	vy_stat_cursor(e->stat, c->start, c->n_reads);
 	TRASH(c);
 	mempool_free(&e->cursor_pool, c);
@@ -6565,6 +6567,8 @@ vy_index_send(struct vy_index *index, vy_send_row_f sendrow, void *ctx)
 	int64_t vlsn = INT64_MAX;
 	int rc = 0;
 
+	vy_index_ref(index);
+
 	struct svmerge merge;
 	sv_mergeinit(&merge, index, index->key_def);
 	struct vy_rangeiter range_iter;
@@ -6619,6 +6623,7 @@ vy_index_send(struct vy_index *index, vy_send_row_f sendrow, void *ctx)
 	}
 finish_send:
 	sv_mergefree(&merge);
+	vy_index_unref(index);
 	return rc;
 }
 
