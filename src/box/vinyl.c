@@ -3453,6 +3453,9 @@ vy_task_dump_execute(struct vy_task *task)
 	sv_writeiter_close(&iwrite);
 	sv_mergefree(&vmerge);
 
+	if (rc == 0 && !range->run)
+		rc = vy_range_complete(range, index);
+
 	return rc;
 }
 
@@ -3495,9 +3498,6 @@ vy_task_dump_complete(struct vy_task *task)
 	}
 
 	if (range->run_count == 1) {
-		/* First non-empty run for this range, deploy the range. */
-		if (vy_range_complete(range, index) == -1)
-			return -1;
 		/*
 		 * The range file was created successfully,
 		 * update the range index on disk.
@@ -3595,6 +3595,10 @@ vy_task_compact_execute(struct vy_task *task)
 				  index->key_def->opts.page_size, &p->run);
 		if (rc)
 			break;
+
+		rc = vy_range_complete(p->range, index);
+		if (rc)
+			break;
 	}
 
 	sv_writeiter_close(&iwrite);
@@ -3617,13 +3621,6 @@ vy_task_compact_complete(struct vy_task *task)
 	}
 
 	vy_range_compact_commit(range, nparts, parts);
-
-	/* complete new nodes */
-	for (int i = 0; i < nparts; i++) {
-		int rc = vy_range_complete(parts[i].range, index);
-		if (rc)
-			return rc;
-	}
 
 	if (vy_index_dump_range_index(index)) {
 		/*
