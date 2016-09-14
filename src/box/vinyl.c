@@ -1316,8 +1316,6 @@ struct vy_run_index {
 struct vy_run {
 	struct vy_run_index index;
 	struct vy_run *next;
-	struct vy_page *page_cache;
-	pthread_mutex_t cache_lock;
 };
 
 struct vy_range {
@@ -1846,18 +1844,13 @@ vy_tx_rollback(struct vy_env *e, struct vy_tx *tx)
 }
 
 struct vy_page {
+	/** Page header. */
 	struct vy_page_info *info;
-	void *data;
+	/** Ref counter - used by vy_run_iterator */
 	uint32_t refs;
+	/** Raw page data. */
+	char data[0];
 };
-
-static inline void
-vy_page_init(struct vy_page *p, struct vy_page_info *info, char *data)
-{
-	p->info = info;
-	p->data = data;
-	p->refs = 1;
-}
 
 static inline struct vy_tuple_info*
 sd_pagev(struct vy_page *p, uint32_t pos)
@@ -1943,8 +1936,6 @@ vy_run_new()
 	}
 	vy_run_index_init(&run->index);
 	run->next = NULL;
-	run->page_cache = NULL;
-	pthread_mutex_init(&run->cache_lock, NULL);
 	say_warn("vy_run_new: %p", run);
 	return run;
 }
@@ -1953,11 +1944,6 @@ static inline void
 vy_run_delete(struct vy_run *run)
 {
 	vy_run_index_destroy(&run->index);
-	if (run->page_cache != NULL) {
-		free(run->page_cache);
-		run->page_cache = NULL;
-	}
-	pthread_mutex_destroy(&run->cache_lock);
 	say_warn("vy_run_delete: %p", run);
 	//TRASH(run);
 	free(run);
@@ -1988,84 +1974,36 @@ vy_read_file(int fd, void *buf, uint32_t size)
  * After usage user must call vy_run_unload_page
  */
 static struct vy_page *
-vy_run_load_page(struct vy_run *run, uint32_t pos,
-		 int fd)
+vy_run_read_page(struct vy_run *run, uint32_t page_no, int fd)
 {
-	pthread_mutex_lock(&run->cache_lock);
-	if (run->page_cache == NULL) {
-		run->page_cache = calloc(run->index.info.count,
-					 sizeof(*run->page_cache));
-		if (run->page_cache == NULL) {
-			pthread_mutex_unlock(&run->cache_lock);
-			diag_set(OutOfMemory,
-				 run->index.info.count * sizeof (*run->page_cache),
-				 "load_page", "page cache");
-			return NULL;
-		}
-	}
-	if (run->page_cache[pos].refs) {
-		run->page_cache[pos].refs++;
-		pthread_mutex_unlock(&run->cache_lock);
-		return &run->page_cache[pos];
-	}
-	pthread_mutex_unlock(&run->cache_lock);
-	struct vy_page_info *page_info = vy_run_index_get_page(&run->index, pos);
-	uint32_t alloc_size = page_info->unpacked_size;
-	if (page_info->size > page_info->unpacked_size)
-		alloc_size = page_info->size;
-	char *data = malloc(alloc_size);
-	if (data == NULL) {
-		diag_set(OutOfMemory, alloc_size, "load_page", "page cache");
+	struct vy_page_info *page_info =
+		vy_run_index_get_page(&run->index, page_no);
+	struct vy_page *page = malloc(sizeof(*page) + page_info->size);
+	if (page == NULL) {
+		diag_set(OutOfMemory, sizeof(*page) + page_info->size,
+			"load_page", "page cache");
 		return NULL;
 	}
 
-	int rc = coeio_preadn(fd, data, page_info->size, page_info->offset);
+	int rc = coeio_preadn(fd, page->data, page_info->size,
+				  page_info->offset);
 	if (rc < 0) {
-		free(data);
+		free(page);
 		/* TODO: get file name from range */
 		vy_error("index file read error: %s",
 			 strerror(errno));
 		return NULL;
 	}
 
-	pthread_mutex_lock(&run->cache_lock);
-	run->page_cache[pos].refs++;
-	if (run->page_cache[pos].refs == 1)
-		vy_page_init(&run->page_cache[pos], page_info, data);
-	else
-		free(data);
-	pthread_mutex_unlock(&run->cache_lock);
-	return &run->page_cache[pos];
+	page->refs = 0;
+	page->info = page_info;
+	return page;
 }
 
-/**
- * Get a page from cache
- * Page must be loaded with vy_run_load_page before the call
- */
-static struct vy_page *
-vy_run_get_page(struct vy_run *run, uint32_t pos)
-{
-	assert(run->page_cache != NULL);
-	assert(run->page_cache[pos].refs > 0);
-	return &run->page_cache[pos];
-}
-
-/**
- * Free page data
- * Actually decrements reference counter and frees data only there are no users
- */
 static void
-vy_run_unload_page(struct vy_run *run, uint32_t pos)
+vy_page_delete(struct vy_page *page)
 {
-	assert(run->page_cache != NULL);
-	assert(run->page_cache[pos].refs > 0);
-	pthread_mutex_lock(&run->cache_lock);
-	run->page_cache[pos].refs--;
-	if (run->page_cache[pos].refs == 0) {
-		free(run->page_cache[pos].data);
-		run->page_cache[pos].data = NULL;
-	}
-	pthread_mutex_unlock(&run->cache_lock);
+	free(page);
 }
 
 static struct vy_range *vy_range_new(struct vy_index *index);
@@ -6116,6 +6054,8 @@ struct vy_run_iterator {
 	 * no page is loaded.
 	 */
 	uint32_t curr_loaded_page;
+	/** Cache of active pages indexed by page number. */
+	struct vy_page **page_cache;
 	/** Is false until first .._get ot .._next_.. method is called */
 	bool search_started;
 	/** Search is finished, you will not get more values from iterator */
@@ -6149,27 +6089,69 @@ vy_run_iterator_close(struct vy_run_iterator *itr);
 /* TODO: move to appropriate c file and remove */
 
 /**
+ * Free page data
+ * Actually decrements reference counter and frees data only there are no users
+ */
+static void
+vy_run_iterator_unload_page(struct vy_run_iterator *itr, uint32_t pos)
+{
+	assert(itr->page_cache != NULL);
+	struct vy_page *page = itr->page_cache[pos];
+	assert(page->refs > 0);
+	page->refs--;
+	if (page->refs == 0) {
+		vy_page_delete(page);
+		itr->page_cache[pos] = NULL;
+	}
+}
+
+/**
  * Load page by given nubber from disk to memory, unload previosly load page
  * Does nothing if currently loaded page is the same as the querried
  * Return the page on success or NULL on read error
  * Affects: curr_loaded_page
  */
 static struct vy_page *
-vy_run_iterator_load_page(struct vy_run_iterator *itr, uint32_t page)
+vy_run_iterator_load_page(struct vy_run_iterator *itr, uint32_t page_no)
 {
-	assert(page < itr->run->index.info.count);
-	if (itr->curr_loaded_page != page) {
-		if (itr->curr_loaded_page != UINT32_MAX)
-			vy_run_unload_page(itr->run, itr->curr_loaded_page);
-		struct vy_page *result = vy_run_load_page(itr->run, page,
-							 itr->fd);
-		if (result != NULL)
-			itr->curr_loaded_page = page;
-		else
-			itr->curr_loaded_page = UINT32_MAX;
-		return result;
+	assert(page_no < itr->run->index.info.count);
+	if (itr->curr_loaded_page == page_no) {
+		assert(itr->page_cache != NULL);
+		struct vy_page *page = itr->page_cache[page_no];
+		assert(page != NULL && page->refs > 0);
+		return page;
 	}
-	return vy_run_get_page(itr->run, page);
+
+	if (itr->curr_loaded_page != UINT32_MAX)
+		vy_run_iterator_unload_page(itr, itr->curr_loaded_page);
+	itr->curr_loaded_page = UINT32_MAX;
+
+	if (itr->page_cache == NULL) {
+		itr->page_cache = calloc(itr->run->index.info.count,
+					 sizeof(*itr->page_cache));
+		if (itr->page_cache == NULL) {
+			diag_set(OutOfMemory,
+				 itr->run->index.info.count *
+				 sizeof (*itr->page_cache),
+				 "load_page", "page cache");
+			return NULL;
+		}
+	}
+
+	struct vy_page *page = itr->page_cache[page_no];
+	if (page != NULL) {
+		page->refs++;
+		return page;
+	}
+
+	page = vy_run_read_page(itr->run, page_no, itr->fd);
+	if (page == NULL)
+		return NULL;
+
+	assert(itr->page_cache[page_no] == NULL);
+	itr->page_cache[page_no] = page;
+	page->refs = 1;
+	return page;
 }
 
 /**
@@ -6382,8 +6364,7 @@ vy_run_iterator_lock_page(struct vy_run_iterator *itr, uint32_t page_no)
 	if (itr->curr_loaded_page != page_no)
 		return UINT32_MAX;
 	/* just increment reference counter */
-	vy_run_load_page(itr->run, page_no,
-			 itr->fd);
+	vy_run_iterator_load_page(itr, page_no);
 	return page_no;
 }
 
@@ -6394,7 +6375,7 @@ static void
 vy_run_iterator_unlock_page(struct vy_run_iterator *itr, uint32_t lock)
 {
 	if (lock != UINT32_MAX)
-		vy_run_unload_page(itr->run, lock);
+		vy_run_iterator_unload_page(itr, lock);
 }
 
 /**
@@ -6571,6 +6552,7 @@ vy_run_iterator_open(struct vy_run_iterator *itr, struct vy_index *index,
 	itr->curr_loaded_page = UINT32_MAX;
 	itr->curr_pos.page_no = itr->run->index.info.count;
 	itr->curr_tuple_pos.page_no = UINT32_MAX;
+	itr->page_cache = NULL;
 
 	itr->search_started = false;
 	itr->search_ended = false;
@@ -6824,10 +6806,14 @@ vy_run_iterator_close(struct vy_run_iterator *itr)
 	}
 	if (itr->curr_loaded_page != UINT32_MAX) {
 		assert(itr->curr_loaded_page < itr->run->index.info.count);
-		vy_run_unload_page(itr->run, itr->curr_loaded_page);
+		vy_run_iterator_unload_page(itr, itr->curr_loaded_page);
 		itr->curr_loaded_page = UINT32_MAX;
 	}
 	itr->search_ended = true;
+	if (itr->page_cache != NULL) {
+		free(itr->page_cache);
+		itr->page_cache = NULL;
+	}
 }
 
 /* }}} vy_run_iterator API implementation */
