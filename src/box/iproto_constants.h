@@ -56,6 +56,7 @@ enum iproto_key {
 	IPROTO_LSN = 0x03,
 	IPROTO_TIMESTAMP = 0x04,
 	IPROTO_SCHEMA_ID = 0x05,
+	IPROTO_BODY_SIZE = 0x06,
 	/* Leave a gap for other keys in the header. */
 	IPROTO_SPACE_ID = 0x10,
 	IPROTO_INDEX_ID = 0x11,

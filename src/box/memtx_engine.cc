@@ -1097,23 +1097,19 @@ checkpoint_write_row(struct xlog *l, struct xrow_header *row,
 	row->lsn = ++l->rows;
 	row->sync = 0; /* don't write sync to wal */
 
-	struct iovec iov[XROW_IOVMAX];
-	int iovcnt = xlog_encode_row(row, iov);
-
-	/* TODO: use writev here */
-	for (int i = 0; i < iovcnt; i++) {
-		if (fwrite(iov[i].iov_base, iov[i].iov_len, 1, l->f) != 1) {
-			say_syserror("Can't write row (%zu bytes)",
-				     iov[i].iov_len);
-			tnt_raise(SystemError, "fwrite");
-		}
-		bytes += iov[i].iov_len;
+	ssize_t written = xlog_write_row(l, row, NULL);
+	if (written < 0) {
+		tnt_raise(SystemError, "Can't write snapshot row");
 	}
+	bytes += written;
 
 	if (l->rows % 100000 == 0)
 		say_crit("%.1fM rows written", l->rows / 1000000.);
 
-	fiber_gc();
+	if (written) {
+		/* Row buffer was flushed, we can collect garbage */
+		fiber_gc();
+	}
 
 	if (snap_io_rate_limit != UINT64_MAX) {
 		if (last == 0) {
@@ -1157,20 +1153,22 @@ static void
 checkpoint_write_tuple(struct xlog *l, uint32_t n, struct tuple *tuple,
 		       uint64_t snap_io_rate_limit)
 {
-	struct request_replace_body body;
-	body.m_body = 0x82; /* map of two elements. */
-	body.k_space_id = IPROTO_SPACE_ID;
-	body.m_space_id = 0xce; /* uint32 */
-	body.v_space_id = mp_bswap_u32(n);
-	body.k_tuple = IPROTO_TUPLE;
+	struct request_replace_body *body;
+	body = (struct request_replace_body *)region_alloc_xc(&fiber()->gc,
+							      sizeof(*body));
+	body->m_body = 0x82; /* map of two elements. */
+	body->k_space_id = IPROTO_SPACE_ID;
+	body->m_space_id = 0xce; /* uint32 */
+	body->v_space_id = mp_bswap_u32(n);
+	body->k_tuple = IPROTO_TUPLE;
 
 	struct xrow_header row;
 	memset(&row, 0, sizeof(struct xrow_header));
 	row.type = IPROTO_INSERT;
 
 	row.bodycnt = 2;
-	row.body[0].iov_base = &body;
-	row.body[0].iov_len = sizeof(body);
+	row.body[0].iov_base = body;
+	row.body[0].iov_len = sizeof(*body);
 	row.body[1].iov_base = tuple->data;
 	row.body[1].iov_len = tuple->bsize;
 	checkpoint_write_row(l, &row, snap_io_rate_limit);
@@ -1266,6 +1264,8 @@ checkpoint_f(va_list ap)
 					       tuple, ckpt->snap_io_rate_limit);
 		}
 	}
+	xlog_flush_rows(snap);
+	fiber_gc();
 	say_info("done");
 	return 0;
 }

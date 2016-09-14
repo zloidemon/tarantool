@@ -41,7 +41,7 @@
 #include "scramble.h"
 #include "iproto_constants.h"
 
-enum { HEADER_LEN_MAX = 40, BODY_LEN_MAX = 128 };
+enum { HEADER_LEN_MAX = 48, BODY_LEN_MAX = 128 };
 
 void
 xrow_header_decode(struct xrow_header *header, const char **pos,
@@ -53,6 +53,7 @@ xrow_header_decode(struct xrow_header *header, const char **pos,
 error:
 		tnt_raise(ClientError, ER_INVALID_MSGPACK, "packet header");
 	}
+	pos2 = *pos;
 
 	if (mp_typeof(**pos) != MP_MAP)
 		goto error;
@@ -82,6 +83,9 @@ error:
 			break;
 		case IPROTO_SCHEMA_ID:
 			header->schema_id = mp_decode_uint(pos);
+			break;
+		case IPROTO_BODY_SIZE:
+			end = pos2 + mp_decode_uint(pos);
 			break;
 		default:
 			/* unknown header */
@@ -155,6 +159,17 @@ xrow_header_encode(const struct xrow_header *header, struct iovec *out,
 		d = mp_encode_double(d, header->tm);
 		map_size++;
 	}
+	/* already written bytes */
+	uint64_t len = d - data;
+	for (int i = 0; i < header->bodycnt; ++ i)
+		len += header->body[i].iov_len;
+	/* size of len item */
+	len += mp_sizeof_uint(IPROTO_BODY_SIZE);
+	len += mp_sizeof_uint(len + mp_sizeof_uint(len));
+
+	d = mp_encode_uint(d, IPROTO_BODY_SIZE);
+	d = mp_encode_uint(d, len);
+	map_size++;
 
 	assert(d <= data + HEADER_LEN_MAX);
 	mp_encode_map(data, map_size);

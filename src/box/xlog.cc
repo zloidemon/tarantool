@@ -44,6 +44,7 @@
 #include "error.h"
 #include "xrow.h"
 #include "iproto_constants.h"
+#include "errinj.h"
 
 /*
  * marker is MsgPack fixext2
@@ -54,6 +55,7 @@
 typedef uint32_t log_magic_t;
 
 static const log_magic_t row_marker = mp_bswap_u32(0xd5ba0bab); /* host byte order */
+static const log_magic_t zrow_marker = mp_bswap_u32(0xd5ba0bba); /* host byte order */
 static const log_magic_t eof_marker = mp_bswap_u32(0xd510aded); /* host byte order */
 static const char inprogress_suffix[] = ".inprogress";
 static const char v12[] = "0.12\n";
@@ -391,9 +393,10 @@ format_filename(struct xdir *dir, int64_t signature,
  * @retval 1 EOF
  */
 static int
-row_reader(FILE *f, struct xrow_header *row)
+block_reader(struct xlog_cursor *i, log_magic_t magic)
 {
 	const char *data;
+	FILE *f = i->log->f;
 
 	/* Read fixed header */
 	char fixheader[XLOG_FIXHEADER_SIZE - sizeof(log_magic_t)];
@@ -440,65 +443,308 @@ error:
 	assert(data <= fixheader + sizeof(fixheader));
 	(void) crc32p;
 
-	/* Allocate memory for body */
-	char *bodybuf = (char *) region_alloc(&fiber()->gc, len);
-	if (bodybuf == NULL) {
-		tnt_error(OutOfMemory, len, "region", "new slab");
-		return -1;
+	char **read_buf = &i->row_data;
+	size_t *read_buf_size = &i->row_data_size;
+	if (magic == zrow_marker) {
+		read_buf = &i->zstd_buf;
+		read_buf_size = &i->zstd_buf_size;
 	}
 
-	/* Read header and body */
-	if (fread(bodybuf, len, 1, f) != 1)
+	if (*read_buf_size < len) {
+		char *buf = (char *)malloc(len);
+		if (!buf) {
+			tnt_error(OutOfMemory, len, "region", "new slab");
+			return -1;
+		}
+		*read_buf_size = len;
+		free(*read_buf);
+		*read_buf = buf;
+	}
+
+	if (fread(*read_buf, len, 1, f) != 1)
 		return 1;
 
 	/* Validate checksum */
-	if (crc32_calc(0, bodybuf, len) != crc32c) {
+	if (crc32_calc(0, *read_buf, len) != crc32c) {
 		char buf[PATH_MAX];
 
-		snprintf(buf, sizeof(buf), "%s: row checksum mismatch (expected %u)"
-			 " at offset %" PRIu64,
+		snprintf(buf, sizeof(buf), "%s: row block checksum"
+			 " mismatch (expected %u) at offset %" PRIu64,
 			 fio_filename(fileno(f)), (unsigned) crc32c,
 			 (uint64_t) ftello(f));
 		tnt_error(ClientError, ER_INVALID_MSGPACK, buf);
 		return -1;
 	}
 
-	data = bodybuf;
-	xrow_header_decode(row, &data, bodybuf + len);
-
-	return 0;
-}
-
-int
-xlog_encode_row(const struct xrow_header *row, struct iovec *iov)
-{
-	int iovcnt = xrow_header_encode(row, iov, XLOG_FIXHEADER_SIZE);
-	char *fixheader = (char *) iov[0].iov_base;
-	uint32_t len = iov[0].iov_len - XLOG_FIXHEADER_SIZE;
-	uint32_t crc32p = 0;
-	uint32_t crc32c = crc32_calc(0, fixheader + XLOG_FIXHEADER_SIZE, len);
-	for (int i = 1; i < iovcnt; i++) {
-		crc32c = crc32_calc(crc32c, (const char *) iov[i].iov_base,
-				    iov[i].iov_len);
-		len += iov[i].iov_len;
+	if (magic == row_marker) {
+		/* Plain row block, setup pointers and return */
+		i->row_data_pos = i->row_data;
+		i->row_data_end = i->row_data + len;
+		return 0;
 	}
 
+	if (magic == zrow_marker) {
+		data = i->zstd_buf;
+		size_t data_len = mp_decode_uint(&data);
+		if (i->row_data_size < data_len) {
+			char *buf = (char *)malloc(data_len);
+			if (!buf) {
+				tnt_error(OutOfMemory, len, "region",
+					  "new slab");
+				return -1;
+			}
+			i->row_data_size = data_len;
+			free(i->row_data);
+			i->row_data = buf;
+		}
+		size_t zstd_len = len - (data - i->zstd_buf);
+		size_t sz = ZSTD_decompress(i->row_data, i->row_data_size,
+					    data, zstd_len);
+		if (ZSTD_isError(sz) || sz != data_len) {
+			return -1;
+		}
+		i->row_data_pos = i->row_data;
+		i->row_data_end = i->row_data + data_len;
+		return 0;
+	}
+
+	return -1;
+}
+
+/*
+ * Write block as uncompressed xrowheaders sequnce
+ */
+static off_t
+xlog_block_write_plain(struct xlog *log)
+{
+	struct xlog_block *block = &log->xlog_block;
+	ssize_t written = 0;
+	char fixheader[XLOG_FIXHEADER_SIZE];
+
 	char *data = fixheader;
-	*(log_magic_t *) data = row_marker;
-	data += sizeof(row_marker);
-	data = mp_encode_uint(data, len);
+	*(log_magic_t *)data = row_marker;
+	data += sizeof(log_magic_t);
+
+	data = mp_encode_uint(data, block->size);
 	/* Encode crc32 for previous row */
-	data = mp_encode_uint(data, crc32p);
+	data = mp_encode_uint(data, 0);
 	/* Encode crc32 for current row */
-	data = mp_encode_uint(data, crc32c);
+	data = mp_encode_uint(data, block->crc32c);
 	/* Encode padding */
 	ssize_t padding = XLOG_FIXHEADER_SIZE - (data - fixheader);
 	if (padding > 0)
 		data = mp_encode_strl(data, padding - 1) + padding - 1;
-	assert(data == fixheader + XLOG_FIXHEADER_SIZE);
 
+	if (fwrite(fixheader, XLOG_FIXHEADER_SIZE, 1, log->f)) {
+		written += XLOG_FIXHEADER_SIZE;
+	} else {
+		return -1;
+	}
+
+	for (uint32_t i = 0; i < block->count; ++i) {
+		if (fwrite(block->iov[i].iov_base,
+			   block->iov[i].iov_len,
+			   1, log->f)) {
+			written += block->iov[i].iov_len;
+		} else {
+			return -1;
+		}
+	}
+	return written;
+}
+
+/*
+ * Write block as zstd compressed block of xrowheaders
+ */
+static off_t
+xlog_block_write_zstd(struct xlog *log)
+{
+	struct xlog_block *block = &log->xlog_block;
+	char fixheader[XLOG_FIXHEADER_SIZE];
+	char zstd_header[9];
+	size_t zstd_header_size;
+
+	*(log_magic_t *)fixheader = zrow_marker;
+	/* Compression by parts can consume more size */
+	size_t zstd_max_size = 2 * ZSTD_compressBound(block->size);
+	if (zstd_max_size > block->zstd_buf_size) {
+		void *zstd_buf = malloc(zstd_max_size);
+		if (!zstd_buf)
+			return -1;
+		free(block->zstd_buf);
+		block->zstd_buf = (char *)zstd_buf;
+		block->zstd_buf_size = 0;
+	}
+	ZSTD_compressBegin(block->zctx, 3);
+	size_t zstd_size = 0;
+	ssize_t sz = 0;
+	char *zstd_dest = (char *)block->zstd_buf;
+	for (uint32_t i = 0; i < block->count; ++i) {
+		sz = ZSTD_compressContinue(block->zctx,
+					   zstd_dest,
+					   zstd_max_size - zstd_size,
+					   block->iov[i].iov_base,
+					   block->iov[i].iov_len);
+		if (sz < 0)
+			goto error;
+		zstd_dest += sz;
+		zstd_size += sz;
+
+	}
+
+	sz = ZSTD_compressEnd(block->zctx,
+			      zstd_dest,
+			      zstd_max_size - zstd_size);
+	if (sz < 0)
+		goto error;
+	zstd_dest += sz;
+	zstd_size += sz;
+	zstd_header_size = mp_sizeof_uint(block->size);
+	mp_encode_uint(zstd_header, block->size);
+
+	uint32_t crc32c;
+	crc32c = crc32_calc(0, zstd_header, zstd_header_size);
+	crc32c = crc32_calc(crc32c, block->zstd_buf, zstd_size);
+
+	char *data;
+	data = fixheader + sizeof(log_magic_t);
+	data = mp_encode_uint(data, zstd_size + zstd_header_size);
+	/* Encode crc32 for previous row */
+	data = mp_encode_uint(data, 0);
+	/* Encode crc32 for current row */
+	data = mp_encode_uint(data, crc32c);
+	/* Encode padding */
+	ssize_t padding;
+	padding = XLOG_FIXHEADER_SIZE - (data - fixheader);
+	if (padding > 0)
+		data = mp_encode_strl(data, padding - 1) + padding - 1;
+
+	if (!fwrite(fixheader, XLOG_FIXHEADER_SIZE, 1, log->f))
+		goto error;
+	if (!fwrite(zstd_header, zstd_header_size, 1, log->f))
+		goto error;
+	if (!fwrite(block->zstd_buf, zstd_size, 1, log->f))
+		goto error;
+
+	return XLOG_FIXHEADER_SIZE + zstd_header_size + zstd_size;
+error:
+	return -1;
+}
+
+/**
+ * Writes xlog batch to file
+ */
+static ssize_t
+xlog_block_write(struct xlog *log)
+{
+	struct xlog_block *block = &log->xlog_block;
+	if (!block->size)
+		return 0;
+	ssize_t written;
+	/* TODO: use config param */
+	if (block->size > 16 * 1024) {
+		written = xlog_block_write_zstd(log);
+	} else {
+		written = xlog_block_write_plain(log);
+	}
+	ERROR_INJECT(ERRINJ_WAL_WRITE,
+		     written = -1;);
+
+	block->count = 0;
+	block->size = 0;
+	block->offset += written > 0 ? written : 0;
+	if (written < 0) {
+		fseeko(log->f, block->offset, SEEK_SET);
+		if (ftruncate(fileno(log->f), block->offset) != 0)
+			panic_syserror("failed to rollback xlog");
+	}
+	block->crc32c = 0;
+	return written;
+}
+
+/*
+ * Flush block
+ */
+ssize_t
+xlog_flush_rows(struct xlog *log)
+{
+	assert(!log->xlog_block.lock);
+	off_t written = xlog_block_write(log);
+	return written;
+}
+
+/*
+ * Prevents block flushing
+ */
+ssize_t
+xlog_lock_rows(struct xlog *log)
+{
+	log->xlog_block.lock = true;
+	return 0;
+}
+
+/*
+ * Enable block flushing, returns 0 for ok, count bytes if block
+ * was flushed and -1 in case of error
+ */
+ssize_t
+xlog_unlock_rows(struct xlog *log)
+{
+	log->xlog_block.lock = false;
+	if (log->xlog_block.size > 64 * 1024) {
+		return xlog_block_write(log);
+	}
+	return 0;
+}
+
+/*
+ * Add row to block and possibly flush it.
+ * Sets loc for xrow location as struct of block in file offset
+ * and row in block offset.
+ * Returns 0 for ok, 1 if block was flushed and -1 in case of error
+ */
+ssize_t
+xlog_write_row(struct xlog *log,
+	       const struct xrow_header *packet,
+	       struct xlog_location *loc)
+{
+	struct xlog_block *block = &log->xlog_block;
+	if (block->capacity - block->count < XROW_IOVMAX + 1) {
+		/* Block hasn't enough space to store xrow */
+		uint32_t capacity = block->capacity << 1;
+		struct iovec *iov;
+		iov = (struct iovec *)
+			realloc(block->iov,
+				capacity * sizeof(struct iovec));
+		if (!iov) {
+			return -1;
+		}
+		block->iov = iov;
+		block->capacity = capacity;
+	}
+
+	struct iovec *iov = block->iov + block->count;
+
+	if (loc) {
+		loc->block_offset = block->offset;
+		loc->local_offset = block->size;
+	}
+
+	/** encode row into iovec */
+	int iovcnt = xrow_header_encode(packet, iov, 0);
+	for (int iovno = 0; iovno < iovcnt; ++iovno) {
+		block->crc32c = crc32_calc(block->crc32c,
+					   (char *)iov[iovno].iov_base,
+					   iov[iovno].iov_len);
+		block->size += iov[iovno].iov_len;
+	}
 	assert(iovcnt <= XROW_IOVMAX);
-	return iovcnt;
+	block->count += iovcnt;
+
+	if (!block->lock && block->size > 64 * 1024) {
+		return xlog_block_write(log);
+	}
+	return 0;
 }
 
 void
@@ -508,6 +754,13 @@ xlog_cursor_open(struct xlog_cursor *i, struct xlog *l)
 	i->row_count = 0;
 	i->good_offset = ftello(l->f);
 	i->eof_read  = false;
+	i->row_data = NULL;
+	i->row_data_pos = NULL;
+	i->row_data_end = NULL;
+	i->row_data_size = 0;
+
+	i->zstd_buf = NULL;
+	i->zstd_buf_size = 0;
 }
 
 void
@@ -523,6 +776,10 @@ xlog_cursor_close(struct xlog_cursor *i)
 	 * Seek back to last known good offset.
 	 */
 	fseeko(l->f, i->good_offset, SEEK_SET);
+	if (i->row_data)
+		free(i->row_data);
+	if (i->zstd_buf)
+		free(i->zstd_buf);
 	region_free(&fiber()->gc);
 }
 
@@ -544,6 +801,29 @@ xlog_cursor_next(struct xlog_cursor *i, struct xrow_header *row)
 
 	assert(i->eof_read == false);
 
+read_row:
+	if (i->row_data_pos < i->row_data_end) {
+		/*
+		 * More xrows after fixheader
+		 */
+		try {
+			xrow_header_decode(row,
+					   (const char **)&i->row_data_pos,
+					   (const char *)i->row_data_end);
+		} catch (ClientError *e) {
+			if (i->log->dir->panic_if_error)
+				throw;
+			say_warn("failed to read row");
+			goto restart;
+		}
+		i->row_count++;
+
+		if (i->row_count % 100000 == 0)
+			say_info("%.1fM rows processed",
+				 i->row_count / 1000000.);
+		return 0;
+	}
+
 	say_debug("xlog_cursor_next: marker:0x%016X/%zu",
 		  row_marker, sizeof(row_marker));
 
@@ -561,7 +841,7 @@ restart:
 	if (fread(&magic, sizeof(magic), 1, l->f) != 1)
 		goto eof;
 
-	while (magic != row_marker) {
+	while (magic != row_marker && magic != zrow_marker) {
 		int c = fgetc(l->f);
 		if (c == EOF) {
 			say_debug("eof while looking for magic");
@@ -578,7 +858,7 @@ restart:
 	say_debug("magic found at 0x%08jx", (uintmax_t)marker_offset);
 
 	try {
-		if (row_reader(l->f, row) != 0)
+		if (block_reader(i, magic) != 0)
 			goto eof;
 	} catch (ClientError *e) {
 		if (l->dir->panic_if_error)
@@ -590,17 +870,13 @@ restart:
 		 * caused by an attempt to read a partially
 		 * written WAL.
 		 */
-		say_warn("failed to read row");
+		say_warn("failed to read row block");
 		goto restart;
 	}
 
 	i->good_offset = ftello(l->f);
-	i->row_count++;
+	goto read_row;
 
-	if (i->row_count % 100000 == 0)
-		say_info("%.1fM rows processed", i->row_count / 1000000.);
-
-	return 0;
 eof:
 	/*
 	 * According to POSIX, if a partial element is read, value
@@ -620,7 +896,7 @@ eof:
 		if (magic == eof_marker) {
 			i->good_offset = ftello(l->f);
 			i->eof_read = true;
-		} else if (magic == row_marker) {
+		} else if (magic == row_marker || magic == zrow_marker) {
 			/*
 			 * Row marker at the end of a file: a sign
 			 * of a corrupt log file in case of
@@ -630,8 +906,8 @@ eof:
 			 * file.
 			 */
 		} else {
-			say_error("EOF marker is corrupt: %lu",
-				  (unsigned long) magic);
+			say_error("EOF marker is corrupt: %lu %lu",
+				  (unsigned long) magic, i->good_offset);
 		}
 	}
 	/* No more rows. */
@@ -648,6 +924,7 @@ xlog_close(struct xlog *l)
 	int r;
 
 	if (l->mode == LOG_WRITE) {
+		xlog_block_write(l);
 		fwrite(&eof_marker, 1, sizeof(log_magic_t), l->f);
 		/*
 		 * Sync the file before closing, since
@@ -662,6 +939,12 @@ xlog_close(struct xlog *l)
 	r = fclose(l->f);
 	if (r < 0)
 		say_syserror("%s: close() failed", l->filename);
+	if (l->xlog_block.iov)
+		free(l->xlog_block.iov);
+	if (l->xlog_block.zstd_buf)
+		free(l->xlog_block.zstd_buf);
+	if (l->xlog_block.zctx)
+		ZSTD_freeCCtx(l->xlog_block.zctx);
 	free(l);
 	return r;
 }
@@ -723,15 +1006,18 @@ static int
 xlog_write_meta(struct xlog *l)
 {
 	char *vstr = NULL;
-	if (fprintf(l->f, "%s%s", l->dir->filetype, v12) < 0 ||
-	    fprintf(l->f, SERVER_UUID_KEY ": %s\n",
-		    tt_uuid_str(l->dir->server_uuid)) < 0 ||
+	off_t sz1, sz2, sz3;
+	if ((sz1 = fprintf(l->f, "%s%s", l->dir->filetype, v12)) < 0 ||
+	    (sz2 = fprintf(l->f, SERVER_UUID_KEY ": %s\n",
+			   tt_uuid_str(l->dir->server_uuid))) < 0 ||
 	    (vstr = vclock_to_string(&l->vclock)) == NULL ||
-	    fprintf(l->f, VCLOCK_KEY ": %s\n\n", vstr) < 0) {
+	    (sz3 = fprintf(l->f, VCLOCK_KEY ": %s\n\n", vstr)) < 0) {
 		free(vstr);
 		return -1;
 	}
 	free(vstr);
+	/* First block starts after meta */
+	l->xlog_block.offset = sz1 + sz2 + sz3;
 	return 0;
 }
 
@@ -953,6 +1239,23 @@ xlog_create(struct xdir *dir, const struct vclock *vclock)
 	l->eof_read = false;
 	vclock_copy(&l->vclock, vclock);
 	setvbuf(l->f, NULL, _IONBF, 0);
+
+	struct xlog_block *block;
+	block = &l->xlog_block;
+	block->capacity = 128;
+	block->iov =
+		(struct iovec *)calloc(block->capacity,
+				     sizeof(struct iovec));
+	if (!block->iov)
+		goto error;
+	block->zctx = ZSTD_createCCtx();
+	if (!block->zctx)
+		goto error;
+	block->zstd_buf_size = 128 * 1024;
+	block->zstd_buf = (char *)malloc(block->zstd_buf_size);
+	if (!block->zstd_buf)
+		goto error;
+
 	if (xlog_write_meta(l) != 0)
 		goto error;
 	if (dir->suffix != INPROGRESS && xlog_rename(l))
@@ -966,6 +1269,12 @@ error:
 		fclose(f);
 		unlink(filename); /* try to remove incomplete file */
 	}
+	if (l && l->xlog_block.iov)
+		free(l->xlog_block.iov);
+	if (l && l->xlog_block.zctx)
+		ZSTD_freeCCtx(l->xlog_block.zctx);
+	if (l && l->xlog_block.zstd_buf)
+		free(l->xlog_block.zstd_buf);
 	free(l);
 	errno = save_errno;
 	return NULL;

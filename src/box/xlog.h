@@ -36,6 +36,8 @@
 #include "tt_uuid.h"
 #include "vclock.h"
 
+#include <zstd_static.h>
+
 struct iovec;
 struct xrow_header;
 
@@ -157,6 +159,32 @@ xdir_check(struct xdir *dir);
  */
 enum log_mode { LOG_READ, LOG_WRITE };
 
+
+/**
+ * xlog block of xrow_header
+ */
+struct xlog_block {
+	/* Don't flush block if set to true */
+	bool lock;
+	/* Uncompressed data crc32 */
+	uint32_t crc32c;
+	/* Block file offset */
+	off_t offset;
+	/* Store row data chunks */
+	struct iovec *iov;
+	/* Count of data chunks in block */
+	uint32_t count;
+	/* Block capacity */
+	uint32_t capacity;
+	/* Block size in bytes */
+	uint64_t size;
+
+	/* Used for zstd compression */
+	ZSTD_CCtx *zctx;
+	char *zstd_buf;
+	size_t zstd_buf_size;
+};
+
 /**
  * A single log file - a snapshot or a write ahead log.
  */
@@ -196,6 +224,10 @@ struct xlog {
 	 * is vector clock *at the time the snapshot is taken*.
 	 */
 	struct vclock vclock;
+	/**
+	 * Current writing xlog block
+	 */
+	struct xlog_block xlog_block;
 };
 
 /**
@@ -274,6 +306,13 @@ struct xlog_cursor
 	int row_count;
 	off_t good_offset;
 	bool eof_read;
+	char *row_data;
+	char *row_data_pos;
+	char *row_data_end;
+	size_t row_data_size;
+
+	char *zstd_buf;
+	size_t zstd_buf_size;
 };
 
 void
@@ -297,10 +336,40 @@ char *
 format_filename(struct xdir *dir, int64_t signature, enum log_suffix suffix);
 
 /**
- * Construct a row to write to the log file.
+ * xlog locator for row
  */
-int
-xlog_encode_row(const struct xrow_header *packet, struct iovec *iov);
+struct xlog_location
+{
+	/** Fix header offset (start of data block) */
+	off_t block_offset;
+	/** row offset in data block */
+	off_t local_offset;
+};
+
+/**
+ * Write a row to xlog, return count of written bytes (0 if buffered)
+ * 01 for error
+ */
+ssize_t
+xlog_write_row(struct xlog *log, const struct xrow_header *packet,
+	       struct xlog_location *loc);
+
+/**
+ * If write row buffer is lock then block can't offloaded.
+ * Used for wal request writing.
+ * Note: lockand unlock can offload current row buffer.
+ */
+ssize_t
+xlog_lock_rows(struct xlog *log);
+
+ssize_t
+xlog_unlock_rows(struct xlog *log);
+
+/**
+ * Flush buffered rows and sync file
+ */
+ssize_t
+xlog_flush_rows(struct xlog *log);
 
 /** }}} */
 
