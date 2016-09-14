@@ -1945,6 +1945,7 @@ vy_run_new()
 	run->next = NULL;
 	run->page_cache = NULL;
 	pthread_mutex_init(&run->cache_lock, NULL);
+	say_warn("vy_run_new: %p", run);
 	return run;
 }
 
@@ -1957,6 +1958,8 @@ vy_run_delete(struct vy_run *run)
 		run->page_cache = NULL;
 	}
 	pthread_mutex_destroy(&run->cache_lock);
+	say_warn("vy_run_delete: %p", run);
+	//TRASH(run);
 	free(run);
 }
 
@@ -8057,6 +8060,8 @@ vy_merge_iterator_build(struct vy_merge_iterator *itr, struct vy_range *range)
 	itr->curr_range = range;
 	itr->range_version = range != NULL ? range->range_version : 0;
 	itr->range_index_version = itr->index->range_index_version;
+	say_warn("build: range_index_version = %d", itr->range_index_version);
+	say_warn("build: range %p %d", range, itr->range_version);
 }
 
 /*
@@ -8068,12 +8073,18 @@ vy_merge_iterator_build(struct vy_merge_iterator *itr, struct vy_range *range)
 static int
 vy_merge_iterator_check_version(struct vy_merge_iterator *itr)
 {
-	if (itr->range_index_version != itr->index->range_index_version)
+	if (itr->range_index_version != itr->index->range_index_version) {
+		say_warn("check: range_index_version: %d => %d",
+			  itr->range_index_version,
+			  itr->index->range_index_version);
 		return -1;
+	}
 	if (itr->curr_range == NULL ||
 	    itr->curr_range->range_version == itr->range_version)
 		return 0;
 
+	say_warn("check: range %p %d => %d", itr->curr_range,
+		 itr->curr_range->range_version, itr->range_version);
 	/* Current range has been changed, try to restore sources */
 	int result = 0;
 	for (uint32_t i = 0; i < itr->src_count; i++) {
@@ -8085,6 +8096,7 @@ vy_merge_iterator_check_version(struct vy_merge_iterator *itr)
 			return rc;
 		result = result || rc;
 	}
+	say_warn("check: restart result: %d", result);
 	return result;
 }
 
